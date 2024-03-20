@@ -175,25 +175,12 @@ sub start
 	# sort out privilege reduction
 	$self->{priv} = 0 unless $self->{hostname} eq '127.0.0.1' || $self->conn->peerhost eq '127.0.0.1' || $self->{hostname} eq '::1' || $self->conn->{usedpasswd};
 
-	# get the filters
-	my $nossid = $call;
-	$nossid =~ s/-\d+$//;
 	
-	$self->{spotsfilter} = Filter::read_in('spots', $call, 0) 
-		|| Filter::read_in('spots', $nossid, 0)
-			|| Filter::read_in('spots', 'user_default', 0);
-	$self->{wwvfilter} = Filter::read_in('wwv', $call, 0) 
-		|| Filter::read_in('wwv', $nossid, 0) 
-			|| Filter::read_in('wwv', 'user_default', 0);
-	$self->{wcyfilter} = Filter::read_in('wcy', $call, 0) 
-		|| Filter::read_in('wcy', $nossid, 0) 
-			|| Filter::read_in('wcy', 'user_default', 0);
-	$self->{annfilter} = Filter::read_in('ann', $call, 0) 
-		|| Filter::read_in('ann', $nossid, 0) 
-			|| Filter::read_in('ann', 'user_default', 0) ;
-	$self->{rbnfilter} = Filter::read_in('rbn', $call, 0) 
-		|| Filter::read_in('rbn', $nossid, 0)
-		|| Filter::read_in('rbn', 'user_default', 0);
+	Filter::load_dxchan($self, 'spots', 0);
+	Filter::load_dxchan($self, 'wwv', 0);
+	Filter::load_dxchan($self, 'wcy', 0);
+	Filter::load_dxchan($self, 'ann', 0);
+	Filter::load_dxchan($self, 'rbn', 0);
 	
 	# clean up qra locators
 	my $qra = $user->qra;

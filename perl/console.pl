@@ -29,12 +29,16 @@ our $foreground;
 our $background;
 our $mycallcolor;
 our @colors;
+our $data;
+our $local_data;
 
 # search local then perl directories
 BEGIN {
 	# root of directory tree for this system
 	$root = "/spider"; 
 	$root = $ENV{'DXSPIDER_ROOT'} if $ENV{'DXSPIDER_ROOT'};
+	$local_data = "$root/local_data";
+	$data = "$root/data";
 	
 	unshift @INC, "$root/perl";	# this IS the right way round!
 	unshift @INC, "$root/local";

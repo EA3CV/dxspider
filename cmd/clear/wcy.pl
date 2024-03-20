@@ -8,11 +8,10 @@
 my ($self, $line) = @_;
 my @f = split /\s+/, $line;
 my @out;
-my $dxchan = $self;
 my $sort = 'wcy';
 my $flag;
 my $fno = 1;
-my $call = $dxchan->call;
+my $call = $self->call;
 my $f;
 
 if ($self->priv >= 8) {
@@ -32,7 +31,7 @@ if ($self->priv >= 8) {
 $fno = shift @f if @f && $f[0] =~ /^\d|all$/;
 
 my $filter = Filter::read_in($sort, $call, $flag);
-Filter::delete($sort, $call, $flag, $fno);
+Filter::delete($sort, $call, $flag, $fno, $self);
 $flag = $flag ? "input " : "";
 push @out, $self->msg('filter4', $flag, $sort, $fno, $call);
 return (1, @out);

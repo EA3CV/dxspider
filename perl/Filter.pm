@@ -327,13 +327,17 @@ sub install
 	my $in = "";
 	$in = "in" if $name =~ s/^IN_//;
 	$name =~ s/.PL$//;
-		
-	my $dxchan;
+	my $nossid = $name;
+	$nossid =~ s/-\d+$//;
+	my $dxchan = shift;
+
 	my @dxchan;
 	if ($name eq 'NODE_DEFAULT') {
 		@dxchan = DXChannel::get_all_nodes();
 	} elsif ($name eq 'USER_DEFAULT') {
 		@dxchan = DXChannel::get_all_users();
+	} elsif ($dxchan) {
+		push @dxchan, $dxchan;
 	} else {
 		$dxchan = DXChannel::get($name);
 		push @dxchan, $dxchan if $dxchan;
@@ -341,16 +345,35 @@ sub install
 	foreach $dxchan (@dxchan) {
 		my $n = "$in$sort" . "filter";
 		my $i = $in ? 'IN_' : '';
-		my $ref = $dxchan->$n();
-		if (!$ref || ($ref && uc $ref->{name} eq "$i$name.PL")) {
-			$dxchan->$n($remove ? undef : $self);
+		if ($remove) {
+			$dxchan->{$n} = undef;
+		}
+		unless ($dxchan->{$n}) {
+			Filter::load_dxchan($dxchan, $sort, $in);
 		}
 	}
 }
 
+# This simply fixes up an existing (or recently modified) Filter into
+# an existing dxchan
+sub load_dxchan
+{
+	my $dxchan = shift;
+	my $sort = lc shift;
+	my $in = shift ? 'in' : '';
+	my $nossid = $dxchan->call;
+	$nossid =~ s/-\d+$//;
+	my $n = "$in$sort" . "filter";
+	
+	$dxchan->{$n} =
+		Filter::read_in($sort, $dxchan->call,  $in)	||
+			Filter::read_in($sort, $nossid,  $in) ||
+				Filter::read_in($sort, $dxchan->is_user ? 'user_default' : 'node_default', $in);
+}
+
 sub delete
 {
-	my ($sort, $call, $flag, $fno) = @_;
+	my ($sort, $call, $flag, $fno, $dxchan) = @_;
 	
 	# look for the file
 	my $fn = getfn($sort, $call, $flag);
@@ -361,17 +384,18 @@ sub delete
 			foreach $key ($filter->getfilkeys) {
 				delete $filter->{$key};
 			}
+			delete $filter->{getfilkeys};
 		} elsif (exists $filter->{"filter$fno"}) {
 			delete $filter->{"filter$fno"}; 
 		}
 		
 		# get rid 
 		if ($filter->{hops} || $filter->getfilkeys) {
-			$filter->install;
 			$filter->write;
+			Filter::load_dxchan($dxchan, $sort, $in);
 		} else {
-			$filter->install(1);
 			unlink $fn;
+			$filter->install(1, $dxchan);
 		}
 	}
 }
@@ -557,7 +581,7 @@ sub parse
 						last;
 					}
 				}
-				return (1, $dxchan->msg('e20', $lasttok)) unless $found;
+				return (1, $dxchan->msg('e20', $tok)) unless $found;
 			} else {
 				$s = $tok =~ /^{.*}$/ ? '{' . decode_regex($tok) . '}' : $tok;
 				return (1, $dxchan->msg('filter2', $s));
@@ -566,7 +590,7 @@ sub parse
 		}
 	}
 
-	# tidy up the user string (why I have to stick in an if statement when I have initialised it I have no idea! 5.28 bug?
+	# tidy up the user string (why I have to stick in an if statement when I have initialised it I have no idea! 5.28 bug)?
 	if ($user) {
 		$user =~ s/\)\s*\(/ and /g;
 		$user =~ s/\&\&/ and /g;

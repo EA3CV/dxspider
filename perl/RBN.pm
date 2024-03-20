@@ -202,11 +202,10 @@ sub start
 	$self->{priv} = 0;
 
 	# get the filters
-	my $nossid = $call;
-	$nossid =~ s/-\d+$//;
+#	$self->{inrbnfilter} = Filter::read_in('rbn', $call, 1) 
+#		|| Filter::read_in('rbn', 'node_default', 1);
 
-	$self->{inrbnfilter} = Filter::read_in('rbn', $call, 1) 
-		|| Filter::read_in('rbn', 'node_default', 1);
+	Filter::load_dxchan($self, 'rbn', 1);
 	
 	# clean up qra locators
 	my $qra = $user->qra;

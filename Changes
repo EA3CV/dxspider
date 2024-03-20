@@ -1,3 +1,16 @@
+20Mar24======================================================================
+1. Has it really been so long since the last update?
+2. Since forever, mainly because filtering was done very early on in
+   DXSpider's development, clearing a filter needed a disconnect/reconnect
+   cycle from the user/node to activate. Now clearing or changing a filter is
+   immediately effective in the current session. 
+
+   Also things like: 'rej/spot user_default on vhf' will immediately apply 
+   to all users that do not already have some other filter in place. Users
+   can override this by setting a filter. 
+   
+   The Filter system will now show the actual token that a faulty command
+   dislikes.  
 25Mar23=======================================================================
 1. Changed the default of X and Y (in item 2 below) to 27 and 20 respectively.
 24Mar23=======================================================================

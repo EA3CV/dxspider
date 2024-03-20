@@ -68,7 +68,7 @@ $count = 0;
 		  enhanced => '5,Enhanced Client,yesno',
 		  errors => '9,Errors',
 		  func => '5,Function',
-		  group => '0,Access Group,parray',# used to create a group of users/nodes for some purpose or other.
+		  group => '0,Access Group,parray',
 		  gtk => '5,Using GTK,yesno',
 		  handle_xml => '9,Handles XML,yesno',
 		  here => '0,Here?,yesno',
@@ -811,6 +811,17 @@ sub isregistered
 	} else {
 		return 1;
 	}
+}
+
+# try to replace the in-core version of the dxchan with the one that has been modified with items like filters
+sub replace
+{
+	my $self = shift;
+	my $call = shift;
+	if (ref $self) {
+		$call ||= $self->{call};
+		$channels{$call} = $self; 
+	} 
 }
 
 #no strict;

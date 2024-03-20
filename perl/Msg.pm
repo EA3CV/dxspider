@@ -585,7 +585,6 @@ sub DESTROY
 		dbgtrace((ref $conn) . "::DESTROY on call $call called from ${pkg}::${fn} line $line ");
 	}
 
-	my $call = $conn->{call} || 'unallocated';
 	my $host = $conn->{peerhost} || '';
 	my $port = $conn->{peerport} || '';
 	my $sock = $conn->{sock};

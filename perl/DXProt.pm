@@ -321,21 +321,35 @@ sub start
 	$self->{registered} = 1;
 
 	# get the output filters
-	$self->{spotsfilter} = Filter::read_in('spots', $call, 0) || Filter::read_in('spots', 'node_default', 0);
-	$self->{wwvfilter} = Filter::read_in('wwv', $call, 0) || Filter::read_in('wwv', 'node_default', 0);
-	$self->{wcyfilter} = Filter::read_in('wcy', $call, 0) || Filter::read_in('wcy', 'node_default', 0);
-	$self->{annfilter} = Filter::read_in('ann', $call, 0) || Filter::read_in('ann', 'node_default', 0) ;
-	$self->{routefilter} = Filter::read_in('route', $call, 0) || Filter::read_in('route', 'node_default', 0) unless $self->{isolate};
-	$self->{pc92filter} = Filter::read_in('pc92', $call, 0) || Filter::read_in('pc92', 'node_default', 0) unless $self->{isolate} ;
+#	$self->{spotsfilter} = Filter::read_in('spots', $call, 0) || Filter::read_in('spots', 'node_default', 0);
+#	$self->{wwvfilter} = Filter::read_in('wwv', $call, 0) || Filter::read_in('wwv', 'node_default', 0);
+#	$self->{wcyfilter} = Filter::read_in('wcy', $call, 0) || Filter::read_in('wcy', 'node_default', 0);
+#	$self->{annfilter} = Filter::read_in('ann', $call, 0) || Filter::read_in('ann', 'node_default', 0) ;
+#	$self->{routefilter} = Filter::read_in('route', $call, 0) || Filter::read_in('route', 'node_default', 0) unless $self->{isolate};
+#	$self->{pc92filter} = Filter::read_in('pc92', $call, 0) || Filter::read_in('pc92', 'node_default', 0) unless $self->{isolate} ;
+
+	Filter::load_dxchan($self, 'spots', 0);
+	Filter::load_dxchan($self, 'wwv', 0);
+	Filter::load_dxchan($self, 'wcy', 0);
+	Filter::load_dxchan($self, 'ann', 0);
+	Filter::load_dxchan($self, 'route', 0) unless $self->{isolate};
+	Filter::load_dxchan($self, 'pc92', 0) unless $self->{isolate};
 
 
 	# get the INPUT filters (these only pertain to Clusters)
-	$self->{inspotsfilter} = Filter::read_in('spots', $call, 1) || Filter::read_in('spots', 'node_default', 1);
-	$self->{inwwvfilter} = Filter::read_in('wwv', $call, 1) || Filter::read_in('wwv', 'node_default', 1);
-	$self->{inwcyfilter} = Filter::read_in('wcy', $call, 1) || Filter::read_in('wcy', 'node_default', 1);
-	$self->{inannfilter} = Filter::read_in('ann', $call, 1) || Filter::read_in('ann', 'node_default', 1);
-	$self->{inroutefilter} = Filter::read_in('route', $call, 1) || Filter::read_in('route', 'node_default', 1) unless $self->{isolate};
-	$self->{inpc92filter} = Filter::read_in('pc92', $call, 0) || Filter::read_in('pc92', 'node_default', 0) unless $self->{isolate} ;
+#	$self->{inspotsfilter} = Filter::read_in('spots', $call, 1) || Filter::read_in('spots', 'node_default', 1);
+#	$self->{inwwvfilter} = Filter::read_in('wwv', $call, 1) || Filter::read_in('wwv', 'node_default', 1);
+#	$self->{inwcyfilter} = Filter::read_in('wcy', $call, 1) || Filter::read_in('wcy', 'node_default', 1);
+#	$self->{inannfilter} = Filter::read_in('ann', $call, 1) || Filter::read_in('ann', 'node_default', 1);
+#	$self->{inroutefilter} = Filter::read_in('route', $call, 1) || Filter::read_in('route', 'node_default', 1) unless $self->{isolate};
+#	$self->{inpc92filter} = Filter::read_in('pc92', $call, 0) || Filter::read_in('pc92', 'node_default', 0) unless $self->{isolate} ;
+
+	Filter::load_dxchan($self, 'spots', 1);
+	Filter::load_dxchan($self, 'wwv', 1);
+	Filter::load_dxchan($self, 'wcy', 1);
+	Filter::load_dxchan($self, 'ann', 1);
+	Filter::load_dxchan($self, 'route', 1) unless $self->{isolate};
+	Filter::load_dxchan($self, 'pc92', 1) unless $self->{isolate};
 
 
 	# set unbuffered and no echo
