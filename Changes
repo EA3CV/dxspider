@@ -11,6 +11,9 @@
    
    The Filter system will now show the actual token that a faulty command
    dislikes.  
+3. Disable the "is there a route to callsign X3XXX" test in talk. This is a 
+   legacy test that should not apply at the user level. The resulting PC93 is
+   flood routed unless there is a genuine direct route to that callsign.  
 25Mar23=======================================================================
 1. Changed the default of X and Y (in item 2 below) to 27 and 20 respectively.
 24Mar23=======================================================================

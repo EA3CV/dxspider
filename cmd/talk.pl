@@ -39,7 +39,7 @@ $via = uc $via if $via;
 my $call = $via || $to;
 my $clref = Route::get($call);     # try an exact call
 my $dxchan = $clref->dxchan if $clref;
-push @out, $self->msg('e7', $call) unless $dxchan;
+#push @out, $self->msg('e7', $call) unless $dxchan;
 
 #$DB::single = 1;
 
