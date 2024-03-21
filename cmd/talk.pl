@@ -21,7 +21,7 @@ return (1, $self->msg('e5')) if $self->remotecmd || $self->inscript;
 # 4) talk call>node text
 #
 
-($to, $via, $line) = $inline =~ /^\s*([A-Za-z0-9\-]+)\s*>([A-Za-z0-9\-]+)(.*)$/;
+($to, $via, $line) = $inline =~ /^\s*([A-Za-z0-9\-]+)(?:\s*>([A-Za-z0-9\-]+))?\s+(.*)$/;
 if ($via) {
 	$line =~ s/\s+// if $line;
 } else {
@@ -37,28 +37,30 @@ return (1, $self->msg('e28')) unless $self->isregistered || $to eq $main::myalia
 
 $via = uc $via if $via;
 my $call = $via || $to;
-my $clref = Route::get($call);     # try an exact call
-my $dxchan = $clref->dxchan if $clref;
+#my $clref = Route::get($call);     # try an exact call
+#my $dxchan = $clref->dxchan if $clref;
 #push @out, $self->msg('e7', $call) unless $dxchan;
 
 #$DB::single = 1;
 
 # default the 'via'
-#$via ||= '*';
+$via ||= '*';
 
 my $ipaddr = DXCommandmode::alias_localhost($self->hostname || '127.0.0.1');
 
 # if there is a line send it, otherwise add this call to the talk list
 # and set talk mode for command mode
+my @bad;
+if (@bad = BadWords::check($line)) {
+	$self->badcount(($self->badcount||0) + @bad);
+	LogDbg('DXCommand', "$self->{call} swore: $line (with words:" . join(',', @bad) . ")");
+}
+
+my $dxchan;
+
 if ($line) {
-	my @bad;
 	Log('talk', $to, $from, '>' . ($via || ($dxchan && $dxchan->call) || '*'), $line);
-	if (@bad = BadWords::check($line)) {
-		$self->badcount(($self->badcount||0) + @bad);
-		LogDbg('DXCommand', "$self->{call} swore: $line (with words:" . join(',', @bad) . ")");
-	} else {
-		$main::me->normal(DXProt::pc93($to, $self->call, $via, $line, undef, $ipaddr));
-	}
+	$main::me->normal(DXProt::pc93($to, $self->call, $via, $line, undef, $ipaddr));
 } else {
 	my $s = $to;
 	$s .= ">$via" if $via && $via ne '*';
