@@ -1,3 +1,6 @@
+22Mar24======================================================================
+1. Change the processing of trailing callsigns slightly so that /1 /2 etc are
+   retained, but the /P /M /A /MM etc are removed.
 20Mar24======================================================================
 1. Has it really been so long since the last update?
 2. Since forever, mainly because filtering was done very early on in

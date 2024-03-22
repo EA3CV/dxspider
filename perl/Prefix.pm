@@ -274,7 +274,7 @@ LM:	foreach $call (split /,/, $calls) {
 
 		# remove any /0-9 /P /A /M /MM /AM suffixes etc
 		if (@parts > 1) {
-			@parts = grep { !/^\d+$/ && !/^[PABM]$/ && !/^(?:|AM|MM|BCN|JOTA|SIX|WEB|NET|Q\w+)$/; } @parts;
+			pop @parts if $parts[-1] =~ /^(?:[PABM]|AM|MM|BCN|JOTA|SIX|WEB|NET|Q\w+)$/;
 
 			# can we resolve them by direct lookup
 			my $s = join('/', @parts); 
