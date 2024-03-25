@@ -362,8 +362,7 @@ sub normal
 							for (@{$self->{talklist}}) {
 								if ($self->{state} eq 'talk') {
 									$self->send_talks($_, $l);
-								}
-								else {
+								} else {
 									send_chats($self, $_, $l)
 								}
 							}
@@ -444,41 +443,6 @@ sub normal
 	$self->prompt() if $self->{state} =~ /^prompt/o;
 }
 
-# send out the talk messages taking into account vias and connectivity
-sub send_talks
-{
-	my ($self, $ent, $line) = @_;
-	
-	my ($to, $via) = $ent =~ /(\S+)>(\S+)/;
-	$to = $ent unless $to;
-	my $call = $via && $via ne '*' ? $via : $to;
-	my $clref = Route::get($call);
-	my $dxchan = $clref->dxchan if $clref;
-	if ($dxchan) {
-		$dxchan->talk($self->{call}, $to, undef, $line);
-	} else {
-		$self->send($self->msg('disc2', $via ? $via : $to));
-		my @l = grep { $_ ne $ent } @{$self->{talklist}};
-		if (@l) {
-			$self->{talklist} = \@l;
-		} else {
-			delete $self->{talklist};
-			$self->state('prompt');
-		}
-	}
-}
-
-sub send_chats
-{
-	my $self = shift;
-	my $target = shift;
-	my $text = shift;
-
-	my $msgid = DXProt::nextchatmsgid();
-	$text = "#$msgid $text";
-	my $ipaddr = alias_localhost($self->hostname || '127.0.0.1');
-	$main::me->normal(DXProt::pc93($target, $self->{call}, undef, $text, undef, $ipaddr));
-}
 
 sub special_prompt
 {
@@ -950,33 +914,6 @@ sub local_send
 	}
 }
 
-# send a talk message here
-sub talk
-{
-	my ($self, $from, $to, $via, $line, $onode) = @_;
-	$line =~ s/\\5E/\^/g;
-	if ($self->{talk}) {
-		if ($self->{gtk}) {
-			$self->local_send('T', dd(['talk',$to,$from,$via,$line]));
-		} else {
-			$self->local_send('T', "$to de $from: $line");
-		}
-	}
-	Log('talk', $to, $from, '<' . ($onode || '*'), $line);
-	# send a 'not here' message if required
-	unless ($self->{here} && $from ne $to) {
-		my $key = "$to$from";
-		unless (exists $nothereslug{$key}) {
-			my ($ref, $dxchan);
-			if (($ref = Route::get($from)) && ($dxchan = $ref->dxchan)) {
-				my $name = $self->user->name || $to;
-				my $s = $self->user->nothere || $dxchan->msg('nothere', $name);
-				$nothereslug{$key} = $main::systime;
-				$dxchan->talk($to, $from, undef, $s);
-			}
-		}
-	}
-}
 
 # send an announce
 sub announce
@@ -1014,6 +951,22 @@ sub announce
 	$self->local_send($target eq 'WX' ? 'W' : 'N', $buf);
 }
 
+# send a talk message here
+sub talk
+{
+	my ($self, $from, $to, $via, $line, $onode) = @_;
+	$line =~ s/^\#\d+ //;
+	$line =~ s/\\5E/\^/g;
+	if ($self->{talk}) {
+		if ($self->{gtk}) {
+			$self->local_send('T', dd(['talk',$to,$from,$via,$line]));
+		} else {
+			$self->local_send('T', "$to de $from: $line");
+		}
+	}
+	Log('talk', $to, $from, '<' . ($onode || '*'), $line);
+}
+
 # send a chat
 sub chat
 {
@@ -1038,6 +991,31 @@ sub chat
 	}
 	$self->local_send('C', $buf);
 }
+
+# send out the talk messages taking into account vias and connectivity
+sub send_talks
+{
+	my ($self, $target, $text) = @_;
+	
+	my $msgid = DXProt::nextchatmsgid();
+	$text = "#$msgid $text";
+	my $ipaddr = alias_localhost($self->hostname || '127.0.0.1');
+	$main::me->normal(DXProt::pc93($target, $self->{call}, undef, $text, undef, $ipaddr));	
+
+}
+
+sub send_chats
+{
+	my $self = shift;
+	my $target = shift;
+	my $text = shift;
+
+	my $msgid = DXProt::nextchatmsgid();
+	$text = "#$msgid $text";
+	my $ipaddr = alias_localhost($self->hostname || '127.0.0.1');
+	$main::me->normal(DXProt::pc93($target, $self->{call}, undef, $text, undef, $ipaddr));
+}
+
 
 sub format_dx_spot
 {

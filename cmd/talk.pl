@@ -17,16 +17,14 @@ return (1, $self->msg('e5')) if $self->remotecmd || $self->inscript;
 # analyse the line there are four situations...
 # 1) talk call
 # 2) talk call <text>
-# 3) talk call>node 
-# 4) talk call>node text
+# 3) talk call>node  **via ignored
+# 4) talk call>node text **ditto
 #
 
-($to, $via, $line) = $inline =~ /^\s*([A-Za-z0-9\-]+)(?:\s*>([A-Za-z0-9\-]+))?\s+(.*)$/;
-if ($via) {
-	$line =~ s/\s+// if $line;
-} else {
-	($to, $line) = split /\s+/, $inline, 2;  
-}
+# via is deprecated / ignored
+$inline =~ s/(?:\s*>([A-Za-z0-9\-]+))\s*//;
+
+($to, $line) = $inline =~ /^\s*([A-Za-z0-9\-]+)\s+(.*)$/;
 
 return (1, $self->msg('e8')) unless $to;
 
@@ -35,11 +33,13 @@ $to = uc $to;
 return (1, $self->msg('e22', $to)) unless is_callsign($to);
 return (1, $self->msg('e28')) unless $self->isregistered || $to eq $main::myalias;
 
-$via = uc $via if $via;
-my $call = $via || $to;
+#$via = uc $via if $via;
+#my $call = $via || $to;
 #my $clref = Route::get($call);     # try an exact call
 #my $dxchan = $clref->dxchan if $clref;
 #push @out, $self->msg('e7', $call) unless $dxchan;
+
+my $call = $to;
 
 #$DB::single = 1;
 
@@ -60,10 +60,10 @@ my $dxchan;
 
 if ($line) {
 	Log('talk', $to, $from, '>' . ($via || ($dxchan && $dxchan->call) || '*'), $line);
-	$main::me->normal(DXProt::pc93($to, $self->call, $via, $line, undef, $ipaddr));
+	#$main::me->normal(DXProt::pc93($to, $self->call, $via, $line, undef, $ipaddr));
+	$self->send_talks($to, $line);
 } else {
 	my $s = $to;
-	$s .= ">$via" if $via && $via ne '*';
 	my $ref = $self->talklist;
 	if ($ref) {
 		unless (grep { $_ eq $s } @$ref) {
