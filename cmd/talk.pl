@@ -24,7 +24,9 @@ return (1, $self->msg('e5')) if $self->remotecmd || $self->inscript;
 # via is deprecated / ignored
 $inline =~ s/(?:\s*>([A-Za-z0-9\-]+))\s*//;
 
-($to, $line) = $inline =~ /^\s*([A-Za-z0-9\-]+)\s+(.*)$/;
+($to, $line) = $inline =~ /^\s*([A-Za-z0-9\-]+)\s*(.*)?$/;
+
+#$DB::single = 1;
 
 return (1, $self->msg('e8')) unless $to;
 

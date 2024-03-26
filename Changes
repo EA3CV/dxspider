@@ -1,3 +1,8 @@
+25Mar24======================================================================
+1. Make talk work. Note: this now works as the mojo branch originally
+   expected - which means that it may (and likely will) flood route talks 
+   where the callsign that you want to talk to does not have a route to
+   both the callsign and any nodes that it may be connected to. 
 22Mar24======================================================================
 1. Change the processing of trailing callsigns slightly so that /1 /2 etc are
    retained, but the /P /M /A /MM etc are removed.
