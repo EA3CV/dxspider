@@ -348,9 +348,7 @@ sub install
 		if ($remove) {
 			$dxchan->{$n} = undef;
 		}
-		unless ($dxchan->{$n}) {
-			Filter::load_dxchan($dxchan, $sort, $in);
-		}
+		Filter::load_dxchan($dxchan, $sort, $in);
 	}
 }
 

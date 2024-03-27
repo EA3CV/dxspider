@@ -1,3 +1,7 @@
+27Mar24======================================================================
+1. Fix dupe PC[16]1 (spot) coming in "too fast" for dupe filter to work. 
+
+   Probably. 
 25Mar24======================================================================
 1. Make talk work. Note: this now works as the mojo branch originally
    expected - which means that it may (and likely will) flood route talks 

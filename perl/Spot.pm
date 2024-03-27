@@ -514,10 +514,9 @@ sub dup
 	$text = substr($text, 0, $duplth) if length $text > $duplth; 
 	my $ldupkey = $oldstyle ? "X|$call|$by|$node|$freq|$d|$text" : "X|$call|$by|$node|$qrg|$nd|$text";
 
-	dbg("Spot::dup ldupkey $ldupkey") if isdbg('spotdup');
-	
 	my $t = DXDupe::find($ldupkey);
-	return 1 if $t && $t - $main::systime > 0;
+	dbg("Spot::dup ldupkey $ldupkey t '$t'") if isdbg('spotdup');
+	return 1 if $t > 0;
 	
 	DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
 	$otext = substr($otext, 0, $duplth) if length $otext > $duplth; 
@@ -525,7 +524,8 @@ sub dup
 	if (length $otext && $otext ne $text) {
 		$ldupkey = $oldstyle ? "X|$freq|$call|$by|$otext" : "X|$qrg|$call|$by|$otext";
 		$t = DXDupe::find($ldupkey);
-		return 1 if $t && $t - $main::systime > 0;
+		dbg("Spot::dup ldupkey $ldupkey t '$t'") if isdbg('spotdup');
+		return 1 if $t > 0;
 		DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
 	}
 	return undef;
