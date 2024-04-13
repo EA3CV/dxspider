@@ -1,3 +1,5 @@
+13Apr24======================================================================
+1. Fix small issue with perl 5.20 (and possibly earlier) compilation.
 27Mar24======================================================================
 1. Fix dupe PC[16]1 (spot) coming in "too fast" for dupe filter to work. 
 
