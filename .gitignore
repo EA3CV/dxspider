@@ -1,3 +1,5 @@
+[abc]
+[abc].*
 local*
 *~
 *.[oa]
@@ -21,3 +23,7 @@ db
 core
 a.out
 perl5lib/*
+*.rej
+*old
+*.orig
+*old
