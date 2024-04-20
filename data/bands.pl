@@ -12,6 +12,14 @@
 # It is up to YOU to make sure that it makes sense!
 #
 # ALL the labels MUST BE in lower case.
+#
+# Band names change (or I got them wrong in the first place), DO NOT CHANGE THE BAND NAMES
+# THAT I USED. If you do then expect to get complaints. Instead just alias then just alias
+# them to what you think they should be.
+#
+# WARNING: if aliasing, the band alias must be declared AFTER the original.
+#
+# See '550khz' and '630m' as an exemplar.
 # 
 
 
@@ -22,11 +30,11 @@
 		  '136khz' => bless ( { band => [135, 138],
 							  }, 'Bands'),
 
-		  '500khz' => bless ( { band => [493, 525],
+		  '500khz' => bless ( { band => [472, 479],
 							  }, 'Bands'),
 
 		  '160m' => bless( { band => [ 1800, 2000 ], 
-							 cw => [ 1800, 1838 ], 
+							 cw => [ 1800, 1840 ], 
 							 rtty => [ 1838, 1841 ],
 							 data => [ 1838, 1843],
 							 ssb => [ 1831, 2000] 
@@ -34,7 +42,7 @@
 
 		  '80m' => bless( { band => [ 3500, 4000 ], 
 							cw => [ 3500, 3600 ], 
-							data => [ 3580, 3619 ], 
+							data => [ 3570, 3619 ], 
 							rtty => [ 3580, 3619 ], 
 							sstv => [ 3730, 3740 ], 
 							ssb => [ 3601, 4000 ]  
@@ -44,11 +52,11 @@
 							ssb => [5300, 5410],
 				}, 'Bands' ),
 
-		  '40m' => bless( { band => [ 7000, 7400 ], 
+		  '40m' => bless( { band => [ 7000, 7300 ], 
 							cw => [ 7000, 7040 ],
 							data => [ 7040, 7100],
 							rtty => [ 7040, 7060],
-							ssb => [ 7050, 7400 ]
+							ssb => [ 7050, 7300 ]
 						  }, 'Bands'),
 
 		  '30m' => bless( { band => [ 10100, 10150 ], 
@@ -154,9 +162,20 @@
 							cw => [47087000, 47089000],
 							ssb => [47087000, 47089000],
 						  }, 'Bands'),
+
 		  '4mm' => bless( { band => [75500000, 81000000], 
 						  }, 'Bands'), 
 
+		  '122g' => bless( { band => [122250000, 123000000], 
+						  }, 'Bands'), 
+
+		  '134g' => bless( { band => [134000000, 141000000],
+						   }, 'Bands'),
+
+		  '248g' => bless( { band => [241000000, 250000000], 
+						  }, 'Bands'), 
+
+		  
 		  'band1' => bless ( { band => [47000, 49999, 52000, 68000],
 							 }, 'Bands'),
 		      
@@ -192,6 +211,17 @@
 		   hf => bless ( { band => [1800, 29999], }, 'Bands'), 
 		   vhf => bless ( { band => [30000, 299999], }, 'Bands'), 
 		 );
+
+#
+# fix up some aliases
+#
+
+$bands{'630m'} => $bands{'500khz'};
+$bands{'24g'} => $bands{'12mm'};
+$bands{'47g'} => $bands{'6mm'};
+$bands{'76g'} => $bands{'4mm'};
+
+
 
 #
 # the list of regions

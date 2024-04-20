@@ -358,7 +358,8 @@ sub load_dxchan
 {
 	my $dxchan = shift;
 	my $sort = lc shift;
-	my $in = shift ? 'in' : '';
+	my $in = shift;
+	$in = $in ? 'in' : ''; 		# to cope with older perls that did not like a ternary expression with 'shift' as a conditional
 	my $nossid = $dxchan->call;
 	$nossid =~ s/-\d+$//;
 	my $n = "$in$sort" . "filter";

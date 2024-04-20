@@ -47,7 +47,7 @@ sub check
 sub find
 {
 	return 0 unless $_[0];
-	return $d{$_[0]};
+	return exists $d{$_[0]} ? $d{$_[0]} : 0;
 }
 
 sub add
