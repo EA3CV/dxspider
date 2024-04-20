@@ -33,7 +33,7 @@ $maxspots = 100;					# maximum spots to return
 $defaultspots = 10;				# normal number of spots to return
 $maxdays = 100;				# normal maximum no of days to go back
 $dirprefix = "spots";
-$duplth = 20;					# the length of text to use in the deduping
+$duplth = 15;					# the length of text to use in the deduping
 $dupage = 1*3600;               # the length of time to hold spot dups
 $maxcalllth = 12;                               # the max length of call to take into account for dupes
 $filterdef = bless ([
@@ -502,29 +502,57 @@ sub dup
 	
 	$call = substr($call, 0, $maxcalllth) if length $call > $maxcalllth;
 
+	my $dtext ;
 	
+	my $l = length $text;
+	$dtext = qq{original:'$text'($l)} if isdbg('spottext');
+
 	chomp $text;
+	
 	$text =~ s/\%([0-9A-F][0-9A-F])/chr(hex($1))/eg;
 	$text = uc unpad($text);
+
+	$l = length $text;
+	$dtext .= qq{->afterhex: '$text'($l)} if isdbg('spottext');
+	my @dubious;
+	if (isdbg('spottext')) {
+		(@dubious) = $text =~ /([?\x00-\x08\x0a-\x1F\x7B-\xFF]+)+/;
+		$dtext .= sprintf q{DUBIOUS '%s'}, join '', @dubious if @dubious;
+	}
+
 	my $otext = $text;
 #	$text = Encode::encode("iso-8859-1", $text) if $main::can_encode && Encode::is_utf8($text, 1);
 	$text =~ s/^\+\w+\s*//;			# remove leading LoTW callsign
-	$text =~ s/\s{2,}[\dA-Z]?[A-Z]\d?$// if length $text > 24;
+	$text =~ s/\s{2,}[\dA-Z]?[A-Z]\d?$//g if length $text > 24;
+	$text =~ s/\x09+//g;
 	$text =~ s/[\W\x00-\x2F\x7B-\xFF]//g; # tautology, just to make quite sure!
-	$text = substr($text, 0, $duplth) if length $text > $duplth; 
+	$text = substr($text, 0, $duplth) if length $text > $duplth;
+
+	$l = length $text;
+	$dtext .= qq{->final:'$text'($l)} if isdbg('spottext');
+		
 	my $ldupkey = $oldstyle ? "X|$call|$by|$node|$freq|$d|$text" : "X|$call|$by|$node|$qrg|$nd|$text";
 
-	my $t = DXDupe::find($ldupkey);
+	my $t = 0;
+	$t = DXDupe::find($ldupkey);
 	dbg("Spot::dup ldupkey $ldupkey t '$t'") if isdbg('spotdup');
-	return 1 if $t > 0;
+	$dtext .= ' DUPE' if $t;
+	dbg("text transforms: $dtext") if length $text && isdbg('spottext');
+	return 1 if $t > 0;	
 	
 	DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
+
 	$otext = substr($otext, 0, $duplth) if length $otext > $duplth; 
 	$otext =~ s/\s+$//;
 	if (length $otext && $otext ne $text) {
 		$ldupkey = $oldstyle ? "X|$freq|$call|$by|$otext" : "X|$qrg|$call|$by|$otext";
 		$t = DXDupe::find($ldupkey);
-		dbg("Spot::dup ldupkey $ldupkey t '$t'") if isdbg('spotdup');
+		dbg("Spot::dup (OTEXT) ldupkey $ldupkey t '$t'") if isdbg('spotdup');
+		if (isdbg('spottext')) {
+			$dtext .= sprintf q{ DUBIOUS '%s'}, join '', @dubious if @dubious;
+			$dtext .= ' DUPE (OTEXT)' if $t;
+			dbg("text transforms: $dtext") if length $text;
+		}
 		return 1 if $t > 0;
 		DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
 	}

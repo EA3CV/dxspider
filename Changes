@@ -1,3 +1,6 @@
+20Apr24======================================================================
+1. Try to "fix" Spot deduping (again). This is probably Work In Progress...
+2. A new(er) band.pl gratefully received from Andy G4PIQ.
 13Apr24======================================================================
 1. Fix small issue with perl 5.20 (and possibly earlier) compilation.
 27Mar24======================================================================
