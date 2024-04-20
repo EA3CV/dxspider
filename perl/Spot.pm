@@ -549,7 +549,7 @@ sub dup
 		$t = DXDupe::find($ldupkey);
 		dbg("Spot::dup (OTEXT) ldupkey $ldupkey t '$t'") if isdbg('spotdup');
 		if (isdbg('spottext')) {
-			$dtext .= sprintf q{DUBIOUS '%s'}, join '', @dubious if @dubious;
+			$dtext .= sprintf q{ DUBIOUS '%s'}, join '', @dubious if @dubious;
 			$dtext .= ' DUPE (OTEXT)' if $t;
 			dbg("text transforms: $dtext") if length $text;
 		}

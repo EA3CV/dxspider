@@ -7,15 +7,15 @@
 # these pairs attach themselves to the labels you provide, they are
 # independant of any other pair, they can overlap, cross etc. 
 #
-# There MUST be at last a 'band' entry
+# There MUST be at least a 'band' entry
 #
 # It is up to YOU to make sure that it makes sense!
 #
 # ALL the labels MUST BE in lower case.
-#
+# 
 # Band names change (or I got them wrong in the first place), DO NOT CHANGE THE BAND NAMES
-# THAT I USED. If you do then expect to get complaints. Instead just alias then just alias
-# them to what you think they should be.
+# THAT I USED. If you do then expect to get complaints. Instead just alias them to what 
+# you think they should be in the section below %bands.
 #
 # WARNING: if aliasing, the band alias must be declared AFTER the original.
 #
@@ -105,77 +105,82 @@
 							ssb => [ 28201, 29299, 29550, 29700] 
 						  }, 'Bands'),
 
-		  '6m' => bless( { band => [50000, 52000],
-						   cw => [50000, 50100],
-						   ssb => [50100, 50500],
+		  '8m' => bless( { band => [40000, 42000],
 						 }, 'Bands'),
 
-		  '4m' => bless( { band => [70000, 70631],
-						   cw => [70030, 70250],
-						   ssb => [70030, 70250],
+                  '6m' => bless( { band => [50000, 54000],
+						   cw => [50000, 50100],
+						   ssb => [50100, 50400],
+						   data => [50300, 50500],
 						 }, 'Bands'),
+
+                  '5m' => bless( { band => [60000, 62000],
+						 }, 'Bands'),
+# 5m band General allocation in Ireland only, with Denmark and UK with beacons
+
+		  '4m' => bless( { band => [69887, 71500],
+						   cw => [70000, 70250],
+						   ssb => [70100, 70250],
+						 }, 'Bands'),
+# Denmark down to 69.8875. UK NoV operation up to 71.500
 
 		  '2m' => bless( { band => [144000, 148000],
 						   cw => [144000, 144150],
-						   ssb => [144150, 144500]
+						   ssb => [144150, 144400]
 						 }, 'Bands'),
 
-		  '220' => bless( { band => [220000, 222000],
+#Little real CW and SSB differentiation above 2m so remove CW and SSB filters
+
+		  '220' => bless( { band => [220000, 224000],
 						  }, 'Bands'),
 
-		  '70cm' => bless( { band => [430000, 450000],
-							 cw => [432000, 432150],
-							 ssb => [432150, 432500],
+		  '70cm' => bless( { band => [420000, 450000],
 						   }, 'Bands'),
 
-		  '23cm' => bless( { band => [ 1240000, 1325000],
-							 cw => [1296000, 1296150],
-							 ssb => [1296150, 1296800],
+#70cm starts at 420 MHz and extends to 450 MHz in Region 2
+
+                  '902' => bless( { band => [902000, 928000],
 						   }, 'Bands'),
 
-		  '13cm' => bless( { band => [2310000, 2450000],
-							 cw => [2320100, 2320150],
-							 ssb => [2320150, 2320800],
+		  '23cm' => bless( { band => [ 1240000, 1300000],
 						   }, 'Bands'),
 
-		  '9cm' => bless( { band => [3400000, 3475000],
-							cw => [3400000, 3402000],
-							ssb => [3400000, 3402000],
+		  '13cm' => bless( { band => [2300000, 2450000],
+						   }, 'Bands'),
+
+		  '9cm' => bless( { band => [3300000, 3500000],
 						  }, 'Bands'),
+#9cm extends to 3500 MHz in Region 2 and starts at 3300 MHz in Region 3
 
-		  '6cm' => bless( { band => [5650000, 5850000],
-							cw => [5668000, 5670000, 5760000, 5762000],
-							ssb => [5668000, 5670000, 5760000, 5762000],
+		  '6cm' => bless( { band => [5650000, 5925000],
 						  }, 'Bands'),
+#6cm extends to 5925 MHz in Region 2 and 3
 
 		  '3cm' => bless( { band => [10000000, 10500000],
-							cw => [10368000,10370000, 10450000, 10452000],
-							ssb => [10368000,10370000, 10450000, 10452000],
 						  }, 'Bands'),
 
+#Bands above 10 GHz normally referred to by Frequency so make 24G, 47G, 76G etc
+
 		  '12mm' => bless( { band => [24000000, 24250000],
-							 cw => [24048000, 24050000],
-							 ssb => [24048000, 24050000],
 						   }, 'Bands'),
     
 		  '6mm' => bless( { band => [47000000, 47200000],
-							cw => [47087000, 47089000],
-							ssb => [47087000, 47089000],
 						  }, 'Bands'),
 
-		  '4mm' => bless( { band => [75500000, 81000000], 
+		  '4mm' => bless( { band => [75500000, 81500000], 
 						  }, 'Bands'), 
 
 		  '122g' => bless( { band => [122250000, 123000000], 
 						  }, 'Bands'), 
 
-		  '134g' => bless( { band => [134000000, 141000000],
-						   }, 'Bands'),
+		  '134g' => bless( { band => [134000000, 141000000], 
+						  }, 'Bands'), 
 
 		  '248g' => bless( { band => [241000000, 250000000], 
 						  }, 'Bands'), 
 
-		  
+
+
 		  'band1' => bless ( { band => [47000, 49999, 52000, 68000],
 							 }, 'Bands'),
 		      
@@ -216,11 +221,10 @@
 # fix up some aliases
 #
 
-$bands{'630m'} => $bands{'500khz'};
-$bands{'24g'} => $bands{'12mm'};
-$bands{'47g'} => $bands{'6mm'};
-$bands{'76g'} => $bands{'4mm'};
-
+$bands{'630m'} = $bands{'500khz'};
+$bands{'24g'} = $bands{'12mm'};
+$bands{'47g'} = $bands{'6mm'};
+$bands{'76g'} = $bands{'4mm'};
 
 
 #
@@ -233,18 +237,18 @@ $bands{'76g'} => $bands{'4mm'};
 #
 
 %regions = (
-			vlf => [qw( 73khz 136khz 500khz )],
+			vlf => [qw( 73khz 136khz 630m )],
 			hf => [qw( 160m 80m 60m 40m 30m 20m 17m 15m 12m 10m )],
 			contesthf => [qw( 160m 80m 40m 20m 15m 10m )],
 			vhf => [qw( 6m 4m 2m 220 )],
 			vhfradio => [qw( band1 band2 )],
 			vhftv => [qw( band1 band3 )],
-			uhf => [qw( 70cm 23cm )],
+			uhf => [qw( 70cm 902 23cm )],
 			uhftv => [qw( band4 band5 )],
-			shf => [qw( 23cm 13cm 9cm 6cm 3cm )],
+			shf => [qw( 23cm 13cm 9cm 6cm 3cm 24g 47g 76g 121g 134g 248g )],
 			pmr => [qw( pmrlow pmrmid pmrhigh pmruhf )],
-			spe => [qw( 10m 6m 4m 2m )],
+			spe => [qw( 10m 8m 6m 5m 4m 2m )],
 			warc => [qw( 60m 30m 17m 12m )],
-			all => [qw( 73khz 136khz 160m 80m 60m 40m 30m 20m 17m 15m 12m 10m 6m 4m 2m 220 70cm 23cm 9cm 6cm 3cm 12mm 6mm )],
+			all => [qw( 73khz 136khz 630m 160m 80m 60m 40m 30m 20m 17m 15m 12m 10m 8m 6m 5m 4m 2m 220 70cm 902 23cm 9cm 6cm 3cm 24g 47g 76g 121g 134g 248g)],
 		   );  
 
