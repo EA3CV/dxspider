@@ -246,6 +246,15 @@ sub normal
 
 	my (undef, undef, $origin, $qrg, $call, $mode, $s, $m, $spd, $u, $sort, $t, $tx) = split /[:\s]+/, $line;
 
+	# fix up "direct" (from a "skimmer server") connections
+	# basically the $mode is missing so everything is shifted down one
+	# so "cheat" and modify the line and do it again
+	if ($mode =~ /^\d+$/) {
+		$line =~ s/ $mode\s+dB/CW $mode dB/i;
+		(undef, undef, $origin, $qrg, $call, $mode, $s, $m, $spd, $u, $sort, $t, $tx) = split /[:\s]+/, $line;
+		dbg "RBN: inserted CW for missing mode" if $dbgrbn;
+	}
+	
 	# fix up FT8 spots from 7001
 	$t = $u, $u = '' if !$t && is_ztime($u);
 	$t = $sort, $sort = '' if !$t && is_ztime($sort);
