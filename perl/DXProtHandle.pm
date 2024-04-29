@@ -955,7 +955,7 @@ sub check_add_user
 		}
 		$user->lastin($main::systime); # this makes it last longer than just this invocation
 		$user->put;				# just to make sure it gets written away!!!
-		dbg("DXProt: PC92 new user record for $call created");
+		dbg(sprintf "DXProt: PC92 new user record for $call created type: %s priv: %d lockout: %d", $user->sort, $user->priv, $user->lockout);
 	}
 
 	# this is to fix a problem I introduced some build ago by using this function for users
@@ -2204,25 +2204,25 @@ sub handle_92
 			if (is_numeric($version) || is_numeric($build)) {
 				my $changed = 0;
 				if (($oldversion ne $version || $build ne $oldbuild)) {
-					dbg("PCPROT: PC92 K node $call updated version: $version (was $oldversion) build: $build (was $oldbuild)");
+					dbg("PCPROT: PC92 K rec, node $call updated version: $version (was $oldversion) build: $build (was $oldbuild)");
 					$user->version($parent->version($version));
 					$user->build($parent->build($build));
 					++$changed;
 				}
 				if ($oldsort ne 'S') {
-					dbg("PCPROT: PC92 K node $call updated sort: $sort (was $oldsort)");
+					dbg("PCPROT: PC92 K rec, node $call updated sort: $sort (was $oldsort)");
 					$user->sort('S');
 					++$changed;
 				}
 				unless ($user->K) {
-					dbg("PCPROT: PC92 K node $call updated - marked as PC92 K user");
+					dbg("PCPROT: PC92 K rec, node $call updated - marked as sending PC92 K records ");
 					$user->K(1);
 					++$changed;
 				}
 				$user->put if $changed;
 				$parent->K(1); # mark this as come in on a K
 			} else {
-				dbg("DXProt PC92 K version call $call: invalid version: '$version' or build: '$version', ignored");
+				dbg("DXProt PC92 K rec, version call $call: invalid version: '$version' or build: '$version', ignored");
 			}
 			dbg("ROUTE: reset obscount on $call now " . $parent->obscount) if isdbg('obscount');
 		}
