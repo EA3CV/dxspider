@@ -939,6 +939,7 @@ sub check_add_user
 	my $call = shift;
 	my $type = shift;
 	my $homenode = shift;
+	my $changed = 0;
 
 	# add this station to the user database, if required (don't remove SSID from nodes)
 	my $user = DXUser::get_current($call);
@@ -947,25 +948,27 @@ sub check_add_user
 		$user->sort($type || 'U');
 		if ($user->is_node) {
 			$user->priv(1);		# I have relented and defaulted nodes
-			$user->lockout(1) if $user->is_node;
+			$user->lockout(1);
 		} else {
 			$user->homenode($homenode) if $homenode;
 			$user->node($homenode);
 			$user->priv(0);
+			$user->lockout(0);
 		}
 		$user->lastin($main::systime); # this makes it last longer than just this invocation
-		$user->put;				# just to make sure it gets written away!!!
+		++$changed;
 		dbg(sprintf "DXProt: PC92 new user record for $call created type: %s priv: %d lockout: %d", $user->sort, $user->priv, $user->lockout);
 	}
 
 	# this is to fix a problem I introduced some build ago by using this function for users
 	# whereas it was only being used for nodes.
-	if ($user->is_user && $user->lockout && ($user->priv // 0) == 1) {
+	if ($user->is_user && $user->lockout && ($user->priv || 0) == 1) {
+		dbg(sprintf "DXProt: PC92 user record for $call type: %s priv: %d lockout: %d updated, depriv'd and unlocked", $user->sort, $user->priv, $user->lockout);
 		$user->priv(0);
 		$user->lockout(0);
-		dbg("DXProt: PC92 user record for $call depriv'd and unlocked");
-		$user->put;
+		++$changed;
 	}
+	$user->put if $changed;				# just to make sure it gets written away!!!
 	return $user;
 }
 
@@ -1045,14 +1048,6 @@ sub handle_19
 			dbgprintring(3) if isdbg('nologchan');
 			next;
 		}
-		
-		my $user = check_add_user($call, 'A');
-
-#		if (eph_dup($genline)) {
-#			dbg("PCPROT: dup PC19 for $call detected") if isdbg('chanerr');
-#			next;
-#		}
-
 
 		unless ($h) {
 			if ($parent->via_pc92) {
@@ -1061,6 +1056,7 @@ sub handle_19
 			}
 		}
 
+		my $user = check_add_user($call, 'A');
 		my $r = Route::Node::get($call);
 		my $flags = Route::here($here)|Route::conf($conf);
 
@@ -1829,7 +1825,7 @@ sub _add_thingy
 			}
 			if ($is_node) {
 				dbg("ROUTE: added node $call to $ncall") if isdbg('routelow');
-				$user = check_add_user($call, 'A');
+				$user = check_add_user($call, 'S');
 				@rout = $parent->add($call, $version, Route::here($here), $ip);
 				$r = Route::Node::get($call);
 				$r->PC92C_dxchan($dxchan->call, $hops) if $r;
@@ -2210,12 +2206,18 @@ sub handle_92
 					++$changed;
 				}
 				if ($oldsort ne 'S') {
-					dbg("PCPROT: PC92 K rec, node $call updated sort: $sort (was $oldsort)");
 					$user->sort('S');
-					++$changed;
+					unless (DXChannel::get($user->call)) { # only do this if not connected
+						my $oldpriv = $user->priv;
+						my $oldlock = $user->lockout;
+						$user->priv(1) unless defined $oldpriv && $oldpriv;
+						$user->lockout(1) unless defined $oldlock;
+						dbg(sprintf "PCPROT: PC92 K rec, node $call updated sort: $oldsort->S priv: '$oldpriv'->%d lockout: '$oldlock'->%s", $user->priv || 0, $user->lockout || 0);
+						++$changed;
+					}
 				}
 				unless ($user->K) {
-					dbg("PCPROT: PC92 K rec, node $call updated - marked as sending PC92 K records ");
+					dbg(sprintf "PCPROT: PC92 K rec, node $call updated - marked as sending PC92 K records priv: %d lockout: %d ", $user->priv || 0, $user->lockout || 0);
 					$user->K(1);
 					++$changed;
 				}

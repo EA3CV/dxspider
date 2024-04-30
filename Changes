@@ -1,3 +1,18 @@
+30Apr24======================================================================
+1. "Fix" PC92 and PC19 node user creation and modification such that non-
+   connected nodes or nodes that DON'T have sysop altered privilege and
+   lockout status are set to priv 1 and are locked out. This will also alter
+   historical mistakes and *may* bring the user file back into alignment with
+   current thinking. Just like the last couple of times this has been 
+   attempted - hurrumph! Thanks to Luigi IK5ZUK for the headsup. 
+
+   There have been extensive debug message changes that are now emitted and 
+   can be tracked with: watchdbg 'user|update'
+29Apr24======================================================================
+1. New bands.pl produced with most of the work done by Andy G4PIQ and 
+   Kin EA3CV.
+2. The RBN module will now take data directly from SkimmerServers. Thanks to
+   Frank DL2CC.
 20Apr24======================================================================
 1. Try to "fix" Spot deduping (again). This is probably Work In Progress...
 2. A new(er) band.pl gratefully received from Andy G4PIQ.
