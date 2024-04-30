@@ -2205,16 +2205,20 @@ sub handle_92
 					$user->build($parent->build($build));
 					++$changed;
 				}
+
 				if ($oldsort ne 'S') {
 					$user->sort('S');
-					unless (DXChannel::get($user->call)) { # only do this if not connected
-						my $oldpriv = $user->priv;
-						my $oldlock = $user->lockout;
-						$user->priv(1) unless defined $oldpriv && $oldpriv;
-						$user->lockout(1) unless defined $oldlock;
-						dbg(sprintf "PCPROT: PC92 K rec, node $call updated sort: $oldsort->S priv: '$oldpriv'->%d lockout: '$oldlock'->%s", $user->priv || 0, $user->lockout || 0);
-						++$changed;
-					}
+					dbg(sprintf "PCPROT: PC92 K rec, node $call updated sort: $oldsort->S");
+					++$changed;
+				}
+				
+				unless (DXChannel::get($user->call)) { # only do this if not connected
+					my $oldpriv = $user->priv;
+					my $oldlock = $user->lockout;
+					my $lastchanged = $changed;
+					$user->priv(1), ++$changed unless defined $oldpriv && $oldpriv;
+					$user->lockout(1), ++$changed unless defined $oldlock;
+					dbg(sprintf "PCPROT: PC92 K rec, node $call updated priv: '$oldpriv'->%d lockout: '$oldlock'->%s", $user->priv || 0, $user->lockout || 0) if $lastchanged != $changed;
 				}
 				unless ($user->K) {
 					dbg(sprintf "PCPROT: PC92 K rec, node $call updated - marked as sending PC92 K records priv: %d lockout: %d ", $user->priv || 0, $user->lockout || 0);
