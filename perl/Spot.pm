@@ -77,7 +77,7 @@ our $readback = $main::is_win ? 0 : 1; # don't read spot files backwards if it's
 our $qrggranularity = 1000;	# normalise the qrg to this number of hz (default: 100khz), so tough luck if you have a fumble fingers moment
 our $timegranularity = 600;		# ditto to the nearest 100 seconds 
 our $oldstyle = 0;				# revert to traditional dupe key format
-
+our $no_node_in_dupe = 1;		# remove the node field from dupe considerations. 
 
 if ($readback) {
 	$readback = `which tac`;
@@ -530,18 +530,24 @@ sub dup
 
 	$l = length $text;
 	$dtext .= qq{->final:'$text'($l)} if isdbg('spottext');
-		
-	my $ldupkey = $oldstyle ? "X|$call|$by|$node|$freq|$d|$text" : "X|$call|$by|$node|$qrg|$nd|$text";
 
 	my $t = 0;
-	$t = DXDupe::find($ldupkey);
-	dbg("Spot::dup ldupkey $ldupkey t '$t'") if isdbg('spotdup');
-	$dtext .= ' DUPE' if $t;
-	dbg("text transforms: $dtext") if length $text && isdbg('spottext');
-	return 1 if $t > 0;	
-	
-	DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
+	my $ldupkey;
 
+	# new feature: don't include the origin node in Spot dupes
+	# default = true
+	unless ($no_node_in_dupe) {
+		$ldupkey = $oldstyle ? "X|$call|$by|$node|$freq|$d|$text" : "X|$call|$by|$node|$qrg|$nd|$text";
+
+		$t = DXDupe::find($ldupkey);
+		dbg("Spot::dup ldupkey $ldupkey t '$t'") if isdbg('spotdup');
+		$dtext .= ' DUPE' if $t;
+		dbg("text transforms: $dtext") if length $text && isdbg('spottext');
+		return 1 if $t > 0;	
+		
+		DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
+	}
+	
 	$otext = substr($otext, 0, $duplth) if length $otext > $duplth; 
 	$otext =~ s/\s+$//;
 	if (length $otext && $otext ne $text) {

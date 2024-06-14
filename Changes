@@ -1,3 +1,11 @@
+14Jun24======================================================================
+1. Add new flag $Spot::no_node_in_dupe (default: 1) which disables including
+   the origin node for spot dupes. This should stop people posting the same
+   spot simultaniously on several nodes at once. Or at least just ignore all
+   the "duplicates".
+
+   The curious thing is that this (default) behaviour was the only deduping
+   done originally and there was some reason to include the origin node. 
 30Apr24======================================================================
 1. "Fix" PC92 and PC19 node user creation and modification such that non-
    connected nodes or nodes that DON'T have sysop altered privilege and
