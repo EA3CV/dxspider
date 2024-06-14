@@ -536,17 +536,16 @@ sub dup
 
 	# new feature: don't include the origin node in Spot dupes
 	# default = true
-	unless ($no_node_in_dupe) {
-		$ldupkey = $oldstyle ? "X|$call|$by|$node|$freq|$d|$text" : "X|$call|$by|$node|$qrg|$nd|$text";
-
-		$t = DXDupe::find($ldupkey);
-		dbg("Spot::dup ldupkey $ldupkey t '$t'") if isdbg('spotdup');
-		$dtext .= ' DUPE' if $t;
-		dbg("text transforms: $dtext") if length $text && isdbg('spottext');
-		return 1 if $t > 0;	
-		
-		DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
-	}
+	$node = '' if $no_node_in_dupe;
+	$ldupkey = $oldstyle ? "X|$call|$by|$node|$freq|$d|$text" : "X|$call|$by|$node|$qrg|$nd|$text";
+	
+	$t = DXDupe::find($ldupkey);
+	dbg("Spot::dup ldupkey $ldupkey t '$t'") if isdbg('spotdup');
+	$dtext .= ' DUPE' if $t;
+	dbg("text transforms: $dtext") if length $text && isdbg('spottext');
+	return 1 if $t > 0;	
+	
+	DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
 	
 	$otext = substr($otext, 0, $duplth) if length $otext > $duplth; 
 	$otext =~ s/\s+$//;
