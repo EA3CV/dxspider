@@ -540,7 +540,7 @@ sub dup
 	$ldupkey = $oldstyle ? "X|$call|$by|$node|$freq|$d|$text" : "X|$call|$by|$node|$qrg|$nd|$text";
 	
 	$t = DXDupe::find($ldupkey);
-	dbg("Spot::dup ldupkey $ldupkey t '$t'") if isdbg('spotdup');
+	dbg("Spot::dup ldupkey $ldupkey t '$t'" . ($t?' DUPE':' NEW')) if isdbg('spotdup');
 	$dtext .= ' DUPE' if $t;
 	dbg("text transforms: $dtext") if length $text && isdbg('spottext');
 	return 1 if $t > 0;	
@@ -552,7 +552,7 @@ sub dup
 	if (length $otext && $otext ne $text) {
 		$ldupkey = $oldstyle ? "X|$freq|$call|$by|$otext" : "X|$qrg|$call|$by|$otext";
 		$t = DXDupe::find($ldupkey);
-		dbg("Spot::dup (OTEXT) ldupkey $ldupkey t '$t'") if isdbg('spotdup');
+		dbg("Spot::dup (OTEXT) ldupkey $ldupkey t '$t'" . ($t?' DUPE':' NEW')) if isdbg('spotdup');
 		if (isdbg('spottext')) {
 			$dtext .= sprintf q{ DUBIOUS '%s'}, join '', @dubious if @dubious;
 			$dtext .= ' DUPE (OTEXT)' if $t;
