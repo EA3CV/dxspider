@@ -74,7 +74,7 @@ our $spotcachedays = 2;			# default 2 days worth
 our $minselfspotqrg = 1240000;	# minimum freq above which self spotting is allowed
 
 our $readback = $main::is_win ? 0 : 1; # don't read spot files backwards if it's windows
-our $qrggranularity = 1000;	# normalise the qrg to this number of hz (default: 100khz), so tough luck if you have a fumble fingers moment
+our $qrggranularity = 25;       # normalise the qrg to this number of hz (default: 25khz), so tough luck if you have a fumble fingers moment
 our $timegranularity = 600;		# ditto to the nearest 100 seconds 
 our $oldstyle = 0;				# revert to traditional dupe key format
 our $no_node_in_dupe = 1;		# remove the node field from dupe considerations. 
@@ -537,7 +537,7 @@ sub dup
 	# new feature: don't include the origin node in Spot dupes
 	# default = true
 	$node = '' if $no_node_in_dupe;
-	$ldupkey = $oldstyle ? "X|$call|$by|$node|$freq|$d|$text" : "X|$call|$by|$node|$qrg|$nd|$text";
+	$ldupkey = $oldstyle ? "X|$call|$by|$freq|$node|$d|$text" : "X|$call|$by|$qrg|$node|$nd|$text";
 	
 	$t = DXDupe::find($ldupkey);
 	dbg("Spot::dup ldupkey $ldupkey t '$t'" . ($t?' DUPE':' NEW')) if isdbg('spotdup');
@@ -550,7 +550,7 @@ sub dup
 	$otext = substr($otext, 0, $duplth) if length $otext > $duplth; 
 	$otext =~ s/\s+$//;
 	if (length $otext && $otext ne $text) {
-		$ldupkey = $oldstyle ? "X|$freq|$call|$by|$otext" : "X|$qrg|$call|$by|$otext";
+		$ldupkey = $oldstyle ? "X|$call|$by|$freq|$otext" : "X|$call|$by|$qrg|$otext";
 		$t = DXDupe::find($ldupkey);
 		dbg("Spot::dup (OTEXT) ldupkey $ldupkey t '$t'" . ($t?' DUPE':' NEW')) if isdbg('spotdup');
 		if (isdbg('spottext')) {
