@@ -1,3 +1,5 @@
+17Jun24======================================================================
+1. Reduce the default spot dupe qrg granularity to 25Khz.
 14Jun24======================================================================
 1. Add new flag $Spot::no_node_in_dupe (default: 1) which disables including
    the origin node for spot dupes. This should stop people posting the same
