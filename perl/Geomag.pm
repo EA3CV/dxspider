@@ -289,7 +289,7 @@ sub dup
 	return 2 if $d < $main::systime - $dupage;
  
 	my $dupkey = "W$d|$sfi|$k|$a|$call";
-	return DXDupe::check($dupkey, $main::systime+$dupage);
+	return DXDupe::check_add($dupkey, $main::systime+$dupage);
 }
 
 sub listdups

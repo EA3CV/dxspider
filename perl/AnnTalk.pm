@@ -72,7 +72,7 @@ sub dup
 	$text =~ s/[^\#a-zA-Z0-9]//g;
 	$text = substr($text, 0, $duplth) if length $text > $duplth; 
 	my $dupkey = "A$call|$to|\L$text";
-	return DXDupe::check($dupkey, $t);
+	return DXDupe::check_add($dupkey, $t);
 }
 
 sub listdups

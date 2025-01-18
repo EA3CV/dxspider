@@ -476,10 +476,10 @@ sub formatl
 	return "$s $comment$spotter";
 }
 
-# enter the spot for dup checking and return true if it is already a dup
-sub dup
+# Add the dupe if it is new. 
+sub dup_add
 {
-	my ($freq, $call, $d, $text, $by, $node, $just_find) = @_;
+	my ($just_find, $freq, $call, $d, $text, $by, $node) = @_;
 
 	dbg("Spot::dup: freq=$freq call=$call d=$d text='$text' by=$by node=$node" . ($just_find ? " jf=$just_find" : "")) if isdbg('spotdup');
 
@@ -537,7 +537,7 @@ sub dup
 	# new feature: don't include the origin node in Spot dupes
 	# default = true
 	$node = '' if $no_node_in_dupe;
-	$ldupkey = $oldstyle ? "X|$call|$by|$freq|$node|$d|$text" : "X|$call|$by|$qrg|$node|$nd|$text";
+	$ldupkey = $oldstyle ? "X$call|$by|$freq|$node|$d|$text" : "X$call|$by|$qrg|$node|$nd|$text";
 	
 	$t = DXDupe::find($ldupkey);
 	dbg("Spot::dup ldupkey $ldupkey t '$t'" . ($t?' DUPE':' NEW')) if isdbg('spotdup');
@@ -550,7 +550,7 @@ sub dup
 	$otext = substr($otext, 0, $duplth) if length $otext > $duplth; 
 	$otext =~ s/\s+$//;
 	if (length $otext && $otext ne $text) {
-		$ldupkey = $oldstyle ? "X|$call|$by|$freq|$otext" : "X|$call|$by|$qrg|$otext";
+		$ldupkey = $oldstyle ? "X$call|$by|$freq|$otext" : "X$call|$by|$qrg|$otext";
 		$t = DXDupe::find($ldupkey);
 		dbg("Spot::dup (OTEXT) ldupkey $ldupkey t '$t'" . ($t?' DUPE':' NEW')) if isdbg('spotdup');
 		if (isdbg('spottext')) {
@@ -566,7 +566,7 @@ sub dup
 
 sub dup_find
 {
-	return dup(@_, 1);
+	return dup_add(1, @_);
 }
 
 sub listdups

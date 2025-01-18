@@ -123,7 +123,7 @@ sub normal
 	# now check that we have not seen this before 
 	# this is based on the tuple (o (origin), t (time, normalised to time_t), id)
 	$xref->{'-timet'} = $t;
-	return if DXDupe::check("xml,$o,$t,$id", $dupeage);
+	return if DXDupe::check_add("xml,$o,$t,$id", $dupeage);
 		
 	my $r = bless $xref, $pkg;
 	$r->{'-xml'} = $line; 

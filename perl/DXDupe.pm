@@ -15,7 +15,7 @@ use DXVars;
 
 use vars qw{$lasttime $dbm %d $default $fn};
 
-$default = 48*24*60*60;
+$default = 2*24*60*60;
 $lasttime = 0;
 localdata_mv("dupefile");
 $fn = localdata("dupefile");
@@ -36,7 +36,8 @@ sub finish
 	unlink $fn;
 }
 
-sub check
+# NOTE: This checks for a duplicate and only adds a new entry if not found
+sub check_add
 {
 	my $s = shift;
 	return 1 if find($s);
@@ -70,17 +71,14 @@ sub del
 	delete $d{$s};
 }
 
-sub process
+sub per_minute
 {
-	# once an hour
-	if ($main::systime - $lasttime >=  3600) {
-		my @del;
-		while (($k, $v) = each %d) {
-			push @del, $k  if $main::systime >= $v;
-		}
-		del($k) for @del;
-		$lasttime = $main::systime;
+	my @del;
+	while (($k, $v) = each %d) {
+		push @del, $k  if $main::systime >= $v;
 	}
+	del($k) for @del;
+	$lasttime = $main::systime;
 }
 
 sub get
@@ -99,9 +97,14 @@ sub listdups
 	my $dupage = shift;
 	my $regex = shift;
 
+	dbg("DXDupe::listdups let='$let' dupage='$dupage' input regex='$regex'") if isdbg('dxdupe');
+	
 	$regex =~ s/[\^\$\@\%]//g;
 	$regex = ".*$regex" if $regex;
 	$regex = "^$let" . $regex;
+
+	dbg("DXDupe::listdups generated regex='$regex'") if isdbg('dxdupe');
+
 	my @out;
 	for (sort { $d{$a} <=> $d{$b} } grep { m{$regex}i } keys %d) {
 		my ($dum, $key) = unpack "a1a*", $_;

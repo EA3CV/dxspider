@@ -263,7 +263,7 @@ sub dup
 	return 2 if $d < $main::systime - $dupage;
  
 	my $dupkey = "C$d";
-	return DXDupe::check($dupkey, $main::systime+$dupage);
+	return DXDupe::check_add($dupkey, $main::systime+$dupage);
 }
 
 sub listdups

@@ -871,7 +871,6 @@ sub per_sec
 	DXMsg::process();
 	DXDb::process();
 	DXUser::process();
-	DXDupe::process();
 	IsoTime::update($systime);
 	DXConnect::process();
 	DXUser::process();
@@ -891,6 +890,7 @@ sub per_10_sec
 sub per_minute
 {
 	RBN::per_minute();
+	DXDupe::per_minute();
 }
 
 sub per_10_minute

@@ -316,7 +316,6 @@ sub handle_11
 				return;
 			}
 
-
 			# If we have an ip address we can promote by route
 			if ($rug && $rug->ip) {
 				$pcno = 61;
@@ -347,17 +346,6 @@ sub handle_11
 		}
 	}
 	
-	# this goes after the input filtering, but before the add
-	# so that if it is input filtered, it isn't added to the dup
-	# list. This allows it to come in from a "legitimate" source
-	#
-	## NOTE: this is where we insert the spot into the DXDupe cache
-	#
-	if (Spot::dup(@spot[0..4,7])) {
-		dbg("PCPROT: Duplicate Spot  $self->{call}: $pc->[0] $key ignored\n") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
-		return;
-	}
-
 	dbg("PROCESSING $self->{call}: $pc->[0] key: $key") if isdbg('pc11');
 	
 	if ($pcno == 11) {
@@ -422,8 +410,26 @@ sub handle_11
 		}
 	}
 
+	# this goes after the input filtering, but before the actual add
+	# of the spot so that if it is input filtered, it isn't added to the dup
+	# list. This allows it to come in from a "legitimate" source
+	#
+	## NOTE: this is where we FINALLY insert the spot into the DXDupe cache
+	##
+	## Jan 2025 - I have moved this here so that ONLY potential spots for
+	##            output to users are added to the duplicate cache
+	#
+	#
 	
-	# add it
+	if (Spot::dup_add(0, @spot[0..4,7])) {
+		dbg("PCPROT: Duplicate Spot  $self->{call}: $pc->[0] $key ignored\n") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
+		return;
+	}
+
+	#
+	# Now finally: save the spot itself and send it on its merry way to the users
+	#
+	
 	Spot::add(@spot);
 
 	my $ip = '';
