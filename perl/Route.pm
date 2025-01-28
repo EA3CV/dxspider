@@ -34,6 +34,7 @@ use vars qw(%list %valid $filterdef $maxlevel);
 		  itu => '0,ITU Zone',
 		  parent => '0,Parent Calls,parray',
 		  state => '0,State',
+		  lastseen => '0,Last Seen,cldatetime',
 		 );
 
 $filterdef = bless ([

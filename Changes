@@ -1,3 +1,35 @@
+27Jan25======================================================================
+1. Make SURE that spot dupe checks do not add yet more dupe (dupe) records
+   to the dupe file. 
+2. Fix the retention of dupe records (of whatever sort) long after they have
+   expired. Also move the dupe cleaning process to once a minute for all
+   dupe records. This has been a veeeeerrrrry long standing bug. 
+
+   Thank you to those that pointed out both this and the previous item.
+
+   P.S. If you enjoy watching paint dry then you can see this in action by 
+   entering 'set/debug dxdupe' on a console and running 'watchdbg dxdupe' in
+   another shell window.
+
+3. Set a new default dupe expiry time ($DXDupe::default = 3600+120). This may 
+   change (back upwards). NOTE: this is a default for all dupe storage that
+   does not explicitly set one (thing like announces etc). Specifically: 
+   Spots have their own default ($Spot::dupage).
+
+   NOTE: Spots have a hard limit that prevents exactly repeating spots being
+   emitted faster than one minute.   
+
+4. Add an attempt to stop incoming CCCLuster connections from creating 
+   protocol loops by ignoring any PC18s that they send. 
+5. Try to fix watchdbg so that it works on the latest debian/ubuntu text
+   io routines.
+6. Check that a node channel is fully initialised (meaning that the full
+   node startup chitchat is completed) before allowing informational 
+   sentences like (PC11, PC10, PC12, PC61, PC93 etc) to be transferred. 
+
+   It turns out that it was possible to connect to a node with a node
+   callsign and send things like PC11 / PC61 without being "visible" in the
+   network as a whole. It would just be visible locally. 
 17Jun24======================================================================
 1. Reduce the default spot dupe qrg granularity to 25Khz.
 14Jun24======================================================================

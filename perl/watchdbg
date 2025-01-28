@@ -54,7 +54,6 @@ while (@ARGV) {
 # seek to end of file
 $fh->seek(0, 2);
 for (;;) {
-	$fh->seek(0, 1);
 	my $line = $fh->getline;
 	if ($line) {
 		if (@patt) {
@@ -94,6 +93,7 @@ for (;;) {
 			$today = $now;
 		}
 	}
+	$fh->seek(0, 1);
 }
 
 sub printit

@@ -94,6 +94,11 @@ sub handle_10
 		return;
 	}
 
+	unless ($self->state eq 'normal') {
+		dbg("PC$pcno sent from $self->{call} ignored as this channel is not yet initialised (state: $self-{state})");
+		return;
+	}
+
 
 	# is it for me or one of mine?
 	my ($from, $to, $via, $call, $dxchan);
@@ -162,6 +167,11 @@ sub handle_11
 	my $pc = shift;
 	my $recurse = shift || 0;
 
+	unless ($self->state eq 'normal') {
+		dbg("PC$pcno sent from $self->{call} ignored as this channel is not yet initialised (state: $self-{state})");
+		return;
+	}
+	
 	# route 'foreign' pc26s
 	if ($pcno == 26) {
 		if ($pc->[7] ne $main::mycall) {
@@ -573,6 +583,11 @@ sub handle_12
 	my $origin = shift;
 	my $pc = shift;
 
+	unless ($self->state eq 'normal') {
+		dbg("PC$pcno sent from $self->{call} ignored as this channel is not yet initialised (state: $self-{state})");
+		return;
+	}
+
 	# announce duplicate checking
 	$pc->[3] =~ s/^\s+//;			# remove leading blanks
 
@@ -873,6 +888,12 @@ sub handle_18
 	my $line = shift;
 	my $origin = shift;
 	my $pc = shift;
+
+	my $conn = $self->conn;
+	unless ($self->outbound) {
+		dbg("PC18 on startup an incoming connection from $self->{call} ignored as iappropriate");
+		return;
+	}
 
 	$self->state('init');
 
@@ -1471,6 +1492,11 @@ sub handle_41
 	my $origin = shift;
 	my $pc = shift;
 
+	unless ($self->state eq 'normal') {
+		dbg("PC$pcno sent from $self->{call} ignored as this channel is not yet initialised (state: $self-{state})");
+		return;
+	}
+
 	my $call = $pc->[1];
 	my $sort = $pc->[2];
 	my $val = $pc->[3];
@@ -1702,6 +1728,11 @@ sub handle_84
 	my $line = shift;
 	my $origin = shift;
 	my $pc = shift;
+
+	unless ($self->state eq 'normal') {
+		dbg("PC$pcno sent from $self->{call} ignored as this channel is not yet initialised (state: $self-{state})");
+		return;
+	}
 
 	$self->process_rcmd($pc->[1], $pc->[2], $pc->[3], $pc->[4]);
 }
@@ -2408,7 +2439,12 @@ sub handle_93
 	my $origin = shift;
 	my $pc = shift;
 
-#	$self->{do_pc9x} ||= 1;
+	#	$self->{do_pc9x} ||= 1;
+	
+	unless ($self->state eq 'normal') {
+		dbg("PC$pcno sent from $self->{call} ignored as this channel is not yet initialised (state: $self-{state})");
+		return;
+	}
 
 	my $pcall = $pc->[1];			# this is now checked earlier
 

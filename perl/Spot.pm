@@ -34,7 +34,7 @@ $defaultspots = 10;				# normal number of spots to return
 $maxdays = 100;				# normal maximum no of days to go back
 $dirprefix = "spots";
 $duplth = 15;					# the length of text to use in the deduping
-$dupage = 1*3600;               # the length of time to hold spot dups
+$dupage = 10*60;               # the length of time to hold spot dups
 $maxcalllth = 12;                               # the max length of call to take into account for dupes
 $filterdef = bless ([
 					 # tag, sort, field, priv, special parser 
@@ -537,7 +537,7 @@ sub dup_add
 	# new feature: don't include the origin node in Spot dupes
 	# default = true
 	$node = '' if $no_node_in_dupe;
-	$ldupkey = $oldstyle ? "X$call|$by|$freq|$node|$d|$text" : "X$call|$by|$qrg|$node|$nd|$text";
+	$ldupkey = $oldstyle ? "X$call|$by|$freq|$nd|$node|$text" : "X$call|$by|$qrg|$nd|$node|$text";
 	
 	$t = DXDupe::find($ldupkey);
 	dbg("Spot::dup ldupkey $ldupkey t '$t'" . ($t?' DUPE':' NEW')) if isdbg('spotdup');
@@ -550,7 +550,7 @@ sub dup_add
 	$otext = substr($otext, 0, $duplth) if length $otext > $duplth; 
 	$otext =~ s/\s+$//;
 	if (length $otext && $otext ne $text) {
-		$ldupkey = $oldstyle ? "X$call|$by|$freq|$otext" : "X$call|$by|$qrg|$otext";
+		$ldupkey = $oldstyle ? "X$call|$by|$freq|$otext" : "X$call|$by|$qrg|$nd|$otext";
 		$t = DXDupe::find($ldupkey);
 		dbg("Spot::dup (OTEXT) ldupkey $ldupkey t '$t'" . ($t?' DUPE':' NEW')) if isdbg('spotdup');
 		if (isdbg('spottext')) {

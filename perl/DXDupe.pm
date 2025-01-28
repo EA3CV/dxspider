@@ -13,7 +13,7 @@ use DXDebug;
 use DXUtil;
 use DXVars;
 
-use vars qw{$lasttime $dbm %d $default $fn};
+use vars qw{$dbm %d $default $fn};
 
 $default = 2*24*60*60;
 $lasttime = 0;
@@ -74,10 +74,25 @@ sub del
 sub per_minute
 {
 	my @del;
+	my $count = 0;
 	while (($k, $v) = each %d) {
-		push @del, $k  if $main::systime >= $v;
+		my $flag = '';
+		my $left = $v - $main::systime;
+		if ($left <= 0) {
+			push @del, $k;
+			$flag = " $k (deleted secs left: $left v: $v systime: $main::systime)";
+		} else {
+			$left = " $k time left: $left v: $v systime: $main::systime";
+		}
+		++$count;
+		if (isdbg("dxdupeclean")) {
+			dbg("DXDupe::per_minute key:$flag$left") if isdbg('dxdupeclean');
+		}
 	}
-	del($k) for @del;
+	for (@del) {
+		del($_);
+	}
+	dbg("DXDupe::per_minute number of records " . scalar keys %d) if isdbg('dxdupe');
 	$lasttime = $main::systime;
 }
 
