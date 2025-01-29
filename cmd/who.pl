@@ -24,7 +24,7 @@ foreach $dxchan ( sort {$a->call cmp $b->call} DXChannel::get_all ) {
 		$sort = "DXNT" if $dxchan->is_dxnet;
 		$sort = "AR-C" if $dxchan->is_arcluster;
 		$sort = "AK1A" if $dxchan->is_ak1a;
-		$sort = "CCCL" if $dxchan->is_ccluser;
+		$sort = "CCCL" if $dxchan->is_ccluster;
 	} else {
 		$sort = "LOCL" if $dxchan->conn->isa('IntMsg');
 		$sort = "WEB " if $dxchan->is_web;
