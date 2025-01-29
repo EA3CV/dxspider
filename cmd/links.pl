@@ -55,6 +55,7 @@ foreach $dxchan ( sort {$a->call cmp $b->call} DXChannel::get_all ) {
 	$sort = "AR-C" if $dxchan->is_arcluster;
 	$sort = "AK1A" if $dxchan->is_ak1a;
 	$sort = "RBN " if $dxchan->is_rbn;
+	$sort = "CCCL" if $dxchan->is_ccluster;
 	my $ipaddr;
 
 	my $addr = $dxchan->hostname;
