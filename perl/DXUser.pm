@@ -595,7 +595,7 @@ sub wantlogininfo
 sub is_node
 {
 	my $self = shift;
-	return $self->{sort} =~ /^[ACRSX]$/;
+	return $self->{sort} =~ /^[ACRSXL]$/;
 }
 
 sub is_local_node
@@ -656,6 +656,12 @@ sub is_rbn
 {
 	my $self = shift;
 	return $self->{sort} eq 'N'
+}
+
+sub is_ccluster
+{
+	my $self = shift;
+	return $self->{sort} eq 'L'
 }
 
 sub unset_passwd

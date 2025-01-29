@@ -2260,10 +2260,15 @@ sub handle_92
 					++$changed;
 				}
 
-				if ($oldsort ne 'S') {
+				unless ($user->is_spider || $user->is_ccluster) {
 					$user->sort('S');
 					dbg(sprintf "PCPROT: PC92 K rec, node $call updated sort: $oldsort->S");
 					++$changed;
+				}
+
+				if ($self->is_ccluster && $self->state ne 'normal') {
+					$self->state('normal');
+					dbg(sprintf "PCPROT: PC92 K rec, node $call updated state now 'normal'");
 				}
 				
 				unless (DXChannel::get($user->call)) { # only do this if not connected
