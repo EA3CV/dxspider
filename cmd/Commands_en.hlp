@@ -1752,6 +1752,8 @@ out of any node in this cluster.
 
 === 5^SET/CLX <call> [<call>..]^Make the callsign an CLX node
 
+=== 5^SET/CCLUSTER <call> [<call>..]^Make the callsign an CC Cluster node
+
 === 9^SET/DEBUG <name>^Add a debug level to the debug set
 === 9^UNSET/DEBUG <name>^Remove a debug level from the debug set
 You can choose to log several different levels.  The levels are

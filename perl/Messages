@@ -233,6 +233,8 @@ package DXM;
 				nodeac => q{$_[0] created as AK1A style Node},
 				nodeb => q{$_[0] set as BBS},
 				nodebc => q{$_[0] created as BBS},
+				nodeccl => q{$_[0] set as CCCluster style Node},
+				nodecclc => q{$_[0] created as CCCluster style Node},
 				nodec => q{$_[0] set as CLX style Node},
 				nodecc => q{$_[0] created as CLX style Node},
 				noder => q{$_[0] set as AR-Cluster style Node},

@@ -326,7 +326,7 @@ sub is_bbs
 
 sub is_node
 {
-	return $_[0]->{sort} =~ /^[ACRSX]$/;
+	return $_[0]->{sort} =~ /^[ACRSXL]$/;
 }
 # is it an ak1a node ?
 sub is_ak1a
@@ -375,7 +375,7 @@ sub is_rbn
 	return $_[0]->{sort} eq 'N';
 }
 
-sub is_dslink
+sub is_ccluster
 {
 	return $_[0]->{sort} eq 'L';
 }

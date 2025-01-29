@@ -74,7 +74,7 @@ our $spotcachedays = 2;			# default 2 days worth
 our $minselfspotqrg = 1240000;	# minimum freq above which self spotting is allowed
 
 our $readback = $main::is_win ? 0 : 1; # don't read spot files backwards if it's windows
-our $qrggranularity = 25;       # normalise the qrg to this number of hz (default: 25khz), so tough luck if you have a fumble fingers moment
+our $qrggranularity = 1;       # normalise the qrg to this number of khz (default: 25khz), so tough luck if you have a fumble fingers moment
 our $timegranularity = 600;		# ditto to the nearest 100 seconds 
 our $oldstyle = 0;				# revert to traditional dupe key format
 our $no_node_in_dupe = 1;		# remove the node field from dupe considerations. 

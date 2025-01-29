@@ -890,10 +890,6 @@ sub handle_18
 	my $pc = shift;
 
 	my $conn = $self->conn;
-	unless ($self->outbound) {
-		dbg("PC18 on startup an incoming connection from $self->{call} ignored as iappropriate");
-		return;
-	}
 
 	$self->state('init');
 
@@ -914,16 +910,21 @@ sub handle_18
 		$self->{build} = $build;
 		$self->user->build($build);
 		$parent->build($build);
-		dbg("$self->{call} = $software version $version build $build");
-		unless ($self->is_spider) {
-			dbg("Change U " . $self->user->sort . " C $self->{sort} -> S");
+		dbg("PC18 $self->{call} = $software version $version build $build");
+		if ($software =~ /^DXSp/ && !$self->is_spider) {
+			dbg("PC18 Change sort U " . $self->user->sort . " C $self->{sort} -> S");
+			$self->sort('S');
 			$self->user->sort('S');
 			$self->user->put;
-			$self->sort('S');
 		}
-#		$self->{handle_xml}++ if DXXml::available() && $pc->[1] =~ /\bxml/;
+		if ($software =~ /^CC/ && !$self->is_ccluster) {
+			dbg("PC18 Change sort U " . $self->user->sort . " C $self->{sort} -> L");
+			$self->sort('L');
+			$self->user->sort('L');
+			$self->user->put;
+		}
 	} elsif (($software, $version, $build) = $pc->[1] =~ /(AR-Cluster)\s+Version:\s+(\d+\.\d+).?(\d+\.\d+)?/) {
-		dbg("$self->{call} = $software version $version build $build");
+		dbg("PC18 $self->{call} = $software version $version build $build");
 		$self->{version} = $version;
 		$self->user->version($version);
 		$parent->version($version);
@@ -937,20 +938,36 @@ sub handle_18
 			$self->sort('R');
 		}
 	} else {
-		dbg("$self->{call} = Unknown software ($pc->[1] $pc->[2])");
+		dbg("PC18 $self->{call} = Unknown software ($pc->[1] $pc->[2])");
 		$self->version(50.0);
 		$self->version($pc->[2] / 100) if $pc->[2] && $pc->[2] =~ /^\d+$/;
 		$self->user->version($self->version);
 	}
 
+	# for incoming CC Clusters go straight to state 'normal', otherwise bang out.
+	# In future this may well cause a disconnection
+	unless ($self->outbound) {
+		if ($self->is_ccluster) {
+			my @rout = $parent->del_nodes;
+			$self->route_pc21($origin, $line, @rout, $parent) if @rout;
+			$self->send_local_config();
+			$self->state('normal');
+			$self->{lastping} = 0;
+			$self->route_pc92a($main::mycall, undef, $main::routeroot, Route::Node::get($self->{call}));
+		} else {
+			dbg("PC18 on startup an incoming connection from $self->{call} ignored as iappropriate");
+			return;
+		}
+	}
+	
 	if ($pc->[1] =~ /CC\s*Cluster/i || $pc->[1] =~ /\bpc9x/i) {
 		if ($self->{isolate}) {
-			dbg("$self->{call} pc9x recognised, but node is isolated, using old protocol");
+			dbg("PC18 $self->{call} pc9x recognised, but node is isolated, using old protocol");
 		} elsif (!$self->user->wantpc9x) {
-			dbg("$self->{call} pc9x explicitly switched off, using old protocol");
+			dbg("PC18 $self->{call} pc9x explicitly switched off, using old protocol");
 		} else {
 			$self->{do_pc9x} = 1;
-			dbg("$self->{call} Set do PC9x");
+			dbg("PC18 $self->{call} Set do PC9x");
 		}
 	}
 

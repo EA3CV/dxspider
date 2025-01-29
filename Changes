@@ -1,3 +1,9 @@
+28Jan25======================================================================
+1. Set default Spot qrg granularity to 1KHz (was 25KHz).
+2. Refine Incoming CCLuster connection handling. It is a requirement that a
+   node is either currently known as a node (probably automagickly marked as
+   dxspider previously by receiving PC92 K record) or doing it explicitly
+   with a 'set/ccluster' command. 
 27Jan25======================================================================
 1. Make SURE that spot dupe checks do not add yet more dupe (dupe) records
    to the dupe file. 
