@@ -971,6 +971,20 @@ sub handle_18
 		}
 	}
 
+	# for incoming CC Clusters go straight to state 'normal', otherwise bang out.
+	# In future this may well cause a disconnection
+	unless ($self->outbound) {
+		if ($self->is_ccluster) {
+			$self->state('normal');
+			$self->{lastping} = 0;
+			$self->route_pc92a($main::mycall, undef, $main::routeroot, Route::Node::get($self->{call}));
+		} else {
+			dbg("PC18 on startup an incoming connection from $self->{call} ignored as iappropriate");
+			return;
+		}
+	}
+	
+
 	# first clear out any nodes on this dxchannel
 	my @rout = $parent->del_nodes;
 	$self->route_pc21($origin, $line, @rout, $parent) if @rout;
