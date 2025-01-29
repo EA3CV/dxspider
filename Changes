@@ -4,6 +4,8 @@
    node is either currently known as a node (probably automagickly marked as
    dxspider previously by receiving PC92 K record) or doing it explicitly
    with a 'set/ccluster' command. 
+3. New bands.pl courtesy of Keith G6NHU.
+4. Increased max users to 1800 as requested by Keith as well. 
 27Jan25======================================================================
 1. Make SURE that spot dupe checks do not add yet more dupe (dupe) records
    to the dupe file. 

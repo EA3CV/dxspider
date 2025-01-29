@@ -89,7 +89,7 @@ sub do_it
 	my $users = DXChannel::get_all_users();
 	my $nodes = DXChannel::get_all_nodes();
 
-	$mc->cfgprint('users', [qw(unknaszero gauge integer)], 500, 
+	$mc->cfgprint('users', [qw(unknaszero gauge integer)], 1800, 
 				  "<font color=#00cc00>Users</font> and <font color=#0000ff>Nodes</font> on $main::mycall",
 				  'Users / Nodes', 'Users', 'Nodes') unless $want{dataonly};
 	$mc->data('users', $users, $nodes, 'Users / Nodes') unless $want{cfgonly};

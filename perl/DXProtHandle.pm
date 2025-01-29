@@ -950,10 +950,10 @@ sub handle_18
 		if ($self->is_ccluster) {
 			my @rout = $parent->del_nodes;
 			$self->route_pc21($origin, $line, @rout, $parent) if @rout;
-			$self->send_local_config();
+#			$self->send_local_config();
 			$self->state('normal');
 			$self->{lastping} = 0;
-			$self->route_pc92a($main::mycall, undef, $main::routeroot, Route::Node::get($self->{call}));
+#			$self->route_pc92a($main::mycall, undef, $main::routeroot, Route::Node::get($self->{call}));
 		} else {
 			dbg("PC18 on startup an incoming connection from $self->{call} ignored as iappropriate");
 			return;
@@ -977,7 +977,7 @@ sub handle_18
 		if ($self->is_ccluster) {
 			$self->state('normal');
 			$self->{lastping} = 0;
-			$self->route_pc92a($main::mycall, undef, $main::routeroot, Route::Node::get($self->{call}));
+#			$self->route_pc92a($main::mycall, undef, $main::routeroot, Route::Node::get($self->{call}));
 		} else {
 			dbg("PC18 on startup an incoming connection from $self->{call} ignored as iappropriate");
 			return;
