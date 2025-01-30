@@ -1,6 +1,12 @@
 29Jan25======================================================================
 1. Fix dx command <cough>. "I never changed that bit". If I had this would
    never have happened. 
+2. Fixed another fix that was to do with deduping and thus cause locally 
+   generated spots to be stored in the local spot files again. 
+3. Made an attempt to allow perl regex filter statements to work on callsigns
+   as well comments and other text fields. This means that:
+       reject/spot call {wwa$} or info {w\s*\w\*a} 
+   will likely reduce your spots considerably.  
 28Jan25======================================================================
 1. Set default Spot qrg granularity to 1KHz (was 25KHz).
 2. Refine Incoming CCLuster connection handling. It is a requirement that a
