@@ -92,7 +92,8 @@ sub compile
 	if ($ref->{$ar} && exists $ref->{$ar}->{asc}) {
 		my $s = $ref->{$ar}->{asc};	# an optimisation?
 		$s =~ s/\$r/\$_[0]/g;
-#		$s =~ s/\\\\/\\/g;
+		#		$s =~ s/\\\\/\\/g;
+		dbg("Filter code $self->{call} $fname $ar: $s") if isdbg("filter");
 		$ref->{$ar}->{code} = eval "sub { $s }" ;
 		if ($@) {
 			my $sort = $ref->{sort};
@@ -253,25 +254,29 @@ sub it
 	my $asc = '?';
 
 	my $r = @keys > 0 ? 0 : 1;
+	my @tests;
+	
 	foreach $key (@keys) {
 		$filter = $self->{$key};
 		if ($filter->{reject} && exists $filter->{reject}->{code}) {
 			$type = 'reject';
-			$asc = $filter->{reject}->{user};
 			if (&{$filter->{reject}->{code}}(ref $_[0] ? $_[0] : \@_)) {
 				$r = 0;
 				last;
 			} else {
 				$r = 1;
+				$asc = $filter->{reject}->{user};
+				push @tests, $key; 
 			}		
 		}
 		if ($filter->{accept} && exists $filter->{accept}->{code}) {
 			$type = 'accept';
-			$asc = $filter->{accept}->{user};
 			if (&{$filter->{accept}->{code}}(ref $_[0] ? $_[0] : \@_)) {
 				$r = 1;
 				last;
 			} else {
+				push @tests, $key; 
+				$asc = $filter->{accept}->{user};
 				$r = 0;
 			}			
 		} 
@@ -288,9 +293,11 @@ sub it
 		my $dir = $self->{name} =~ /^in_/i ? "IN " : "OUT";
 
 		$call =~ s/\.PL$//i;
-		my $h = $hops || '';
-		dbg("Filter: $call $true $dir: $type/$sort with '$asc' on '$args' $h") if isdbg('filter');
+		my $tests = " tests: " . join ', ', @tests; 
+		my $h = " hops: $hops" || '';
+		dbg("Filter: $call $true $dir: $type/$sort with '$asc' on '$args'$h$tests") if isdbg('filter');
 	}
+
 	return ($r, $hops);
 }
 
@@ -410,18 +417,19 @@ use DXDebug;
 use vars qw(@ISA);
 @ISA = qw(Filter);
 
-sub encode_regex
-{
-	my $s = shift;
-	$s =~ s/\{(.*?)\}/'{'. unpack('H*', $1) . '}'/eg if $s;
-	return $s;
-}
 
-sub decode_regex
+sub encode_regex
 {
 	my $r = shift;
 	my ($v) = $r =~ /^\{(.*?)}$/;
 	return pack('H*', $v);
+}
+
+sub decode_regex
+{
+	my $s = shift;
+	$s =~ s/\{(.*?)\}/'{'. unpack('H*', $1) . '}'/eg if $s;
+	return $s;
 }
 
 
@@ -446,8 +454,9 @@ sub parse
 
 	# disguise regexes
 
-	dbg("Filter parse line after regex check: '$line'") if isdbg('filter');
-	$line = encode_regex($line);
+	my $oline = $line;
+#	$line = encode_regex($line);
+	dbg("Filter parse line after regex check: '$oline' -> '$line'") if isdbg('filter');
 	
 	# add some spaces for ease of parsing
 	$line =~ s/([\(\!\)])/ $1 /g;
@@ -475,7 +484,6 @@ sub parse
 
 			$filter = Filter::read_in($sort, $call, $flag) unless $forcenew;
 			$filter = Filter->new($sort, $call, $flag) if !$filter || $filter->isa('Filter::Old');
-			
 			$ntoken++;
 			next;
 		}
@@ -520,31 +528,36 @@ sub parse
 							}
 							@val = @nval;
 						}
-						if ($fref->[1] eq 'a' || $fref->[1] eq 't') {
+						if ($fref->[1] eq 'a' || $fref->[1] eq 't' || $fref->[1] eq 'c') {
 							my @t;
 							foreach my $v (@val) {
-								$v =~ s/\*//g;        # remove any trailing *
+								$v =~ s/\*$//g;        # remove any trailing *
 								if (my ($r) = $v =~ /^\{(.*)\}$/) { # we have a regex
 									dbg("Filter::parse regex b: '\{$r\}'") if isdbg('filter'); 
-									$v = decode_regex($v);
+									#									$v = decode_regex($r);
+									$v = $r;
 									dbg("Filter::parse regex a: '$v'") if isdbg('filter'); 
 									return  ('regex', $dxchan->msg('e38', $v)) unless (qr{$v});
 									push @t, "\$r->[$fref->[2]]=~m{$v}i";
-									$v = "{$r}"; # put it back together again for humans
+									$v = "{$v}"; # put it back together again for humans
 								} else {
-									push @t, "\$r->[$fref->[2]]=~m{$v}i";
+									if ($fref->[1] eq 'c') {
+										push @t, "\$r->[$fref->[2]]=~m\{^\U$v\$\}";
+									} else {
+										push @t, "\$r->[$fref->[2]]=~m\{$v\}i";
+									}
 								}
 							}
 							$s .= "(" . join(' || ', @t) . ")";
 							dbg("filter parse: s '$s'") if isdbg('filter');
-						} elsif ($fref->[1] eq 'c') {
-							my @t;
-							for (@val) {
-								s/\*//g;
-								push @t, "\$r->[$fref->[2]]=~m{^\U$_}";
-							}
-							$s .= "(" . join(' || ', @t) . ")";
-							dbg("filter parse: s '$s'") if isdbg('filter');
+						# } elsif ($fref->[1] eq 'c') {
+						# 	my @t;
+						# 	for (@val) {
+						# 		s/\*//g;
+						# 		push @t, "\$r->[$fref->[2]]=~m{^\U$_}";
+						# 	}
+						# 	$s .= "(" . join(' || ', @t) . ")";
+						# 	dbg("filter parse: s '$s'") if isdbg('filter');
 						} elsif ($fref->[1] eq 'n') {
 							my @t;
 							for (@val) {
@@ -582,7 +595,8 @@ sub parse
 				}
 				return (1, $dxchan->msg('e20', $tok)) unless $found;
 			} else {
-				$s = $tok =~ /^{.*}$/ ? '{' . decode_regex($tok) . '}' : $tok;
+#				$s = $tok =~ /^{.*}$/ ? '{' . decode_regex($tok) . '}' : $tok;
+				$s = $tok =~ /^{.*}$/ ? '{' . $tok . '}' : $tok;
 				return (1, $dxchan->msg('filter2', $s));
 			}
 			$lasttok = $tok;
@@ -596,7 +610,8 @@ sub parse
 		$user =~ s/\|\|/ or /g;
 		$user =~ s/\!/ not /g;
 		$user =~ s/\s+/ /g;
-		$user =~ s/\{(.*?)\}/'{'. pack('H*', $1) . '}'/eg;
+		$user =~ s/\{(.*?)\}/'{'. $1 . '}'/eg;
+#		$user =~ s/\{(.*?)\}/'{'. pack('H*', $1) . '}'/eg;
 		$user =~ s/^\s+//;
 		dbg("filter parse: user '$user'") if isdbg('filter');
 	}
@@ -629,7 +644,7 @@ sub cmd
 
 	$filter->{$fn}->{$type}->{user} = $user;
 	$filter->{$fn}->{$type}->{asc} = $s;
-	$r = $filter->compile($fn, $type);   # NOTE: returns an ERROR, therefore 0 = success
+	$r = $filter->compile( $fn, $type);   # NOTE: returns an ERROR, therefore 0 = success
 	return (0,$r) if $r;
 	
 	$r = $filter->write;

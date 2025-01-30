@@ -585,7 +585,7 @@ sub send_dx_spot
 		next if $dxchan == $self && $self->is_node;
 		next if $dxchan == $self;
 		next if $dxchan->is_rbn;
-		if ($line =~ /PC61/ && !($dxchan->is_spider || $dxchan->is_user)) {
+		if ($line =~ /PC61/ && !($dxchan->do_pc9x ||  $dxchan->is_user)) {
 			unless ($pc11) {
 				my @f = split /\^/, $line;
 				$pc11 = join '^', 'PC11', @f[1..7,9];
@@ -697,7 +697,7 @@ sub wcy
 		($filter, $hops) = $self->{wcyfilter}->it(@_);
 		return unless $filter;
 	}
-	send_prot_line($self, $filter, $hops, $isolate, $line) if $self->is_clx || $self->is_spider || $self->is_dxnet;
+	send_prot_line($self, $filter, $hops, $isolate, $line) if $self->is_clx || $self->do_pc9x || $self->is_dxnet;
 }
 
 # send an announce
@@ -876,7 +876,7 @@ sub chat
 		($filter, $hops) = $self->{annfilter}->it(@_);
 		return unless $filter;
 	}
-	if (($self->is_spider || $self->is_ak1a) && $_[1] ne $main::mycall) {
+	if (($self->is_spider || $self->is_ccluster || $self->is_ak1a) && $_[1] ne $main::mycall) {
 		send_prot_line($self, $filter, $hops, $isolate, $line);
 	}
 }
