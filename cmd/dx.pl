@@ -180,8 +180,13 @@ if ($freq =~ /^69/ || $localonly) {
 		push @{$self->{sluggedpcs}}, [61, $spot, \@spot];
 	} else {
 		# store in spots database 
-		Spot::add(@spot);
-		DXProt::send_dx_spot($self, $spot, @spot);
+		unless (Spot::dup_find(@spot)) {
+			Spot::dup_add(0, @spot);
+			DXProt::send_dx_spot($self, $spot, @spot);
+		} else {
+			push @out, "Duplicate spot: $line";
+			LogDbg("DXCommand", "Spot dupe from $spotter: $line");
+		} 
 	}
 }
 
