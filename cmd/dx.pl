@@ -155,7 +155,7 @@ return (1, @out) unless $valid;
 
 # Store it here (but only if it isn't baddx)
 my $t = (int ($main::systime/60)) * 60;
-return (1, $self->msg('dup')) if Spot::dup($freq, $spotted, $t, $line, $spotter, $main::mycall);
+return (1, $self->msg('dup')) if Spot::dup_find($freq, $spotted, $t, $line, $spotter, $main::mycall);
 my @spot = Spot::prepare($freq, $spotted, $t, $line, $spotter, $main::mycall, $ipaddr);
 
 #$DB::single = 1;

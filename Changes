@@ -1,3 +1,6 @@
+29Jan25======================================================================
+1. Fix dx command <cough>. "I never changed that bit". If I had this would
+   never have happened. 
 28Jan25======================================================================
 1. Set default Spot qrg granularity to 1KHz (was 25KHz).
 2. Refine Incoming CCLuster connection handling. It is a requirement that a
