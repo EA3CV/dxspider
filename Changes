@@ -1,3 +1,8 @@
+31Jan25======================================================================
+1. Fixed botched node link initialisation check. This what prevent ann/full
+   working and would have stopped talk, rcmd etc etc. 
+2. Added a field called 'state' to the who command to allow sysops to
+   diagnose some connection initialisation problems. 
 29Jan25======================================================================
 1. Fix dx command <cough>. "I never changed that bit". If I had this would
    never have happened. 

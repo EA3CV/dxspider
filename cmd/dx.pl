@@ -175,7 +175,6 @@ if ($freq =~ /^69/ || $localonly) {
 	$ipaddr ||= $main::mycall;	# emergency backstop
 	my $spot = DXProt::pc61($spotter, $freq, $spotted, unpad($line),  $ipaddr);
 	
-#	$self->dx_spot(undef, undef, @spot);
 	if ($self->isslugged) {
 		push @{$self->{sluggedpcs}}, [61, $spot, \@spot];
 	} else {
@@ -183,6 +182,7 @@ if ($freq =~ /^69/ || $localonly) {
 		unless (Spot::dup_find(@spot)) {
 			Spot::dup_add(0, @spot);
 			Spot::add(@spot);
+			$self->dx_spot(undef, undef, @spot);
 			DXProt::send_dx_spot($self, $spot, @spot);
 		} else {
 			push @out, "Duplicate spot: $line";

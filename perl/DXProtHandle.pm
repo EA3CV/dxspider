@@ -75,6 +75,21 @@ $pc92filterdef = bless ([
 			  ['zone', 'nz', 3],
 			 ], 'Filter::Cmd');
 
+sub check_available
+{
+	my $self = shift;
+	my $origin = shift;
+	my $pcno = shift;
+	
+	return 0 if $self == $main::me;
+	
+	unless ($self->is_node && $self->state eq 'normal') {
+		dbg("PC$pcno sent to $self->{call} ignored as this channel is not yet initialised (state: $self-{state})");
+		return 1;
+	}
+	return 0;
+}
+
 our %pc11q;
 # this is a place to park an incoming PC11 in the sure and certain hope that
 # a PC61 will be along soon. This has the side benefit that it will delay a
@@ -94,12 +109,8 @@ sub handle_10
 		return;
 	}
 
-	unless ($self->state eq 'normal') {
-		dbg("PC$pcno sent from $self->{call} ignored as this channel is not yet initialised (state: $self-{state})");
-		return;
-	}
-
-
+	return if $self->check_available($origin, $pcno);
+			
 	# is it for me or one of mine?
 	my ($from, $to, $via, $call, $dxchan);
 	$from = $pc->[1];
@@ -167,11 +178,8 @@ sub handle_11
 	my $pc = shift;
 	my $recurse = shift || 0;
 
-	unless ($self->state eq 'normal') {
-		dbg("PC$pcno sent from $self->{call} ignored as this channel is not yet initialised (state: $self-{state})");
-		return;
-	}
-	
+	return if $self->check_available($origin, $pcno);
+
 	# route 'foreign' pc26s
 	if ($pcno == 26) {
 		if ($pc->[7] ne $main::mycall) {
@@ -583,10 +591,7 @@ sub handle_12
 	my $origin = shift;
 	my $pc = shift;
 
-	unless ($self->state eq 'normal') {
-		dbg("PC$pcno sent from $self->{call} ignored as this channel is not yet initialised (state: $self-{state})");
-		return;
-	}
+	return if $self->check_available($origin, $pcno);
 
 	# announce duplicate checking
 	$pc->[3] =~ s/^\s+//;			# remove leading blanks
@@ -1523,11 +1528,8 @@ sub handle_41
 	my $origin = shift;
 	my $pc = shift;
 
-	unless ($self->state eq 'normal') {
-		dbg("PC$pcno sent from $self->{call} ignored as this channel is not yet initialised (state: $self-{state})");
-		return;
-	}
-
+	return unless $self->check_available;
+	
 	my $call = $pc->[1];
 	my $sort = $pc->[2];
 	my $val = $pc->[3];
@@ -1760,10 +1762,7 @@ sub handle_84
 	my $origin = shift;
 	my $pc = shift;
 
-	unless ($self->state eq 'normal') {
-		dbg("PC$pcno sent from $self->{call} ignored as this channel is not yet initialised (state: $self-{state})");
-		return;
-	}
+	return if $self->check_available($origin, $pcno);
 
 	$self->process_rcmd($pc->[1], $pc->[2], $pc->[3], $pc->[4]);
 }
@@ -2476,11 +2475,8 @@ sub handle_93
 	my $pc = shift;
 
 	#	$self->{do_pc9x} ||= 1;
-	
-	unless ($self->state eq 'normal') {
-		dbg("PC$pcno sent from $self->{call} ignored as this channel is not yet initialised (state: $self-{state})");
-		return;
-	}
+
+	return if $self->check_available($origin, $pcno);
 
 	my $pcall = $pc->[1];			# this is now checked earlier
 
