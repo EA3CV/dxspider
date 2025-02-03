@@ -113,7 +113,7 @@ sub handle_10
 	# if this is a 'nodx' node then ignore it
 	if ($badnode->in($pc->[6]) || ($via && $badnode->in($via))) {
 		dbg($line) if isdbg('nologchan');
-		dbg("PCPROT: Bad Node, dropped");
+		dbg("PCPROT: Bad Node $pc->[6]/$via, dropped");
 		return;
 	}
 
@@ -122,7 +122,7 @@ sub handle_10
 	$nossid =~ s/-\d+$//;
 	if ($badspotter->in($nossid)) {
 		dbg($line) if isdbg('nologchan');
-		dbg("PCPROT: Bad Spotter, dropped");
+		dbg("PCPROT: Bad Spotter $nossid, dropped");
 		return;
 	}
 
@@ -256,7 +256,7 @@ sub handle_11
 	# is this is a 'bad spotter' or an unknown user then ignore it. 
 	if ($badspotter->in($nossid)) {
 		dbg($line) if isdbg('nologchan');
-		dbg("PCPROT: Bad Spotter $pc->[6], dropped");
+		dbg("PCPROT: Bad Spotter $nossid, dropped");
 		return;
 	}
 
@@ -594,7 +594,7 @@ sub handle_12
 	# if this is a 'nodx' node then ignore it
 	if ($badnode->in($pc->[5])) {
 		dbg($line) if isdbg('nologchan');
-		dbg("PCPROT: Bad Node, dropped");
+		dbg("PCPROT: Bad Node $pc->[5], dropped");
 		return;
 	}
 
@@ -603,7 +603,7 @@ sub handle_12
 	$nossid =~ s/-\d+$//;
 	if ($badspotter->in($nossid)) {
 		dbg($line) if isdbg('nologchan');
-		dbg("PCPROT: Bad Spotter, dropped");
+		dbg("PCPROT: Bad Spotter $nossid, dropped");
 		return;
 	}
 
@@ -2521,7 +2521,7 @@ sub handle_93
 	$nossid =~ s/-\d+$//;
 	if ($badspotter->in($nossid)) {
 		dbg($line) if isdbg('nologchan');
-		dbg("PCPROT: Bad Spotter, dropped");
+		dbg("PCPROT: Bad Spotter $nossid, dropped");
 		return;
 	}
 

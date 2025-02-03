@@ -1475,7 +1475,7 @@ sub send_route
 				if ($filter) {
 					push @rin, $r;
 				} else {
-					dbg("PCPROT: $self->{call}/" . $r->call . " rejected by output filter") if isdbg('filter');
+					dbg("PCPROT: send_route $self->{call}/" . $r->call . " rejected by output filter") if isdbg('filter');
 				}
 			} else {
 				dbg("was sent a null value") if isdbg('chanerr');

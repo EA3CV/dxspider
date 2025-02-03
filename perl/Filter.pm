@@ -251,8 +251,14 @@ sub it
 	my $key;
 	my $type = 'Dunno';
 	my $asc = '?';
+	
+	my $r = 1;
+	my $reason = '';
+	
+	my $hit = undef;
+	my $true = 'PASS';
+   
 
-	my $r = @keys > 0 ? 0 : 1;
 	foreach $key (@keys) {
 		$filter = $self->{$key};
 		if ($filter->{reject} && exists $filter->{reject}->{code}) {
@@ -260,8 +266,12 @@ sub it
 			$asc = $filter->{reject}->{user};
 			if (&{$filter->{reject}->{code}}(ref $_[0] ? $_[0] : \@_)) {
 				$r = 0;
+				$true = 'REJ ';
+				$hit = $filter->{reject};
+				$reason = $hit->{user};
 				last;
 			} else {
+				$true = 'OK ';
 				$r = 1;
 			}		
 		}
@@ -270,11 +280,15 @@ sub it
 			$asc = $filter->{accept}->{user};
 			if (&{$filter->{accept}->{code}}(ref $_[0] ? $_[0] : \@_)) {
 				$r = 1;
+				$true = 'ACC ';
+				$hit = $filter->{accept};
+				$reason = $hit->{user};
 				last;
 			} else {
+				$true = 'OK ';
 				$r = 0;
 			}			
-		} 
+		}
 	}
 
 	# hops are done differently (simply) 
@@ -282,14 +296,17 @@ sub it
 
 	if (isdbg('filter')) {
 		my $call = $self->{name};
-		my $args = join '\',\'', map {defined $_ ? $_ : 'undef'} (ref $_[0] ? @{$_[0]} : @_);
-		my $true = $r ? "OK " : "REJ";
+		my $args = join ', ', map {defined $_ ? $_ : 'undef'} (ref $_[0] ? @{$_[0]} : @_);
 		my $sort = $self->{sort};
 		my $dir = $self->{name} =~ /^in_/i ? "IN " : "OUT";
 
 		$call =~ s/\.PL$//i;
-		my $h = $hops || '';
-		dbg("Filter: $call $true $dir: $type/$sort with '$asc' on '$args' $h") if isdbg('filter');
+		my $h = " hops: $hops" || '';
+		if ($reason) {
+			dbg("Filter: $call $true $dir $type/$sort '$reason' on '$args'") if isdbg('filter');
+		} else {
+			dbg("Filter: $call $true $dir on '$args'") if isdbg('filter');
+		}
 	}
 	return ($r, $hops);
 }
