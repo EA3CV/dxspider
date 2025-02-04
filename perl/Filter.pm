@@ -254,7 +254,6 @@ sub it
 	
 	my $r = 1;
 	my $reason = '';
-	
 	my $hit = undef;
 	my $true = 'PASS';
    

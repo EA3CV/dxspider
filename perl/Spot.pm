@@ -495,8 +495,8 @@ sub dup_add
 	# remove SSID or area
 	$by =~ s|[-/]\d+$||;
 	
-#	$freq = sprintf "%.1f", $freq;       # normalise frequency
-	$freq = int $freq;       # normalise frequency
+	$freq = sprintf "%.1f", $freq;       # normalise frequency
+#	$freq = int $freq;       # normalise frequency
 
 	my $qrg = nearest($qrggranularity, $freq); # to the nearest however many hz
 	
