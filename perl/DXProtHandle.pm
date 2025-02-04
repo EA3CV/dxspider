@@ -49,7 +49,9 @@ use vars qw($pc11_max_age $pc23_max_age $last_pc50 $eph_restime $eph_info_restim
 			$eph_pc15_restime $pc9x_past_age $pc9x_dupe_age
 			$pc10_dupe_age $pc92_slug_changes $last_pc92_slug
 			$pc92Ain $pc92Cin $pc92Din $pc92Kin $pc9x_time_tolerance
-			$pc92filterdef $senderverify $pc11_dwell_time $pc61_extract_route $pc92_ad_enabled $pc92c_ipaddr_enabled
+			$pc92filterdef $senderverify $pc11_dwell_time $pc61_extract_route
+			$pc92_ad_enabled $pc92c_ipaddr_enabled
+			$preserve_node_ssid
 		   );
 
 $pc9x_dupe_age = 60;			# catch loops of circular (usually) D records
@@ -65,6 +67,7 @@ $senderverify = 0;				# 1 - check for forged PC11 or PC61.
 $pc11_dwell_time = 2;			# number of seconds to wait for a PC61 to come to substitute the PC11
 $pc61_extract_route = 0;		# generate missing  user route entry and IP address from passing PC61s
 
+$preserve_node_ssid = 0;		# With the changes to badnode set this to 1 to preserve badnode ssids
 
 $pc92filterdef = bless ([
 			  # tag, sort, field, priv, special parser
@@ -122,18 +125,16 @@ sub handle_10
 	}
 
 	# if this is a 'nodx' node then ignore it
-	if ($badnode->in($pc->[6]) || ($via && $badnode->in($via))) {
+	if ($badnode->in($pc->[6], $preserve_node_ssid) || ($via && $badnode->in($via, $preserve_node_ssid))) {
 		dbg($line) if isdbg('nologchan');
 		dbg("PCPROT: Bad Node $pc->[6]/$via, dropped");
 		return;
 	}
 
 
-	my $nossid = $from;
-	$nossid =~ s/-\d+$//;
-	if ($badspotter->in($nossid)) {
+	if ($badspotter->in($from)) {
 		dbg($line) if isdbg('nologchan');
-		dbg("PCPROT: Bad Spotter $nossid, dropped");
+		dbg("PCPROT: Bad Spotter $from, dropped");
 		return;
 	}
 
@@ -208,7 +209,7 @@ sub handle_11
 
 
 	# if this is a 'nodx' node then ignore it
-	if ($badnode->in($pc->[7])) {
+	if ($badnode->in($pc->[7], $preserve_node_ssid)) {
 		dbg($line) if isdbg('nologchan');
 		dbg("PCPROT: Bad Node $pc->[7], dropped");
 		return;
@@ -242,6 +243,13 @@ sub handle_11
 	my $nossid = $pc->[6];
     $nossid =~ s/-\d+$//;
 
+	# is this is a 'bad spotter' or an unknown user then ignore it. 
+	if ($badspotter->in($nossid)) {
+		dbg($line) if isdbg('nologchan');
+		dbg("PCPROT: Bad Spotter $nossid, dropped");
+		return;
+	}
+
 	my @spot = Spot::prepare($pc->[1], $pc->[2], $d, $pc->[5], $nossid, $pc->[7], $pc->[8]);
 
 	#   $f0 = frequency
@@ -260,13 +268,6 @@ sub handle_11
 	#   $f13 = spotter us state
 	#   $f14 = ip address
 
-
-	# is this is a 'bad spotter' or an unknown user then ignore it. 
-	if ($badspotter->in($nossid)) {
-		dbg($line) if isdbg('nologchan');
-		dbg("PCPROT: Bad Spotter $nossid, dropped");
-		return;
-	}
 
 	# global spot filtering on INPUT
 	if ($self->{inspotsfilter}) {
@@ -597,18 +598,16 @@ sub handle_12
 	$pc->[3] =~ s/^\s+//;			# remove leading blanks
 
 	# if this is a 'nodx' node then ignore it
-	if ($badnode->in($pc->[5])) {
+	if ($badnode->in($pc->[5], $preserve_node_ssid)) {
 		dbg($line) if isdbg('nologchan');
 		dbg("PCPROT: Bad Node $pc->[5], dropped");
 		return;
 	}
 
 	# if this is a 'bad spotter' user then ignore it
-	my $nossid = $pc->[1];
-	$nossid =~ s/-\d+$//;
-	if ($badspotter->in($nossid)) {
+	if ($badspotter->in($pc->[1])) {
 		dbg($line) if isdbg('nologchan');
-		dbg("PCPROT: Bad Spotter $nossid, dropped");
+		dbg("PCPROT: Bad Spotter $pc->[1], dropped");
 		return;
 	}
 
@@ -2512,12 +2511,17 @@ sub handle_93
 		dbg($s);
 	}
 
-	# if this is a 'bad spotter' user then ignore it
-	my $nossid = $from;
-	$nossid =~ s/-\d+$//;
-	if ($badspotter->in($nossid)) {
+	# if this is a 'bad node' user then ignore it
+	if ($badnode->in($onode, $preserve_node_ssid)) {
 		dbg($line) if isdbg('nologchan');
-		dbg("PCPROT: Bad Spotter $nossid, dropped");
+		dbg("PCPROT: Bad Node $onode, dropped");
+		return;
+	}
+
+	# if this is a 'bad spotter' user then ignore it
+	if ($badspotter->in($from)) {
+		dbg($line) if isdbg('nologchan');
+		dbg("PCPROT: Bad Spotter $from, dropped");
 		return;
 	}
 

@@ -51,19 +51,37 @@ sub add
 	my $n = uc shift;
 	my $t = shift || time;
 	$self->{$n} = $t;
+
+	# also add the base version if it has some ssid on it
+	my $nn = $n;
+	$nn =~ s|(?:-\d+)?(?:/\w)?$||;
+	$self->{$nn} = $t unless $n eq $nn;
 }
 
 sub del
 {
 	my $self = shift;
 	my $n = uc shift;
+	my $exact = shift;
 	delete $self->{$n};
+	return if $exact;
+
+	my $nn = $n;
+	$nn =~ s|(?:-\d+)?(?:/\w)?$||;
+	my @ssid = (0..99);
+	delete $self->{"$nn-$_"} for @ssid;
 }
+
 
 sub in
 {
 	my $self = shift;
 	my $n = uc shift;
+	my $exact = shift;
+	
+	return 1 if exists $self->{$n};
+	return 0 if $exact;
+	$n =~ s/-\d+$//;
 	return exists $self->{$n};
 }
 
@@ -80,11 +98,11 @@ sub set
 	
 	foreach $f (@f) {
 
-		if ($self->in($f)) {
+		if ($self->in($f, 1)) {
 			push @out, $dxchan->msg('hasha',uc $f, $self->{name});
 			next;
 		}
-		$self->add($f);
+		$self->add($f, 1);
 		push @out, $dxchan->msg('hashb', uc $f, $self->{name});
 	}
 	$self->put;
@@ -104,11 +122,11 @@ sub unset
 	
 	foreach $f (@f) {
 
-		unless ($self->in($f)) {
+		unless ($self->in($f, 1)) {
 			push @out, $dxchan->msg('hashd', uc $f, $self->{name});
 			next;
 		}
-		$self->del($f);
+		$self->del($f, 1);
 		push @out, $dxchan->msg('hashc', uc $f, $self->{name});
 	}
 	$self->put;
