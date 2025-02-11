@@ -586,7 +586,7 @@ sub diffms
 sub difft
 {
 	my $b = shift;
-	my $adds = shift // 0;
+	my $adds = shift || 0;
 	
 	my $t;
 	if (ref $b eq 'ARRAY') {

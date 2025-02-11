@@ -127,6 +127,7 @@ sub handle_10
 	# if this is a 'nodx' node then ignore it
 	if ($badnode->in($pc->[6], $preserve_node_ssid) || ($via && $badnode->in($via, $preserve_node_ssid))) {
 		dbg($line) if isdbg('nologchan');
+		$via ||= '*';
 		dbg("PCPROT: Bad Node $pc->[6]/$via, dropped");
 		return;
 	}
@@ -385,38 +386,6 @@ sub handle_11
 		}
 	}
 	
-	# here we verify the spotter is currently connected to the node it says it is one. AKA email sender verify
-	# but without the explicit probe to the node. We are relying on "historical" information, but it very likely
-	# to be current once we have seen the first PC92C from that node.
-	#
-	# As for spots generated from non-PC92 nodes, we'll see after about  do_pc9x3h20m...
-	#
-	if ($senderverify || isdbg('suspicious')) {
-		my $sv = $senderverify;
-		$sv += 2 if isdbg('suspicious');
-		my $nroute = Route::Node::get($pc->[7]);
-		my $local = DXChannel::get($pc->[7]);
-		my $uref = DXUser::get_current($pc->[7]);
-		my $s = '';
-		my $ip = $pcno == 61 ?  $pc->[8] : '';
-
-		if ($nroute && ($nroute->last_PC92C || ($local && !$local->do_pc9x))) {
-#			$s .= "User $pc->[6] not logged in, " unless $uroute;
-			$s .= "User $pc->[6] not on node $pc->[7], " unless $nroute->is_user($pc->[6]);
-#			$s .= "Node $pc->[7] at '$ip' not on Node's IP " . $nroute->ip if $ip && $nroute && $nroute->ip && $nroute->ip ne $ip;
-		}
-		# check for ip addresses on spots from non-pc9x nodes - if they have it's likely done by DXSpider nodes
-		#if ($ip && ($nroute  && !$nroute->do_pc9x || $uref && $uref->is_spider)) {
-		#	$s .= "PC$pcno has spurious ipaddr '$ip' from non-pc9x node $pc->[7]";
-		#}
-		if ($s) {
-			my $action = $sv > 1 ? ", DUMPED" : '';
-			$s =~ s/, $//;
-			dbg("PCPROT: Bad Spot $pc->[2] on $pc->[1] by $pc->[6]($ip)\@$pc->[7] $s$action");
-			return unless $sv < 2;
-		}
-	}
-
 	# we until here to do any censorship to try and reduce the amount of noise that repeated copies
 	# from other connected nodes cause
 	if ($censorpc) {
@@ -445,6 +414,38 @@ sub handle_11
 		return;
 	}
 
+	# here we verify the spotter is currently connected to the node it says it is one. AKA email sender verify
+	# but without the explicit probe to the node. We are relying on "historical" information, but it very likely
+	# to be current once we have seen the first PC92C from that node.
+	#
+	# As for spots generated from non-PC92 nodes, we'll see...
+	#
+	if ($senderverify || isdbg('suspicious')) {
+		my $sv = $senderverify;
+		$sv += 2 if isdbg('suspicious');
+		my $nroute = Route::Node::get($pc->[7]);
+		my $local = DXChannel::get($pc->[7]);
+		my $uref = DXUser::get_current($pc->[7]);
+		my $s = '';
+		my $ip = $pcno == 61 ?  $pc->[8] : '';
+
+		if ($nroute && ($nroute->last_PC92C || ($local && !$local->do_pc9x))) {
+#			$s .= "User $pc->[6] not logged in, " unless $uroute;
+			$s .= "User $pc->[6] not on node $pc->[7], " unless $nroute->is_user($pc->[6]);
+#			$s .= "Node $pc->[7] at '$ip' not on Node's IP " . $nroute->ip if $ip && $nroute && $nroute->ip && $nroute->ip ne $ip;
+		}
+		# check for ip addresses on spots from non-pc9x nodes - if they have it's likely done by DXSpider nodes
+		#if ($ip && ($nroute  && !$nroute->do_pc9x || $uref && $uref->is_spider)) {
+		#	$s .= "PC$pcno has spurious ipaddr '$ip' from non-pc9x node $pc->[7]";
+		#}
+		if ($s) {
+			my $action = $sv > 1 ? ", DUMPED" : '';
+			$s =~ s/, $//;
+			dbg("PCPROT: Bad Spot $pc->[2] on $pc->[1] by $pc->[6]($ip)\@$pc->[7] $s$action");
+			return unless $sv < 2;
+		}
+	}
+	
 	#
 	# Now finally: save the spot itself and send it on its merry way to the users
 	#
