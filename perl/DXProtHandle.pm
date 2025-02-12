@@ -428,6 +428,7 @@ sub handle_11
 		my $uref = DXUser::get_current($pc->[7]);
 		my $s = '';
 		my $ip = $pcno == 61 ?  $pc->[8] : '';
+		my ($hops) = $pc->[$pcno == 61 ? 9 : 8] =~ /H(\d+)/; 
 
 		if ($nroute && ($nroute->last_PC92C || ($local && !$local->do_pc9x))) {
 #			$s .= "User $pc->[6] not logged in, " unless $uroute;
@@ -441,7 +442,8 @@ sub handle_11
 		if ($s) {
 			my $action = $sv > 1 ? ", DUMPED" : '';
 			$s =~ s/, $//;
-			dbg("PCPROT: Bad Spot $pc->[2] on $pc->[1] by $pc->[6]($ip)\@$pc->[7] $s$action");
+			$hops ||= '0';
+			dbg("PCPROT: Bad Spot $pc->[2] on $pc->[1] by $pc->[6]($ip)\@$pc->[7] $s$action via $self->{call} $hops hops");
 			return unless $sv < 2;
 		}
 	}
@@ -2261,6 +2263,7 @@ sub handle_92
 			my $oldversion = $parent->version || 0;
 			my $user = check_add_user($parent->call, 'S');
 			my $oldsort = $user->sort // '';
+			my $ipaddr = @ent > 10 ? $ent[9] : '';
 
 			dbg("PCPROT: PC92 K v: $version ov: $oldversion b: $build ob: $oldbuild pk: " . ($parent->K || '0') . " uk: " . ($user->K || 0)) if isdbg('pc92k');
 				

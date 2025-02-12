@@ -441,10 +441,13 @@ sub pc92c
 sub pc92k
 {
 	my $nref = shift;
+	my $ipaddr = shift;
+	
 	my $s = "PC92^$main::mycall^" . gen_pc9x_t() . "^K";
 	$s .= "^" . _encode_pc92_call($nref, 1) . ":$main::me->{build}";
 	$s .= "^" . scalar $nref->nodes;
 	$s .= "^" . scalar $nref->users;
+	$s .= "^$ipaddr" if $ipaddr;
 	return $s . '^H99^';
 }
 

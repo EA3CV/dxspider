@@ -1,3 +1,9 @@
+11Feb25======================================================================
+1. Remove duplicates from $DXProt::senderverify debug messages if this
+   variable is set to warn of or dump suspicious spots from spotters that
+   are not in the routing table for the node that they are claiming to 
+   be spotting from.
+2. Add this node's ip address to the PC92 K record on output.
 04Feb25======================================================================
 1. Improve badspotter/node handling to handle more cases, more easily. 
    Hopefully this won't cause problems greater than we already have.
