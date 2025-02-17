@@ -48,6 +48,8 @@ $myemail = "qqq@gmail.com";
 # are we doing xml?
 $do_xml = 0;
 
+$Internet::contest_host = '"contest.dxtron.com";
+
 # the SQL database DBI dsn
 #$dsn = "dbi:SQLite:dbname=$root/data/dxspider.db";
 #$dbuser = "";

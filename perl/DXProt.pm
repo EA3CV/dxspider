@@ -84,8 +84,6 @@ $pc92_extnode_update_period = 1*60*60; # the update period for external nodes
 $pc92_keepalive_period = 1*60*60;	# frequency of PC92 K (keepalive) records
 %pc92_find = ();				# outstanding pc92 find operations
 $pc92_find_timeout = 30;		# maximum time to wait for a reply
-$senderverify = 0;				# 1 = check spotter is on node it says it is and check ip address if available
-;								# 2 = do 1 and dump if check
 $pc92_ad_enabled = 1;			# send pc92 A & D records.
 $pc92c_ipaddr_enable = 0;		# add the local ip address info to each callsign in a PC92 C
 

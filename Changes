@@ -1,3 +1,12 @@
+16Feb25======================================================================
+1. Changed Internet.pm to set $contest = "contest.dxtron.com"; 
+   This means that show/contest will work again. If you have a copy of
+   Internet.pm in /spider/local, please change the $contest variable there. 
+2. Set $DXProt::sendverify to 2 as default.
+
+   This has shown to work well in this weekend's ARRL CW contest. Other
+   challenges have emerged which will be addressed before the next big
+   contest.  
 11Feb25======================================================================
 1. Remove duplicates from $DXProt::senderverify debug messages if this
    variable is set to warn of or dump suspicious spots from spotters that

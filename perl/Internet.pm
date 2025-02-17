@@ -70,7 +70,7 @@ $db0sdx_url = 'www.qslinfo.de'; # used by show/db0sdx
 $db0sdx_path = '/qslinfo';
 $db0sdx_suffix = '.asmx';
 $dx425_url = 'https://www.425dxn.org/';		# used by show/425
-#$contest_host = 'www.sk3bg.se';         # used by show/contest
+$contest_host = 'contest.dxtron.com';         # used by show/contest
 #$contest_url = "/contest/text";         # used by show/contest
 
 #SHOW/IK3QAR <callsign> Show the 5 most recent informations found on IK3QAR

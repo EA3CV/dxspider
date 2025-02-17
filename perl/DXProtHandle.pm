@@ -50,7 +50,7 @@ use vars qw($pc11_max_age $pc23_max_age $last_pc50 $eph_restime $eph_info_restim
 			$pc10_dupe_age $pc92_slug_changes $last_pc92_slug
 			$pc92Ain $pc92Cin $pc92Din $pc92Kin $pc9x_time_tolerance
 			$pc92filterdef $senderverify $pc11_dwell_time $pc61_extract_route
-			$pc92_ad_enabled $pc92c_ipaddr_enabled
+			$pc92_ad_enabled $pc92c_ipaddr_enable
 			$preserve_node_ssid
 		   );
 
@@ -62,7 +62,7 @@ $pc9x_time_tolerance = 15*60;	# the time on a pc9x is allowed to be out by this 
 $pc9x_past_age = (122*60)+		# maximum age in the past of a px9x (a config record might be the only
 $pc9x_time_tolerance;           # thing a node might send - once an hour and we allow an extra hour for luck)
                                 # this is actually the partition between "yesterday" and "today" but old.
-$senderverify = 0;				# 1 - check for forged PC11 or PC61.
+$senderverify = 2;				# 1 - check for forged PC11 or PC61.
                                 # 2 - if forged, dump them.
 $pc11_dwell_time = 2;			# number of seconds to wait for a PC61 to come to substitute the PC11
 $pc61_extract_route = 0;		# generate missing  user route entry and IP address from passing PC61s
