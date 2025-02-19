@@ -430,7 +430,7 @@ sub handle_11
 		my $ip = $pcno == 61 ?  $pc->[8] : '';
 		my ($hops) = $pc->[$pcno == 61 ? 9 : 8] =~ /H(\d+)/; 
 
-		if ($nroute && ($nroute->last_PC92C || ($local && !$local->do_pc9x))) {
+		if ($nroute && (($nroute->last_PC92C && $nroute->users) || ($local && !$local->do_pc9x))) {
 #			$s .= "User $pc->[6] not logged in, " unless $uroute;
 			$s .= "User $pc->[6] not on node $pc->[7], " unless $nroute->is_user($pc->[6]);
 #			$s .= "Node $pc->[7] at '$ip' not on Node's IP " . $nroute->ip if $ip && $nroute && $nroute->ip && $nroute->ip ne $ip;

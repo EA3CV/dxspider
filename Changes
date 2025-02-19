@@ -1,3 +1,7 @@
+19Feb25======================================================================
+1. Make sure that the routing table has a number of users as well as a last
+   PC92 C records. This will prevent some of the false negatives (just not
+   that many).
 16Feb25======================================================================
 1. Changed Internet.pm to set $contest = "contest.dxtron.com"; 
    This means that show/contest will work again. If you have a copy of

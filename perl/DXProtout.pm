@@ -448,6 +448,7 @@ sub pc92k
 	$s .= "^" . scalar $nref->nodes;
 	$s .= "^" . scalar $nref->users;
 	$s .= "^$ipaddr" if $ipaddr;
+	$s .= "^$main::gitbranch/$main::gitversion" if $main::gitversion;
 	return $s . '^H99^';
 }
 
