@@ -33,7 +33,7 @@ sub finish
 	undef $dbm;
 	untie %d;
 	undef %d;
-	unlink $fn;
+#	unlink $fn;
 }
 
 # NOTE: This checks for a duplicate and only adds a new entry if not found
