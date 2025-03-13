@@ -76,7 +76,8 @@ our $minselfspotqrg = 1240000;	# minimum freq above which self spotting is allow
 our $readback = $main::is_win ? 0 : 1; # don't read spot files backwards if it's windows
 our $qrggranularity = 1;       # normalise the qrg to this number of khz (default: 25khz), so tough luck if you have a fumble fingers moment
 our $timegranularity = 600;		# ditto to the nearest 100 seconds 
-our $dupebycall = 11*60+5;	    # check that call is not spotted by the same callsign too often - this the interval that each (base) call by pair can recur
+our $dupebycall = 11*60+5;	    # check that call is not spotted by the same callsign too often - this the dedupe interval - set to 0 to disable
+our $dupeqrgcall = 11*60+5;	    # check that call is not spotted on the same (normalised) qrg too often - this the dedupe interval - set to 0 to disable
 our $store_otext = 0;			# also store the original rather than "normalised" text/info field - now obsolescent
 
 
@@ -580,15 +581,17 @@ sub dup_add
 	}
 	
 	if ($dupebycall) {
-#	    $ldupkey = "X$by|$call";
-#		$t = DXDupe::find($ldupkey);
-#		dbg("Spot::add_dup by call $ldupkey" . ($t?(' DUPE=>'.htime($t)) :' NEW')) if isdbg('spotdup');
+	    $ldupkey = "X$by|$call";
+		$t = DXDupe::find($ldupkey);
+		dbg("Spot::add_dup by call $ldupkey" . ($t?(' DUPE=>'.htime($t)) :' NEW')) if isdbg('spotdup');
 		# see above 
 #		if ($t > 0) {
 #			DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
 #			return 1;	
 #		}
-		
+	}
+
+	if ($dupeqrgcall) {
 	    $ldupkey = "X$nd|$call";
 		$t = DXDupe::find($ldupkey);
 		dbg("Spot::add_dup by call $ldupkey" . ($t?(' DUPE=>'.htime($t)) :' NEW')) if isdbg('spotdup');
