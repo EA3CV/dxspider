@@ -76,8 +76,9 @@ our $minselfspotqrg = 1240000;	# minimum freq above which self spotting is allow
 our $readback = $main::is_win ? 0 : 1; # don't read spot files backwards if it's windows
 our $qrggranularity = 1;       # normalise the qrg to this number of khz (default: 25khz), so tough luck if you have a fumble fingers moment
 our $timegranularity = 600;		# ditto to the nearest 100 seconds 
-our $oldstyle = 0;				# revert to traditional dupe key format
-our $no_node_in_dupe = 1;		# remove the node field from dupe considerations. 
+our $dupebycall = 11*60+5;	    # check that call is not spotted by the same callsign too often - this the interval that each (base) call by pair can recur
+our $store_otext = 0;			# also store the original rather than "normalised" text/info field - now obsolescent
+
 
 if ($readback) {
 	$readback = `which tac`;
@@ -258,9 +259,12 @@ sub prepare
 	return @out;
 }
 
-sub add
+sub add_local
 {
 	my $buf = join('^', @_);
+
+	dup_new(@_);
+
 	$fp->writeunix($_[2], $buf);
 	if ($spotcachedays > 0) {
 		my $now = Julian::Day->new($_[2]);
@@ -421,7 +425,7 @@ sub search
 				last if $count >= $to; # stop after to
 			}
 		}
-	}
+7	}
 	return ("Spot search error", $@) if $@;
 
 	@out = sort {$b->[2] <=> $a->[2]} @out if @out;
@@ -481,7 +485,7 @@ sub dup_add
 {
 	my ($just_find, $freq, $call, $d, $text, $by, $node) = @_;
 
-	dbg("Spot::dup: freq=$freq call=$call d=$d text='$text' by=$by node=$node" . ($just_find ? " jf=$just_find" : "")) if isdbg('spotdup');
+	dbg("Spot::add_dup: freq=$freq call=$call d=$d text='$text' by=$by node=$node" . ($just_find ? " JF" : "")) if isdbg('spotdup');
 
 	# dump if too old
 	return 2 if $d < $main::systime - $dupage;
@@ -492,9 +496,7 @@ sub dup_add
 
 	my $nd = nearest($timegranularity, $d);
 
-	# remove SSID or area
-	$by =~ s|[-/]\d+$||;
-	
+
 	$freq = sprintf "%.1f", $freq;       # normalise frequency
 #	$freq = int $freq;       # normalise frequency
 
@@ -502,7 +504,14 @@ sub dup_add
 	
 	$call = substr($call, 0, $maxcalllth) if length $call > $maxcalllth;
 
-	my $dtext ;
+	# remove SSID or area on call, by and node
+	$call = basecall($call);
+	$by = basecall($by);
+	$node = basecall($node);
+
+	my $t = 0;
+	my $ldupkey;
+	my $dtext;
 	
 	my $l = length $text;
 	$dtext = qq{original:'$text'($l)} if isdbg('spottext');
@@ -511,6 +520,7 @@ sub dup_add
 	
 	$text =~ s/\%([0-9A-F][0-9A-F])/chr(hex($1))/eg;
 	$text = uc unpad($text);
+	$text =~ s/^\s*\d{1,2}[-+.:]\d\d\s+//; # remove anything that looks like a time from the front
 
 	$l = length $text;
 	$dtext .= qq{->afterhex: '$text'($l)} if isdbg('spottext');
@@ -531,42 +541,68 @@ sub dup_add
 	$l = length $text;
 	$dtext .= qq{->final:'$text'($l)} if isdbg('spottext');
 
-	my $t = 0;
-	my $ldupkey;
-
-	# new feature: don't include the origin node in Spot dupes
-	# default = true
-	$node = '' if $no_node_in_dupe;
-	$ldupkey = $oldstyle ? "X$call|$by|$freq|$nd|$node|$text" : "X$call|$by|$qrg|$nd|$node|$text";
-	
+	# new feature: don't include the origin node in Spot dupes and use normalised qrg, rather than raw freq
+	# $text = normalised text
+	$ldupkey = "X$call|$by|$qrg|$text";
 	$t = DXDupe::find($ldupkey);
-	dbg("Spot::dup ldupkey $ldupkey t '$t'" . ($t?' DUPE':' NEW')) if isdbg('spotdup');
+	dbg("Spot::add_dup ldupkey $ldupkey" . ($t?(' DUPE=>'.htime($t)) :' NEW')) if isdbg('spotdup');
 	$dtext .= ' DUPE' if $t;
 	dbg("text transforms: $dtext") if length $text && isdbg('spottext');
-	return 1 if $t > 0;	
-	
-	DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
-	
-	$otext = substr($otext, 0, $duplth) if length $otext > $duplth; 
-	$otext =~ s/\s+$//;
-	if (length $otext && $otext ne $text) {
-		$ldupkey = $oldstyle ? "X$call|$by|$freq|$otext" : "X$call|$by|$qrg|$nd|$otext";
-		$t = DXDupe::find($ldupkey);
-		dbg("Spot::dup (OTEXT) ldupkey $ldupkey t '$t'" . ($t?' DUPE':' NEW')) if isdbg('spotdup');
-		if (isdbg('spottext')) {
-			$dtext .= sprintf q{ DUBIOUS '%s'}, join '', @dubious if @dubious;
-			$dtext .= ' DUPE (OTEXT)' if $t;
-			dbg("text transforms: $dtext") if length $text;
-		}
-		return 1 if $t > 0;
-		DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
+
+	# re-add it to kick the timer down the road. REMEMBER: dupes are in a tied hash so
+	# this is effectively an update
+	if ($t > 0) {
+#		DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
+		return 1;	
 	}
+	DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
+
+	# $otext = slightly edited original text
+	if ($store_otext) {
+		$otext = substr($otext, 0, $duplth) if length $otext > $duplth; 
+		$otext =~ s/\s+$//;
+		if (length $otext && $otext ne $text) {
+			$ldupkey = "X$call|$by|$qrg|$otext";
+			$t = DXDupe::find($ldupkey);
+			dbg("Spot::add_dup (OTEXT) ldupkey $ldupkey". ($t?(' (DUPE=>'.htime($t)) :' NEW')) if isdbg('spotdup');
+			if (isdbg('spottext')) {
+				$dtext .= sprintf q{ DUBIOUS '%s'}, join '', @dubious if @dubious;
+				$dtext .= ' DUPE (OTEXT)' if $t;
+				dbg("text transforms: $dtext") if length $text;
+			}
+			# see above
+			if ($t > 0) {
+#				DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
+				return 1;	
+			}
+			DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
+		}
+	}
+	
+	if ($dupebycall) {
+	    $ldupkey = "X$by|$call";
+		$t = DXDupe::find($ldupkey);
+		dbg("Spot::add_dup by call $ldupkey" . ($t?(' DUPE=>'.htime($t)) :' NEW')) if isdbg('spotdup');
+		# see above 
+		if ($t > 0) {
+#			DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
+			return 1;	
+		}
+
+		DXDupe::add($ldupkey, $main::systime+$dupebycall) unless $just_find;
+	}
+	
 	return undef;
 }
 
 sub dup_find
 {
 	return dup_add(1, @_);
+}
+
+sub dup_new
+{
+	return dup_add(0, @_);
 }
 
 sub listdups

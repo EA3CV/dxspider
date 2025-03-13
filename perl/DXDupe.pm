@@ -58,7 +58,7 @@ sub add
 	return unless $s;
 
 	$d{$s} = $t;
-	dbg("DXDupe::add key: $s time: " . ztime($t)) if isdbg('dxdupe');
+	dbg("DXDupe::add key: $s time: " . htime($t)) if isdbg('dxdupe');
 }
 
 sub del
@@ -67,11 +67,11 @@ sub del
 	return unless $s;
 	
 	my $t = $d{$s};
-	dbg("DXDupe::del key: $s time: " . ztime($t)) if isdbg('dxdupe');
+	dbg("DXDupe::del key: $s time: " . htime($t)) if isdbg('dxdupe');
 	delete $d{$s};
 }
 
-sub per_minute
+sub clean
 {
 	my @del;
 	my $count = 0;
@@ -86,13 +86,13 @@ sub per_minute
 		}
 		++$count;
 		if (isdbg("dxdupeclean")) {
-			dbg("DXDupe::per_minute key:$flag$left") if isdbg('dxdupeclean');
+			dbg("DXDupe::clean key:$flag$left") if isdbg('dxdupeclean');
 		}
 	}
 	for (@del) {
 		del($_);
 	}
-	dbg("DXDupe::per_minute number of records " . scalar keys %d) if isdbg('dxdupe');
+	dbg("DXDupe::clean number of records " . scalar keys %d) if isdbg('dxdupe');
 	$lasttime = $main::systime;
 }
 

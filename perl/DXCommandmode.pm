@@ -621,7 +621,7 @@ sub process
 			foreach my $ref (@{$dxchan->{sluggedpcs}}) {
 				if ($ref->[0] == 61) {
 					unless (Spot::dup_find(@{$ref->[2]})) {
-						Spot::dup_add(@{$ref->[2]});
+						Spot::dup_new(@{$ref->[2]});
 						DXProt::send_dx_spot($dxchan, $ref->[1], @{$ref->[2]});
 					} else {
 						dbg("DXCommand: process slugged spot $ref->[1] is a dupe, ignored" );

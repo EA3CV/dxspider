@@ -28,7 +28,7 @@ require Exporter;
 			 is_qra is_freq is_digits is_pctext is_pcflag insertitem deleteitem
 			 is_prefix dd is_ipaddr $pi $d2r $r2d localdata localdata_mv
 			 diffms _diffms _diffus difft parraydifft is_ztime basecall
-			 normalise_call is_numeric
+			 normalise_call is_numeric htime
             );
 
 
@@ -70,6 +70,16 @@ sub atime
 	my ($sec,$min,$hour,$mday,$mon,$year) = gmtime((defined $t) ? $t : time);
 	$year += 1900;
 	my $buf = sprintf "%02d%s%04d\@%02d:%02d:%02d", $mday, $month[$mon], $year, $hour, $min, $sec;
+	return $buf;
+}
+
+sub htime
+{
+	my $t = shift;
+	$t = defined $t ? $t : time;
+	my $dst = shift;
+	my ($sec,$min,$hour) = $dst ? localtime($t): gmtime($t);
+	my $buf = sprintf "%02d:%02d:%02d%s", $hour, $min, $sec, ($dst) ? '' : 'Z';
 	return $buf;
 }
 
@@ -596,7 +606,7 @@ sub difft
 			$t = $adds - $b;
 			$adds = shift;
 		} else {
-			$t = $main::systime - $b;
+			$t = time - $b;
 		}
 	}
 	return '-(ve)' if $t < 0;

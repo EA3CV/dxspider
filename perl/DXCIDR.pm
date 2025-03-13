@@ -128,8 +128,8 @@ sub add
 	for my $ip (@_) {
 		# protect against stupid or malicious
 		next unless is_ipaddr($ip);
-		next if $ip =~ /^127\./;
-		next if $ip =~ /^::1$/;
+#		next if $ip =~ /^127\./;
+#		next if $ip =~ /^::1$/;
 #		next if find($ip);
 		if ($ip =~ /\./) {
 			eval {$ipv4->add_any($ip)};
@@ -200,8 +200,8 @@ sub list
 {
 	return () unless $active;
 	my @out;
-	push @out, $ipv4->list if $count4;
-	push @out, $ipv6->list if $count6;
+	push @out, $ipv4->list, $ipv4->list_range if $count4;
+	push @out, $ipv6->list, $ipv6->list_range if $count6;
 	return _sort(@out);
 }
 

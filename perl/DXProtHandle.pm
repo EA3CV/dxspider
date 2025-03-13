@@ -409,7 +409,7 @@ sub handle_11
 	#
 	#
 	
-	if (Spot::dup_add(0, @spot[0..4,7])) {
+	if (Spot::dup_find(@spot[0..4,7])) {
 		dbg("PCPROT: Duplicate Spot  $self->{call}: $pc->[0] $key ignored\n") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
 		return;
 	}
@@ -449,10 +449,10 @@ sub handle_11
 	}
 	
 	#
-	# Now finally: save the spot itself and send it on its merry way to the users
+	# Now finally: save the spot itself and then send it on its merry way to the users
 	#
-	
-	Spot::add(@spot);
+
+	Spot::add_local(@spot);
 
 	my $ip = '';
 	$ip ||= $spot[14] if exists $spot[14];
@@ -973,8 +973,9 @@ sub handle_18
 		} elsif (!$self->user->wantpc9x) {
 			dbg("PC18 $self->{call} pc9x explicitly switched off, using old protocol");
 		} else {
+			$self->{pc91} = $pc->[1] =~ /\b91/;
 			$self->{do_pc9x} = 1;
-			dbg("PC18 $self->{call} Set do PC9x");
+			dbg("PC18 $self->{call} Set do " . $self->{pc91} ? "PC9[123]" : "PC9[23]");
 		}
 	}
 

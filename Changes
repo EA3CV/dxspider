@@ -1,3 +1,8 @@
+12Mar25======================================================================
+1. Add some spot rate limiting.
+2. Remove some obsolete spot deduping options that have not effectively been
+   changed in several years and simplify the code to just use my preferred
+   options. 
 19Feb25======================================================================
 1. Make sure that the routing table has a number of users as well as a last
    PC92 C records. This will prevent some of the false negatives (just not

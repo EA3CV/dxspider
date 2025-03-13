@@ -884,13 +884,12 @@ sub per_sec
 
 sub per_10_sec
 {
-
+	DXDupe::clean();
 }
 
 sub per_minute
 {
 	RBN::per_minute();
-	DXDupe::per_minute();
 }
 
 sub per_10_minute
