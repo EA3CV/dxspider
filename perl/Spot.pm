@@ -264,7 +264,7 @@ sub add_local
 {
 	my $buf = join('^', @_);
 
-	dup_new(@_);
+	dup_new(@_[0..4,7]);
 
 	$fp->writeunix($_[2], $buf);
 	if ($spotcachedays > 0) {
@@ -598,7 +598,7 @@ sub dup_add
 	}
 
 	if ($dupeqrgcall) {
-	    $ldupkey = "X$nd|$call";
+	    $ldupkey = "X$qrg|$call";
 		$t = DXDupe::find($ldupkey);
 		$storet = !$t && !$just_find ? ' STORE=>'.htime($main::systime+$dupeqrgcall) :'';
 		dbg("Spot::add_dup: $check (QRG-CALL)  $ldupkey $storet" . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
