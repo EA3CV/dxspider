@@ -580,7 +580,16 @@ sub dup_add
 	}
 	
 	if ($dupebycall) {
-	    $ldupkey = "X$by|$call";
+#	    $ldupkey = "X$by|$call";
+#		$t = DXDupe::find($ldupkey);
+#		dbg("Spot::add_dup by call $ldupkey" . ($t?(' DUPE=>'.htime($t)) :' NEW')) if isdbg('spotdup');
+		# see above 
+#		if ($t > 0) {
+#			DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
+#			return 1;	
+#		}
+		
+	    $ldupkey = "X$nd|$call";
 		$t = DXDupe::find($ldupkey);
 		dbg("Spot::add_dup by call $ldupkey" . ($t?(' DUPE=>'.htime($t)) :' NEW')) if isdbg('spotdup');
 		# see above 
