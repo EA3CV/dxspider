@@ -550,7 +550,7 @@ sub dup_add
 	$ldupkey = "X$call|$by|$qrg|$text";
 	$t = DXDupe::find($ldupkey);
 	$storet = !$t && !$just_find ? ' STORE=>'.htime($main::systime+$dupage) :'';
-	dbg("Spot::add_dup: $check (NORM TEXT) ldupkey $ldupkey $storet" . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
+	dbg("Spot::add_dup: $check (NORM TEXT) $ldupkey $storet" . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
 	$dtext .= ' DUPE' if $t;
 	dbg("text transforms: $dtext") if length $text && isdbg('spottext');
 
@@ -567,7 +567,7 @@ sub dup_add
 		$ldupkey = "X$call|$by|$qrg";
 		$t = DXDupe::find($ldupkey);
 		$storet = !$t && !$just_find ? ' STORE=>'.htime($main::systime+$store_nocomment) :'';
-		dbg("Spot::add_dup: $check (NOTEXT)    ldupkey $ldupkey $storet". ($t?(' (DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
+		dbg("Spot::add_dup: $check (NOTEXT)    $ldupkey $storet". ($t?(' (DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
 		# see above
 		if ($t > 0) {
 #				DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
