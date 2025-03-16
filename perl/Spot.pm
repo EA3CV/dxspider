@@ -76,7 +76,8 @@ our $minselfspotqrg = 1240000;	# minimum freq above which self spotting is allow
 our $readback = $main::is_win ? 0 : 1; # don't read spot files backwards if it's windows
 our $qrggranularity = 1;       # normalise the qrg to this number of khz (default: 25khz), so tough luck if you have a fumble fingers moment
 our $timegranularity = 600;		# ditto to the nearest 100 seconds 
-our $dupebycall = 10*60+5;	    # check that call is not spotted by the same callsign too often - this the dedupe interval - set to 0 to disable
+our $dupecall = 10;	            # check that call is not spotted too often - this the dedupe interval - set to 0 to disable
+our $dupecallesc = 60;			# escalate (i.e. add $dupecall to a found callsign to a max of $dupecallsecs)
 our $dupeqrgcall = 5*60+5;	    # check that call is not spotted on the same (normalised) qrg too often - this the dedupe interval - set to 0 to disable
 our $store_nocomment = 10*60+5;	# Don't take into account the comments
 
@@ -253,7 +254,7 @@ sub prepare
 	push @out, $spt[0];
 	push @out, $_[5];
 	push @out, @spd[1,2], @spt[1,2], $spd[3], $spt[3];
-	push @out, $_[6] if $_[6] && is_ipaddr($_[6]);
+	push @out, ($_[6] && is_ipaddr($_[6])) ? $_[6] : '';
 
 	# thus we now have:
 	# freq, call, time, comment, spotter, call country code, spotter country code, origin, call itu, call cqzone, spotter itu, spotter cqzone, call state, spotter state, spotter ip address
@@ -264,7 +265,7 @@ sub add_local
 {
 	my $buf = join('^', @_);
 
-	dup_new(@_[0..4,7]);
+	dup_new(@_[0..4,7,14]);
 
 	$fp->writeunix($_[2], $buf);
 	if ($spotcachedays > 0) {
@@ -484,10 +485,10 @@ sub formatl
 # Add the dupe if it is new. 
 sub dup_add
 {
-	my ($just_find, $freq, $call, $d, $text, $by, $node) = @_;
+	my ($just_find, $freq, $call, $d, $text, $by, $node, $ipaddr) = @_;
 
 	my $check = $just_find ? 'CHECK' : 'ADD  ';
-	dbg("Spot::add_dup: $check (+INPUT+)   freq=$freq call=$call d=$d text='$text' by=$by node=$node") if isdbg('spotdup');
+	dbg("Spot::add_dup: $check (+INPUT+)   freq=$freq call=$call d=$d text='$text' by=$by node=$node ipaddr='$ipaddr'") if isdbg('spotdup');
 
 	# dump if too old
 	return 2 if $d < $main::systime - $dupage;
@@ -575,18 +576,7 @@ sub dup_add
 		}
 		DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
 	}
-	
-	if ($dupebycall) {
-	    $ldupkey = "X$by|$call";
-		$t = DXDupe::find($ldupkey);
-		$storet = !$t && !$just_find ? ' STORE=>'.htime($main::systime+$dupebycall) :'';
-		dbg("Spot::add_dup: $check (BY-CALL)   $ldupkey $storet" . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
-		# see above 
-#		if ($t > 0) {
-#			DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
-#			return 1;	
-#		}
-	}
+
 
 	if ($dupeqrgcall) {
 	    $ldupkey = "X$call|$qrg";
@@ -599,7 +589,25 @@ sub dup_add
 			return 1;	
 		}
 
-		DXDupe::add($ldupkey, $main::systime+$dupebycall) unless $just_find;
+		DXDupe::add($ldupkey, $main::systime+$dupeqrgcall) unless $just_find;
+	}
+	
+	if ($dupecall) {
+		$ldupkey = "X$call";
+		$t = DXDupe::find($ldupkey);
+		$storet = !$t && !$just_find ? ' STORE=>'.htime($main::systime+$dupecall) :'';
+			
+		dbg("Spot::add_dup: $check (CALL)      $ldupkey $storet" . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
+		if ($t > 0) {
+			if ($t < $main::systime + $dupecallesc) {
+				my $new = $t + $dupecall;
+				my $secs = $new - $t;
+				dbg("Spot::add_dup: $check (CALL)      $ldupkey $storet" . ($t?(' DUPE=>'.htime($t) . ',NOW=>'.htime($new) . "[+$secs]") :'')) if isdbg('spotdup');
+				DXDupe::add($ldupkey, $new); # add another $dupecall
+			}
+			return 1;
+		}
+		DXDupe::add($ldupkey, $main::systime+$dupecall) unless $just_find;
 	}
 	
 	return undef;
@@ -617,7 +625,9 @@ sub dup_new
 
 sub listdups
 {
-	return DXDupe::listdups('X', $dupage, @_);
+	my @out = DXDupe::listdups('X', $dupage, @_);
+	push @out, scalar @out . " Duplicate spots";
+	return @out;
 }
 
 sub genstats

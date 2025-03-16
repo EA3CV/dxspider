@@ -299,7 +299,7 @@ sub handle_11
 
 			if ($pc11_saved{$key}) {
 				# before we promote  because it's a better pc61, check that it's not a dupe (but don't insert it).
-				if (Spot::dup_find(@spot[0..4,7])) {
+				if (Spot::dup_find(@spot[0..4,7,14])) {
 					dbg("PCPROT: Duplicate Spot  $self->{call}: $pc->[0] $key ignored\n") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
 					delete $pc11_saved{$key};
 					return;
@@ -329,7 +329,7 @@ sub handle_11
 			}
 
 			# before we promote by route, check that it's not been preceded by a previous PC61
-			if (Spot::dup_find(@spot[0..4,7])) {
+			if (Spot::dup_find(@spot[0..4,7,14])) {
 				my $s = exists $pc11_saved{$key} ? " stored $key removed" : "";
 				dbg("PCPROT: Duplicate Spot $self->{call}: PC11$s, recurse: $recurse, ignored\n") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
 				delete $pc11_saved{$key};
@@ -365,7 +365,9 @@ sub handle_11
 			}
 		}
 	}
-	
+
+	$key .= "|$pc->[8]" if @$pc > 8 && is_ipaddr($pc->[8]);
+			 
 	dbg("PROCESSING $self->{call}: $pc->[0] key: $key") if isdbg('pc11');
 	
 	if ($pcno == 11) {
@@ -409,7 +411,7 @@ sub handle_11
 	#
 	#
 	
-	if (Spot::dup_find(@spot[0..4,7])) {
+	if (Spot::dup_find(@spot[0..4,7,14])) {
 		dbg("PCPROT: Duplicate Spot  $self->{call}: $pc->[0] $key ignored\n") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
 		return;
 	}
