@@ -2,6 +2,7 @@
 1. Remove error causing ' character frrom DXVars.pm.issue. Sorry it's taken
    so long. 
 2. Added some extra dupe checking.
+3. Improve sh/dup_spots listing
 12Mar25======================================================================
 1. Add some spot rate limiting.
 2. Remove some obsolete spot deduping options that have not effectively been

@@ -625,7 +625,8 @@ sub dup_new
 
 sub listdups
 {
-	my @out = DXDupe::listdups('X', $dupage, @_);
+	my @dups = DXDupe::listdups('X', $dupage, @_);
+	my @out = sort @dups;
 	push @out, scalar @out . " Duplicate spots";
 	return @out;
 }
