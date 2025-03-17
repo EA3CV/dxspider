@@ -121,7 +121,7 @@ sub listdups
 	dbg("DXDupe::listdups generated regex='$regex'") if isdbg('dxdupe');
 
 	my @out;
-	for (sort { $d{$a} <=> $d{$b} } grep { m{$regex}i } keys %d) {
+	for (grep { m{$regex}i } keys %d) {
 		my ($dum, $key) = unpack "a1a*", $_;
 		push @out, "$key = " . cldatetime($d{$_} - $dupage) . " expires in " . htime($d{$_}-$main::systime) . "secs";
 	}

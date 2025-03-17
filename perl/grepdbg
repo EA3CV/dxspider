@@ -75,6 +75,7 @@ foreach my $arg (@ARGV) {
 			die "$arg not found";
 		}
 	} else {
+		$arg =~ s|\\?([\(\)])|$1|g;
 		push @patt, $arg;
 	}
 }

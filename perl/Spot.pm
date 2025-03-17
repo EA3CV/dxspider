@@ -597,16 +597,16 @@ sub dup_add
 		$t = DXDupe::find($ldupkey);
 		$storet = !$t && !$just_find ? ' STORE=>'.htime($main::systime+$dupecall) :'';
 			
-		dbg("Spot::add_dup: $check (CALL)      $ldupkey $storet" . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
 		if ($t > 0) {
 			if ($t < $main::systime + $dupecallesc) {
 				my $new = $t + $dupecall;
 				my $secs = $new - $t;
-				dbg("Spot::add_dup: $check (CALL)      $ldupkey $storet" . ($t?(' DUPE=>'.htime($t) . ',NOW=>'.htime($new) . "[+$secs]") :'')) if isdbg('spotdup');
+				dbg("Spot::add_dup: $check (CALL)      $ldupkey $storet" . (' DUPE=>'.htime($t) . ',NOW=>'.htime($new) . "[+$secs]")) if isdbg('spotdup');
 				DXDupe::add($ldupkey, $new); # add another $dupecall
 			}
 			return 1;
 		}
+		dbg("Spot::add_dup: $check (CALL)      $ldupkey $storet") if isdbg('spotdup');
 		DXDupe::add($ldupkey, $main::systime+$dupecall) unless $just_find;
 	}
 	

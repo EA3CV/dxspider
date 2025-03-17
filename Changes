@@ -1,3 +1,8 @@
+17Mar25======================================================================
+1. Fix watchdbg and grepdbg arg processing so that one can have bracketed
+   "or" regex statements like "watchdbg '(aa|bb)'" rather than 
+   "watchdbg '\(aa|bb\)'". Unfortunately one still needs the single quotes 
+   around the/each regex if using bracketed regex "or" expressions.
 16Mar25======================================================================
 1. Remove error causing ' character frrom DXVars.pm.issue. Sorry it's taken
    so long. 

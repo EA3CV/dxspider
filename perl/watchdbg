@@ -47,6 +47,7 @@ while (@ARGV) {
 		next;
 	}
 	usage(), exit(0) if $arg =~ /^-+[h\?]/i;
+	$arg =~ s|\\?([\(\)])|$1|g;
 	push @patt, $arg;
 }
 
