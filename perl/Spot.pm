@@ -81,7 +81,6 @@ our $dupecallesc = 60;			# escalate (i.e. add $dupecall to a found callsign to a
 our $dupeqrgcall = 5*60+5;	    # check that call is not spotted on the same (normalised) qrg too often - this the dedupe interval - set to 0 to disable
 our $store_nocomment = 10*60+5;	# Don't take into account the comments
 
-
 if ($readback) {
 	$readback = `which tac`;
 	chomp $readback;
@@ -485,7 +484,7 @@ sub formatl
 # Add the dupe if it is new. 
 sub dup_add
 {
-	my ($just_find, $freq, $call, $d, $text, $by, $node, $ipaddr) = @_;
+	my ($just_find, $freq, $call, $d, $text, $by, $node, $ipaddr, $reason) = @_;
 
 	my $check = $just_find ? 'CHECK' : 'ADD  ';
 	dbg("Spot::add_dup: $check (+INPUT+)   freq=$freq call=$call d=$d text='$text' by=$by node=$node ipaddr='$ipaddr'") if isdbg('spotdup');
@@ -546,12 +545,17 @@ sub dup_add
 	$l = length $text;
 	$dtext .= qq{->final:'$text'($l)} if isdbg('spottext');
 
+	
 	# new feature: don't include the origin node in Spot dupes and use normalised qrg, rather than raw freq
 	# $text = normalised text
+	my $testtype;
+
+	$testtype = '(NORM TEXT)';
+	$$reason = $testtype if ref $reason;
 	$ldupkey = "X$call|$by|$qrg|$text";
 	$t = DXDupe::find($ldupkey);
 	$storet = !$t && !$just_find ? ' STORE=>'.htime($main::systime+$dupage) :'';
-	dbg("Spot::add_dup: $check (NORM TEXT) $ldupkey $storet" . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
+	dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet", $testtype) . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
 	$dtext .= ' DUPE' if $t;
 	dbg("text transforms: $dtext") if length $text && isdbg('spottext');
 
@@ -565,10 +569,12 @@ sub dup_add
 
 	# Without comment
 	if ($store_nocomment) {
+		$testtype ='(NOTEXT)';
+		$$reason = $testtype if ref $reason;
 		$ldupkey = "X$call|$by|$qrg";
 		$t = DXDupe::find($ldupkey);
 		$storet = !$t && !$just_find ? ' STORE=>'.htime($main::systime+$store_nocomment) :'';
-		dbg("Spot::add_dup: $check (NOTEXT)    $ldupkey $storet". ($t?(' (DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
+		dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet", $testtype). ($t?(' (DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
 		# see above
 		if ($t > 0) {
 #				DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
@@ -579,10 +585,12 @@ sub dup_add
 
 
 	if ($dupeqrgcall) {
+		$testtype = '(QRG-CALL)';
+		$$reason = $testtype if ref $reason;
 	    $ldupkey = "X$call|$qrg";
 		$t = DXDupe::find($ldupkey);
 		$storet = !$t && !$just_find ? ' STORE=>'.htime($main::systime+$dupeqrgcall) :'';
-		dbg("Spot::add_dup: $check (QRG-CALL)  $ldupkey $storet" . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
+		dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet", $testtype) . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
 		# see above 
 		if ($t > 0) {
 #			DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
@@ -593,15 +601,18 @@ sub dup_add
 	}
 	
 	if ($dupecall) {
+		$testtype = '(CALL)';
+		$$reason = $testtype if ref $reason;
 		$ldupkey = "X$call";
 		$t = DXDupe::find($ldupkey);
 		$storet = !$t && !$just_find ? ' STORE=>'.htime($main::systime+$dupecall) :'';
-			
+
+		# here we are DEFINITELY kicking the timer down the road up to $dupecallesc seconds
 		if ($t > 0) {
 			if ($t < $main::systime + $dupecallesc) {
 				my $new = $t + $dupecall;
 				my $secs = $new - $t;
-				dbg("Spot::add_dup: $check (CALL)      $ldupkey $storet" . (' DUPE=>'.htime($t) . ',NOW=>'.htime($new) . "[+$secs]")) if isdbg('spotdup');
+				dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet", $testtype) . (' DUPE=>'.htime($t) . ',NOW=>'.htime($new) . "[+$secs]")) if isdbg('spotdup');
 				DXDupe::add($ldupkey, $new); # add another $dupecall
 			}
 			return 1;

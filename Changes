@@ -3,6 +3,9 @@
    "or" regex statements like "watchdbg '(aa|bb)'" rather than 
    "watchdbg '\(aa|bb\)'". Unfortunately one still needs the single quotes 
    around the/each regex if using bracketed regex "or" expressions.
+2. Improve dedupe debugging ("watchdbg pcprot" is more helpful than it was.
+3. Add $DXProt::remove_auto_ftx = 1 as an experiment to see whether might
+   be useful in the "reduce the crap" task I am currently conducting.
 16Mar25======================================================================
 1. Remove error causing ' character frrom DXVars.pm.issue. Sorry it's taken
    so long. 
