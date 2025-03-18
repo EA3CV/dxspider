@@ -76,9 +76,10 @@ our $minselfspotqrg = 1240000;	# minimum freq above which self spotting is allow
 our $readback = $main::is_win ? 0 : 1; # don't read spot files backwards if it's windows
 our $qrggranularity = 1;       # normalise the qrg to this number of khz (default: 25khz), so tough luck if you have a fumble fingers moment
 our $timegranularity = 600;		# ditto to the nearest 100 seconds 
-our $dupecall = 10;	            # check that call is not spotted too often - this the dedupe interval - set to 0 to disable
-our $dupecallesc = 60;			# escalate (i.e. add $dupecall to a found callsign to a max of $dupecallsecs)
-our $dupeqrgcall = 5*60+5;	    # check that call is not spotted on the same (normalised) qrg too often - this the dedupe interval - set to 0 to disable
+our $dupecall = 10;	            # check that call is not spotted too often - this the base dedupe interval - set to 0 to disable
+our $dupecallthreshold = 25;    # This is threshold at which a repeated call's dupe record actually becomes a dupe. So
+                                # somewhere between 4 slowish and 3 fast spots will cause this indicate a possible flood.
+our $dupeqrgcall = 5*60+5;	    # check that call is not spotted on the same (normalised) qrg too often - this the dedupe interval - set to 0 to disable1
 our $store_nocomment = 10*60+5;	# Don't take into account the comments
 
 if ($readback) {
@@ -506,10 +507,9 @@ sub dup_add
 	
 	$call = substr($call, 0, $maxcalllth) if length $call > $maxcalllth;
 
-	# remove SSID or area on call, by and node
+	# remove SSID or area on call, by
 	$call = basecall($call);
-	$by = basecall($by);
-	$node = basecall($node);
+	$by = barecall($by);
 
 	my $t = 0;
 	my $ldupkey;
@@ -558,13 +558,8 @@ sub dup_add
 	dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet", $testtype) . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
 	$dtext .= ' DUPE' if $t;
 	dbg("text transforms: $dtext") if length $text && isdbg('spottext');
+	return $t if $t;
 
-	# re-add it to kick the timer down the road. REMEMBER: dupes are in a tied hash so
-	# this is effectively an update
-	if ($t > 0) {
-#		DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
-		return 1;	
-	}
 	DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
 
 	# Without comment
@@ -575,14 +570,11 @@ sub dup_add
 		$t = DXDupe::find($ldupkey);
 		$storet = !$t && !$just_find ? ' STORE=>'.htime($main::systime+$store_nocomment) :'';
 		dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet", $testtype). ($t?(' (DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
-		# see above
-		if ($t > 0) {
-#				DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
-			return 1;	
-		}
+		
+		return $t if $t;	
+
 		DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
 	}
-
 
 	if ($dupeqrgcall) {
 		$testtype = '(QRG-CALL)';
@@ -591,37 +583,59 @@ sub dup_add
 		$t = DXDupe::find($ldupkey);
 		$storet = !$t && !$just_find ? ' STORE=>'.htime($main::systime+$dupeqrgcall) :'';
 		dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet", $testtype) . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
-		# see above 
-		if ($t > 0) {
-#			DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
-			return 1;	
-		}
+
+		return $t if $t;	
 
 		DXDupe::add($ldupkey, $main::systime+$dupeqrgcall) unless $just_find;
 	}
-	
-	if ($dupecall) {
-		$testtype = '(CALL)';
-		$$reason = $testtype if ref $reason;
-		$ldupkey = "X$call";
-		$t = DXDupe::find($ldupkey);
-		$storet = !$t && !$just_find ? ' STORE=>'.htime($main::systime+$dupecall) :'';
 
-		# here we are DEFINITELY kicking the timer down the road up to $dupecallesc seconds
-		if ($t > 0) {
-			if ($t < $main::systime + $dupecallesc) {
-				my $new = $t + $dupecall;
-				my $secs = $new - $t;
-				dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet", $testtype) . (' DUPE=>'.htime($t) . ',NOW=>'.htime($new) . "[+$secs]")) if isdbg('spotdup');
-				DXDupe::add($ldupkey, $new); # add another $dupecall
-			}
-			return 1;
+	# first crude flood protection. This plain callsign checking spotting anything that isn't caught by preceding tests.
+	if ($dupecall) {
+		$t = handle_dupecalls($call, $reason, "(CALL)", $just_find);
+		$t ||= handle_dupecalls($by, $reason, "(BY)", $just_find);
+		$t ||= handle_dupecalls("N$node", $reason, "(NODE)", $just_find);
+		return $t if $t && $just_find;
+	}
+
+	
+	return 0;
+}
+
+sub handle_dupecalls
+{
+	my $call = shift;
+	my $reason = shift;
+	my $testtype = shift;
+	my $just_find = shift;
+		
+	my $check = $just_find ? 'CHECK' : 'ADD  ';
+	my $ldupkey = "X$call";
+	my $t = DXDupe::find($ldupkey);
+	my $storet = !$just_find ? ' STORE=>'.htime($main::systime+$dupecall) :'';
+	
+	# here we are DEFINITELY kicking the timer down the road until it stops
+	# in a sustained attack this will oscillate between systime and systime + threshold until
+	# the attack stops and the record is cleaned away as normal
+	if ($t > 0) {
+		my $new = $t + $dupecall;
+		if ($t < $main::systime + $dupecallthreshold) {
+			my $secs = $new - $t;
+			dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet ADD +%d secs REPEAT=>%s", $testtype, $dupecall, htime($new))) if isdbg('spotdup');
+			DXDupe::add($ldupkey, $new); # update the time
+			$t = 0;
+			# allow this to return
+		} else {
+			$testtype = '(FLOOD)';
+			$$reason = $testtype if ref $reason;
+			dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet DUPE=>%s", $testtype, htime($t))) if isdbg('spotdup');
+			#				DXDupe::add($ldupkey, $new); # add another $dupecall
+			$t -= $main::systime;
 		}
-		dbg("Spot::add_dup: $check (CALL)      $ldupkey $storet") if isdbg('spotdup');
+	} else {
+		dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet", $testtype)) if isdbg('spotdup');
 		DXDupe::add($ldupkey, $main::systime+$dupecall) unless $just_find;
 	}
-	
-	return undef;
+	return $t;
 }
 
 sub dup_find

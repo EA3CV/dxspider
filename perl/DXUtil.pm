@@ -28,7 +28,7 @@ require Exporter;
 			 is_qra is_freq is_digits is_pctext is_pcflag insertitem deleteitem
 			 is_prefix dd is_ipaddr $pi $d2r $r2d localdata localdata_mv
 			 diffms _diffms _diffus difft parraydifft is_ztime basecall
-			 normalise_call is_numeric htime
+			 normalise_call is_numeric htime barecall
             );
 
 
@@ -652,15 +652,22 @@ sub parraydifft
 	return $out;
 }
 
+# just the callsign, not any bits in front or behind
+sub barecall
+{
+	my ($r) = $_[0] =~ m{^(?:[\w\d]+\/)?([\w\d]+)};
+	return $r;
+}
+
 sub basecall
 {
-	my ($r) = $_[0] =~ m{^((?:[\w\d]+/)?[\w\d]+(?:/[\w\d]+)*)(?:-\d+)?(?:-\#)?$};
+	my ($r) = $_[0] =~ m{^((?:[\w\d]+\/)?[\w\d]+)};
 	return $r;
 }
 
 sub normalise_call
 {
-	my ($c, $ssid) = $_[0] =~ m|^((?:[\w\d]+/)?[\d\w]+(?:/[\w\d]+)*)(?:-(\d+))?(?:-\#)?$|;
+	my ($c, $ssid) = $_[0] =~ m|^(?:\w+\/)?(\w+)(?:\/\w+)*?(?:-(\d+))?$|;
 	my $ncall = $c;
 	$ssid += 0;
 	$ncall .= "-$ssid" if $ssid;

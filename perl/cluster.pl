@@ -256,7 +256,7 @@ sub new_channel
 			already_conn($conn, $call, "Maximum no of web connected connects ($Web::maxssid) exceeded");
 			return;
 		}
-		$call = normalise_call($newcall);
+		$call = base_call($newcall);
 		
 		$user = DXUser::get_current($call);
 		unless ($user) {

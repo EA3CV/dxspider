@@ -155,7 +155,6 @@ return (1, @out) unless $valid;
 
 # Store it here (but only if it isn't baddx)
 my $t = (int ($main::systime/60)) * 60;
-#return (1, $self->msg('dup')) if Spot::dup_find($freq, $spotted, $t, $line, $spotter, $main::mycall);
 my @spot = Spot::prepare($freq, $spotted, $t, $line, $spotter, $main::mycall, $ipaddr);
 
 #$DB::single = 1;
@@ -183,7 +182,7 @@ if ($freq =~ /^69/ || $localonly) {
 			Spot::add_local(@spot);
 			DXProt::send_dx_spot($self, $spot, @spot);
 		} else {
-#			push @out, "Duplicate spot: $line";
+			return (1, $self->msg('dup'));
 			LogDbg("DXCommand", "Spot dupe from $spotter: $line");
 		}
 		# put this here so that the spotter does not know that it is a dupe or not

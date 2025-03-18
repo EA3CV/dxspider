@@ -7,6 +7,9 @@
    Stat/user will show how these flags are set - IFF they are set (whether
    on or off). If these commands are not used, then stat/user will not show
    their values. This is by design.
+3. Increase race condition coverage, thresholds may need tweaking in a 
+   contest.
+4. Sort where bare, base and normalised calls should be used (W.I.P). 
 17Mar25======================================================================
 1. Fix watchdbg and grepdbg arg processing so that one can have bracketed
    "or" regex statements like "watchdbg '(aa|bb)'" rather than 
