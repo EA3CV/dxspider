@@ -594,6 +594,7 @@ sub dup_add
 		$t = handle_dupecalls($call, $reason, "(CALL)", $just_find);
 		$t ||= handle_dupecalls($by, $reason, "(BY)", $just_find);
 		$t ||= handle_dupecalls("N$node", $reason, "(NODE)", $just_find);
+		
 		return $t if $t && $just_find;
 	}
 
@@ -628,8 +629,6 @@ sub handle_dupecalls
 			$testtype = '(FLOOD)';
 			$$reason = $testtype if ref $reason;
 			dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet DUPE=>%s", $testtype, htime($t))) if isdbg('spotdup');
-			#				DXDupe::add($ldupkey, $new); # add another $dupecall
-			$t -= $main::systime;
 		}
 	} else {
 		dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet", $testtype)) if isdbg('spotdup');
