@@ -21,7 +21,7 @@ use vars qw(@month %patmap $pi $d2r $r2d @ISA @EXPORT);
 
 require Exporter;
 @ISA = qw(Exporter);
-@EXPORT = qw(atime ztime cldate cldatetime slat slong yesno promptf 
+@EXPORT = qw(atime ztime cldate cldatetime slat slong yesno noyes promptf 
 			 parray parraypairs phex phash shellregex readfilestr writefilestr
 			 filecopy ptimelist
              print_all_fields cltounix unpad is_callsign is_latlong
@@ -163,6 +163,13 @@ sub yesno
 {
 	my $n = shift;
 	return $n ? $main::yes : $main::no;
+}
+
+# turn a true into 'no' and false into 'yes'
+sub noyes
+{
+	my $n = shift;
+	return $n ? $main::no : $main::yes;
 }
 
 # provide a data dumpered version of the object passed

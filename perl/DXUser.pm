@@ -46,6 +46,7 @@ my $json;
 		  addr => '0,Full Address',
 		  alias => '0,Real Callsign',
 		  annok => '9,Accept Announces?,yesno', # accept his announces?
+		  autoftx => '0,Allow AutoFTx,yesno',
 		  bbs => '0,Home BBS',
 		  believe => '1,Believable nodes,parray',
 		  buddies => '0,Buddies,parray',
@@ -56,6 +57,7 @@ my $json;
 		  connlist => '1,Connections,parraydifft',
 		  dxok => '9,Accept DX Spots?,yesno', # accept his dx spots?
 		  email => '0,E-mail Address,parray',
+		  ftx => '0,Allow FTx,yesno',
 		  group => '0,Group,parray',	# used to create a group of users/nodes for some purpose or other
 		  hmsgno => '0,Highest Msgno',
 		  homenode => '0,Home Node',
