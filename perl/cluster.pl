@@ -882,9 +882,14 @@ sub per_sec
 	DXLog::flushall();
 }
 
-sub per_10_sec
+sub per_5_sec
 {
 	DXDupe::clean();
+}
+
+sub per_10_sec
+{
+#	DXDupe::clean();
 }
 
 sub per_minute
@@ -924,6 +929,7 @@ my $main_loop = Mojo::IOLoop->recurring($idle_interval => \&idle_loop);
 my $log_flush_loop = Mojo::IOLoop->recurring($log_flush_interval => \&DXLog::flushall);
 my $cpusecs_loop = Mojo::IOLoop->recurring(5 => sub {my @t = times; $clssecs = $t[0]+$t[1]; $cldsecs = $t[2]+$t[3]});
 my $persec =  Mojo::IOLoop->recurring(1 => \&per_sec);
+my $per5sec =  Mojo::IOLoop->recurring(5 => \&per_5_sec);
 my $per10sec =  Mojo::IOLoop->recurring(10 => \&per_10_sec);
 my $permin =  Mojo::IOLoop->recurring(60 => \&per_minute);
 my $per10min =  Mojo::IOLoop->recurring(600 => \&per_10_minute);
