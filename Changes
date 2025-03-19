@@ -1,6 +1,8 @@
 19Mar25======================================================================
 1. Add more categories to dupe detection.
 2. Add a per_5_sec general timer routine and place DXDupe::clean in it.
+3. Fix a typo in user mode startup in DXCommandmode.pm, courtesy of Lorenzo 
+   IU1NSA.
 18Mar25======================================================================
 1. After discussion, I have set $DXProt::remove_auto_ftx = 0 by default. I
    have left it in for now, but will probably be removed sometime in the

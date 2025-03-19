@@ -87,7 +87,7 @@ sub new
 	my $ref = Route::User::get($call);
 	if ($ref) {
 		$main::me->route_pc16($main::mycall, undef, $main::routeroot, $ref);
-		$main::me->route_pc92a($main::mycall, undef, $main::routeroot, $ref) unless $DXProt::pc92_slug_changes || ! $DXProt::pc92_ad_enable;
+		$main::me->route_pc92a($main::mycall, undef, $main::routeroot, $ref) unless $DXProt::pc92_slug_changes || ! $DXProt::pc92_ad_enabled;
 	}
 
 	return $self;
