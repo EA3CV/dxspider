@@ -8,6 +8,8 @@
    these values - even with a 5 sec tick - not to treat these nodes as 
    flooding during big contests. Hence $do_node_check will probably need to
    be set to 0 during these events.
+3. Only allow in spots with a valid numeric IPV4/6 ip address that is not
+   a local address or something alphanumeric.
 19Mar25======================================================================
 1. Add more categories to dupe detection.
 2. Add a per_5_sec general timer routine and place DXDupe::clean in it.

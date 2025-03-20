@@ -390,14 +390,28 @@ sub handle_11
 	}
 
 	# we check IP addresses for PC61 - this will also dedupe PC11 promotions
-	if (@$pc > 8 && is_ipaddr($pc->[8])) {
+	if (@$pc > 8 && $pc->[8]) {
 		my $ip = $pc->[8];
 		$ip =~ s/,/:/g;
 		$ip =~ s/^::ffff://;
-		if (DXCIDR::find($ip)) {
+
+		if (is_ipaddr($ip)) {
+
+			# simple check for IPV4 rfc1918 addresses
+			if (is_rfc1918($ip)) {
+				dbg($line) if isdbg('nologchan');
+				dbg("PCPROT: PC61 $ip is a localhost address or in RFC1918, dropped");
+				return;
+			}
+			
+			if (DXCIDR::find($ip)) {
+				dbg($line) if isdbg('nologchan');
+				dbg("PCPROT: PC61 $ip in badip list, dropped");
+				return;
+			}
+		} else {
 			dbg($line) if isdbg('nologchan');
-			dbg("PCPROT: PC61 $ip in badip list, dropped");
-			return;
+			dbg("PCPROT: PC61 $ip is not an IP address, dropped");
 		}
 	}
 	

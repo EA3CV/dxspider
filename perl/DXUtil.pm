@@ -28,7 +28,7 @@ require Exporter;
 			 is_qra is_freq is_digits is_pctext is_pcflag insertitem deleteitem
 			 is_prefix dd is_ipaddr $pi $d2r $r2d localdata localdata_mv
 			 diffms _diffms _diffus difft parraydifft is_ztime basecall
-			 normalise_call is_numeric htime barecall
+			 normalise_call is_numeric htime barecall is_rfc1918
             );
 
 
@@ -503,6 +503,13 @@ sub is_ipaddr
 	return undef;
 }
 
+sub is_rfc1918
+{
+	my $in = shift;
+	my @ip = split /\./, $in;
+	return 1 if ($ip[0] == 127 || $ip[0] == 10 || ($ip[0] == 192 && $ip[1] == 168) || ($ip[0] == 172 && $ip[1] >= 16 && $ip[1] <= 31));
+	return 0;
+}
 # is it a zulu time hhmmZ
 sub is_ztime
 {
