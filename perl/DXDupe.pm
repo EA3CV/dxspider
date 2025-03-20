@@ -90,6 +90,7 @@ sub clean
 		}
 	}
 	for (@del) {
+		dbg("DXDupe::clean delete $_") if isdbg("dxdupedel");
 		del($_);
 	}
 	dbg("DXDupe::clean number of records " . scalar keys %d) if isdbg('dxdupe');
