@@ -447,8 +447,8 @@ sub pc92k
 	$s .= "^" . _encode_pc92_call($nref, 1) . ":$main::me->{build}";
 	$s .= "^" . scalar $nref->nodes;
 	$s .= "^" . scalar $nref->users;
-	$s .= "^$ipaddr" if $ipaddr;
-	$s .= "^$main::gitbranch/$main::gitversion" if $main::gitversion;
+	$s .= "^$ipaddr";
+	$s .= "^$main::gitbranch/$main::gitversion";
 	return $s . '^H99^';
 }
 
