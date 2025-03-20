@@ -1,3 +1,13 @@
+20Mar25======================================================================
+1. Add $Spot::do_<thing>_check flags to enable/disable call, by, node, ipaddr
+   checks.
+2. Give node dupe check its own $nodetime and $nodetimethreshhole to use in
+   exchange for the $dupecall / $dupecallthreshhold pair. It is likely that,
+   because of the number of spots sent from large nodes like VE7CC-1, 
+   EA4RCH-5, WA9PIE-2 etc, it's likely that there isn't enough headroom in
+   these values - even with a 5 sec tick - not to treat these nodes as 
+   flooding during big contests. Hence $do_node_check will probably need to
+   be set to 0 during these events.
 19Mar25======================================================================
 1. Add more categories to dupe detection.
 2. Add a per_5_sec general timer routine and place DXDupe::clean in it.
