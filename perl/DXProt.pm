@@ -395,7 +395,7 @@ sub start
 sub sendinit
 {
 	my $self = shift;
-	$self->send(pc18(($self->{isolate} || !$self->user->wantpc9x) ? "" : " pc9x"));
+	$self->send(pc18(($self->{isolate} || !$self->user->wantpc9x) ? "" : " pc9x 91"));
 }
 
 #
@@ -591,12 +591,12 @@ sub send_dx_spot
 			}
 			$dxchan->dx_spot($pc11, $self->{isolate}, @_, $self->{call});
 		} else {
-			if (($dxchan->do_pc91)) {
-				unless ($pc91) {
-					$pc91 = DXProt::pc91(@_);
-				}
-				$dxchan->dx_spot($pc91, $self->{isolate}, @_, $self->{call});
-			}
+#			if ($dxchan->do_pc91) {
+#				unless ($pc91) {
+#					$pc91 = DXProt::pc91(@f[1..9]);
+#				}
+#				$dxchan->dx_spot($pc91, $self->{isolate}, @_, $self->{call});
+#			}
 			$dxchan->dx_spot($line, $self->{isolate}, @_, $self->{call});
 		}
 	}
