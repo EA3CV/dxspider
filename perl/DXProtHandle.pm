@@ -1002,8 +1002,8 @@ sub handle_18
 		} elsif (!$self->user->wantpc9x) {
 			dbg("PC18 $self->{call} pc9x explicitly switched off, using old protocol");
 		} else {
-			$self->{pc91} = $pc->[1] =~ /\b91/;
 			$self->{do_pc9x} = 1;
+			$self->{do_pc91} = $pc->[1] =~ /\b91/;;
 			dbg("PC18 $self->{call} Set do " . $self->{pc91} ? "PC9[123]" : "PC9[23]");
 		}
 	}

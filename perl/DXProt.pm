@@ -575,6 +575,8 @@ sub send_dx_spot
 	my @dxchan = DXChannel::get_all();
 	my $dxchan;
 	my $pc11;
+	my $pc91;
+	my @f = split /\^/, $line;
 
 	# send it if it isn't the except list and isn't isolated and still has a hop count
 	# taking into account filtering and so on
@@ -585,11 +587,16 @@ sub send_dx_spot
 		next if $dxchan->is_rbn;
 		if ($line =~ /PC61/ && !($dxchan->do_pc9x ||  $dxchan->is_user)) {
 			unless ($pc11) {
-				my @f = split /\^/, $line;
 				$pc11 = join '^', 'PC11', @f[1..7,9];
 			}
 			$dxchan->dx_spot($pc11, $self->{isolate}, @_, $self->{call});
 		} else {
+			if (($dxchan->do_pc91)) {
+				unless ($pc91) {
+					$pc91 = DXProt::pc91(@_);
+				}
+				$dxchan->dx_spot($pc91, $self->{isolate}, @_, $self->{call});
+			}
 			$dxchan->dx_spot($line, $self->{isolate}, @_, $self->{call});
 		}
 	}
@@ -902,7 +909,7 @@ sub send_local_config
 #		$self->send_last_pc92_config($main::routeroot);
 #		$self->send(pc92a($main::routeroot, $node)) unless $main::routeroot->last_PC92C =~ /$self->{call}/;
 		$self->send(pc92a($main::routeroot, $node));
-		$self->send(pc92k($main::routeroot, DXCommandmode::alias_localhost($main::me->{hostname} || '127.0.0.1')));
+		$self->send(pc92k($main::routeroot, alias_localhost($main::me->{hostname} || '127.0.0.1')));
 	} else {
 		# create a list of all the nodes that are not connected to this connection
 		# and are not themselves isolated, this to make sure that isolated nodes
@@ -994,7 +1001,7 @@ sub broadcast_pc92_update
 		$self->update_pc92_next;
 		return;
 	}
-	my $l = $nref->last_PC92C(gen_my_pc92_config($nref));
+	my $l = $nref->last_PC92C(gen_my_pc92_config($nref),);
 	$nref->lastid(last_pc9x_id());
 	$main::me->broadcast_route_pc9x($main::mycall, undef, $l, 0);
 	$self->update_pc92_next;
@@ -1435,7 +1442,7 @@ sub talk
 {
 	my ($self, $from, $to, $via, $line, $origin) = @_;
 
-	my $ipaddr = DXCommandmode::alias_localhost($self->hostname || '127.0.0.1');
+	my $ipaddr = alias_localhost($self->hostname || '127.0.0.1');
 	if ($self->{do_pc9x}) {
 		$self->send(pc93($to, $from, $via, $line, undef, $ipaddr));
 	} else {
@@ -1799,7 +1806,7 @@ sub import_chat
 				$via = '*' if $target eq 'ALL' || $target eq 'SYSOP';
 				Log('ann', $target, $main::mycall, $text);
 				AnnTalk::add_anncache('ann', $target, $main::mycall, $text);
-				my $ipaddr = DXCommandmode::alias_localhost($main::me->hostname || '127.0.0.1');
+				my $ipaddr = alias_localhost($main::me->hostname || '127.0.0.1');
 				$main::me->normal(DXProt::pc93($target, $main::mycall, $via, $text, undef, $ipaddr));
 			} else {
 				DXCommandmode::send_chats($main::me, $target, $text);

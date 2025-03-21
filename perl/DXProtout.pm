@@ -384,6 +384,16 @@ sub pc85
 # spider route broadcasts
 #
 
+# new spot format
+sub pc91
+{
+	my ($mycall, $freq, $dxcall, $text, $ipaddr) = @_;
+	my $hops = get_hops(91) || get_hops(61) || get_hops(11);
+	my $t = $main::systime;
+	$text = ' ' if !$text;
+	$text =~ s/\^/~/g;
+	return "PC91^$main::mycall^" . gen_pc9x_t() . sprintf "^%.1f^$dxcall^%s^%s^$text^$mycall^$ipaddr^$hops^~", $freq, cldate($t), ztime($t);;
+}
 
 sub _gen_pc92
 {

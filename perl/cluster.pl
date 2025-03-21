@@ -705,10 +705,9 @@ sub setup_start
 
 		$conn = $pkg->new_server($l->[0], $l->[1], \&{"${pkg}::${login}"});
 		$conn->conns("Server $l->[0]/$l->[1] using ${pkg}::${login}");
-		push @listeners, $conn;
 		dbg("External Port: $l->[0] $l->[1] using ${pkg}::${login}");
+		push @listeners, $conn;
 	}
-
 
 	dbg("AGW Listener") if $AGWMsg::enable;
 	AGWrestart();
@@ -797,8 +796,20 @@ sub setup_start
 	# get any bad IPs 
 	DXCIDR::init();
 
+	# find our external host address - on a firewalled machine this may still be rfc1918 or localhost
+	my $old = $main::me->{hostname};
+	if ($old eq '127.0.0.1' || $old eq '::') {
+		my $socket = IO::Socket::IP->new(
+										 Proto       => 'udp',
+										 PeerAddr    => 'a.root-servers.net',
+										 PeerPort    => '53', # DNS
+										);
+		$main::me->{hostname} = alias_localhost($old) || $socket->{sockhost} || '127.0.0.1';
+	}
+	dbg("Local HostName on external interface was '$old' now '$main::me->{hostname}'");
 
-	dbg("Ooing local initialisations ...");
+
+	dbg("Doing local initialisations ...");
 	if (defined &Local::init) {
 		eval {
 			Local::init();

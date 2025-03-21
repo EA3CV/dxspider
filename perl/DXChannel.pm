@@ -62,6 +62,7 @@ $count = 0;
 		  delayed => '5,Delayed messages,parray',
 		  disconnecting => '9,Disconnecting,yesno',
 		  do_pc9x => '9,Handles PC9x,yesno',
+		  do_pc91 => '9,Handles PC91 Spots,yesno',
 		  dx => '0,DX Spots,yesno',
 		  dxcc => '0,Country Code',
 		  edit => '7,Edit Function',

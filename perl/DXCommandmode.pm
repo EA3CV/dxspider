@@ -1463,20 +1463,6 @@ sub user_count
     return ($users, $maxusers);
 }
 
-# alias localhost if required. This is designed to repress all localhost and other
-# internal interfaces to a fixed (outside) IPv4 or IPV6 address
-sub alias_localhost
-{
-	my $hostname = shift;
-	if ($hostname =~ /./) {
-		return $hostname unless $main::localhost_alias_ipv4;
-		return (grep $hostname eq $_, @main::localhost_names) ? $main::localhost_alias_ipv4 : $hostname;
-	} elsif ($hostname =~ /:/) {
-		return $hostname unless $main::localhost_alias_ipv6;
-		return (grep $hostname eq $_, @main::localhost_names) ? $main::localhost_alias_ipv6 : $hostname;
-	}
-	return $hostname;
-}
 
 1;
 __END__

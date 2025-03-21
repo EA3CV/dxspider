@@ -1,3 +1,18 @@
+21Mar25======================================================================
+1. "Fix" (and I mean that both figuratively and literally) the external IP
+   address that is presented comes from one place and not some magical hand
+   waving. Having said that, if your NODE (not user) is behind a masquerading 
+   firewall you MUST (and I really mean this) set $main::localhost_alias_ipv4
+   and $main::localhost_alias_ipv6 (if you have IPV6 available). 
+
+   This allows a console / dx program RUNNING ON THE NODE to use the correct
+   IP address. Also if you "telnet localhost 7300". This setting has nothing
+   to do with external users. It also makes sure that the correct IP address
+   for the NODE goes out where required (eg in the latest PC92 K records).
+
+   If you never do anything on the node machine itself then this does not 
+   matter. However, if you do and  your NODE has a dynamic IP address then 
+   we will have to work out how to make this happen.
 20Mar25======================================================================
 1. Add $Spot::do_<thing>_check flags to enable/disable call, by, node, ipaddr
    checks.

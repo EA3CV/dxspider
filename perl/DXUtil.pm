@@ -28,7 +28,7 @@ require Exporter;
 			 is_qra is_freq is_digits is_pctext is_pcflag insertitem deleteitem
 			 is_prefix dd is_ipaddr $pi $d2r $r2d localdata localdata_mv
 			 diffms _diffms _diffus difft parraydifft is_ztime basecall
-			 normalise_call is_numeric htime barecall is_rfc1918
+			 normalise_call is_numeric htime barecall is_rfc1918 alias_localhost
             );
 
 
@@ -684,6 +684,21 @@ sub normalise_call
 sub is_numeric
 {
 	return $_[0] =~ /^[\.\d]+$/;
+}
+
+# alias localhost if required. This is designed to repress all localhost and other
+# internal interfaces to a fixed (outside) IPv4 or IPV6 address
+sub alias_localhost
+{
+	my $hostname = shift;
+	if ($hostname =~ /./) {
+		return $hostname unless $main::localhost_alias_ipv4;
+		return (grep $hostname eq $_, @main::localhost_names) ? $main::localhost_alias_ipv4 : $hostname;
+	} elsif ($hostname =~ /:/) {
+		return $hostname unless $main::localhost_alias_ipv6;
+		return (grep $hostname eq $_, @main::localhost_names) ? $main::localhost_alias_ipv6 : $hostname;
+	}
+	return $hostname;
 }
 
 1;
