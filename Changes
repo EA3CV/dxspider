@@ -13,6 +13,7 @@
    If you never do anything on the node machine itself then this does not 
    matter. However, if you do and  your NODE has a dynamic IP address then 
    we will have to work out how to make this happen.
+2. Disable Node dupe checking in spots (for now).
 20Mar25======================================================================
 1. Add $Spot::do_<thing>_check flags to enable/disable call, by, node, ipaddr
    checks.

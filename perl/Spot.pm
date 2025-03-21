@@ -85,7 +85,7 @@ our $store_nocomment = 0;		# Don't take into account the comments (add a time pe
 our $nodetime = 10;				# as $dupecall but for nodes
 our $nodetimethreshold = 50;	# as $dupecallthreshold but for nodes
 
-our $do_node_check = 1;			# Enable / disable flags 
+our $do_node_check = 0;			# Enable / disable flags 
 our $do_call_check = 1;			# Do checks and adds for nodes, (spot) calls, by (calls) and ip addresses
 our $do_by_check = 1;			# 
 our $do_ipaddr_check = 1;		# 
