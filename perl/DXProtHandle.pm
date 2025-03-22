@@ -390,7 +390,7 @@ sub handle_11
 	}
 
 	# we check IP addresses for PC61 - this will also dedupe PC11 promotions
-	if (@$pc > 8 && $pc->[8]) {
+	if ($pcno >= 61 && @$pc > 8 && $pc->[8]) {
 		my $ip = $pc->[8];
 		$ip =~ s/,/:/g;
 		$ip =~ s/^::ffff://;

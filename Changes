@@ -1,3 +1,5 @@
+22Mar25======================================================================
+1. Add some extra protection against spot copy floods.
 21Mar25======================================================================
 1. "Fix" (and I mean that both figuratively and literally) the external IP
    address that is presented comes from one place and not some magical hand

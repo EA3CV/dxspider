@@ -90,6 +90,7 @@ our $do_call_check = 1;			# Do checks and adds for nodes, (spot) calls, by (call
 our $do_by_check = 1;			# 
 our $do_ipaddr_check = 1;		# 
 
+our $floodinterval = 3;
 
 
 if ($readback) {
@@ -558,20 +559,24 @@ sub dup_add
 	
 	# new feature: don't include the origin node in Spot dupes and use normalised qrg, rather than raw freq
 	# $text = normalised text
+	my $t;
 	my $testtype;
 
-	$testtype = '(NORM TEXT)';
-	$$reason = $testtype if ref $reason;
-	$ldupkey = "X$call|$by|$qrg|$text";
-	$t = DXDupe::find($ldupkey);
-	$storet = !$t && !$just_find ? " +$dupage secs STORE=>".htime($main::systime+$dupage) :'';
-	dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet", $testtype) . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
-	$dtext .= ' DUPE' if $t;
-	dbg("text transforms: $dtext") if length $text && isdbg('spottext');
-	return $t if $t;
+	$text ||= 'blank';
+	if ($dupage) {
+		$testtype = '(NORM TEXT)';
+		$$reason = $testtype if ref $reason;
+		$ldupkey = "X$call|$by|$qrg|$text";
+		$t = DXDupe::find($ldupkey);
+		$storet = !$t && !$just_find ? " +$dupage secs STORE=>".htime($main::systime+$dupage) :'';
+		dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet", $testtype) . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
+		$dtext .= ' DUPE' if $t;
+		dbg("text transforms: $dtext") if length $text && isdbg('spottext');
+		return $t if $t;
 
-	DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
-
+		DXDupe::add($ldupkey, $main::systime+$dupage) unless $just_find;
+	}
+	
 	# Without comment
 	if ($store_nocomment) {
 		$testtype ='(NOTEXT)';
@@ -605,10 +610,27 @@ sub dup_add
 		$t ||= handle_dupecalls($by, $reason, "(BY)", $just_find) if $do_by_check;
 		$t ||= handle_dupecalls("N$node", $reason, "(NODE)", $just_find, $nodetime, $nodetimethreshold) if $do_node_check;
 		$t ||= handle_dupecalls($ipaddr, $reason, "(IPADDR)", $just_find) if $do_ipaddr_check && $ipaddr && is_ipaddr($ipaddr);
-		
+
 		return $t if $t && $just_find;
 	}
 
+	if ($floodinterval) {
+		$testtype = '(SP-FLOOD)';
+		$ldupkey = "XX$call|$text";
+		$t = DXDupe::find($ldupkey);
+		$$reason = $testtype if ref $reason;
+		$storet = !$t && !$just_find ? " +$floodinterval secs STORE=>".htime($main::systime+$floodinterval) :'';
+		# This is a fast flood, DUPE it immediately
+		if ($just_find && $t > 0 && $main::systime - $t <= $floodinterval) {
+			dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey FAST FLOOD DUPE=>%s %d secs left", $testtype, htime($t), $t-$main::systime)) if isdbg('spotdup');
+			DXDupe::add($ldupkey, $main::systime+$floodinterval); # update the time
+			return $t;
+		}
+		#			DXDupe::del($ldupkey); # if not cleaned yet
+		$storet = !$just_find ? " +$floodinterval secs STORE=>".htime($main::systime) :'';
+		dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet ", $testtype)) if isdbg('spotdup');
+		DXDupe::add($ldupkey, $main::systime+$floodinterval) # for the first occurrance of this spot;
+	}
 	
 	return 0;
 }
@@ -624,12 +646,13 @@ sub handle_dupecalls
 	my $tick = shift || $calltick;
 			
 	my $check = $just_find ? 'CHECK' : 'ADD  ';
+	
+    # we are DEFINITELY kicking the timer down the road until it stops
+	# in a sustained attack this will oscillate between systime and systime + threshold until
+	# the attack stops and the record is cleaned away as normal
 	my $ldupkey = "X$call";
 	my $t = DXDupe::find($ldupkey);
 	
-	# here we are DEFINITELY kicking the timer down the road until it stops
-	# in a sustained attack this will oscillate between systime and systime + threshold until
-	# the attack stops and the record is cleaned away as normal
 	if ($t > 0) {
 		my $new = $t + $tick;
 		if ($t < $main::systime + $threshold) {
@@ -646,6 +669,7 @@ sub handle_dupecalls
 		dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet ", $testtype)) if isdbg('spotdup');
 		DXDupe::add($ldupkey, $main::systime+$timeout) unless $just_find;
 	}
+
 	return $t;
 }
 
