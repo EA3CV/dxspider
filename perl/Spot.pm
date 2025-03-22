@@ -621,8 +621,9 @@ sub dup_add
 		$$reason = $testtype if ref $reason;
 		$storet = !$t && !$just_find ? " +$floodinterval secs STORE=>".htime($main::systime+$floodinterval) :'';
 		# This is a fast flood, DUPE it immediately
-		if ($just_find && $t > 0 && $main::systime - $t <= $floodinterval) {
-			dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey FAST FLOOD DUPE=>%s %d secs left", $testtype, htime($t), $t-$main::systime)) if isdbg('spotdup');
+		my $left = $t > 0 &&  $main::systime - $t > 0 ?  $main::systime - $t : 0;
+		if ($just_find && $left && $left <= $floodinterval) {
+			dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey FAST FLOOD DUPE=>%s %d secs left", $testtype, htime($t), $left)) if isdbg('spotdup');
 			DXDupe::add($ldupkey, $main::systime+$floodinterval); # update the time
 			return $t;
 		}
