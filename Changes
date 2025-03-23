@@ -1,3 +1,9 @@
+23Mar25======================================================================
+1. As it appears that senderverify is probably more trouble than it is worth
+   I have set it back to 1 (warning mode), with a view to defaulting to 0
+   (off) in time. 
+2. I realised, overnight, that my copy attack protection was unnecessarily
+   complicated. So I replaced it with something much simpler.
 22Mar25======================================================================
 1. Add some extra protection against spot copy floods.
 21Mar25======================================================================

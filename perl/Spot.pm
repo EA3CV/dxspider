@@ -90,7 +90,8 @@ our $do_call_check = 1;			# Do checks and adds for nodes, (spot) calls, by (call
 our $do_by_check = 1;			# 
 our $do_ipaddr_check = 1;		# 
 
-our $floodinterval = 3;
+our $floodinterval = 0;			# superceded by the next variable
+our $dupecallinfo = 5*60+5;		# floodinterval replacement
 
 
 if ($readback) {
@@ -604,6 +605,19 @@ sub dup_add
 		DXDupe::add($ldupkey, $main::systime+$dupeqrgcall) unless $just_find;
 	}
 
+	if ($dupecallinfo) {
+		$testtype = '(CALL-INF0)';
+		$$reason = $testtype if ref $reason;
+	    $ldupkey = "X$call|$text";
+		$t = DXDupe::find($ldupkey);
+		$storet = !$t && !$just_find ? " +$dupecallinfo secs STORE=>".htime($main::systime+$dupecallinfo) :'';
+		dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet", $testtype) . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');
+
+		return $t if $t;	
+
+		DXDupe::add($ldupkey, $main::systime+$dupecallinfo) unless $just_find;
+	}
+
 	# first crude flood protection. This plain callsign checking spotting anything that isn't caught by preceding tests.
 	if ($dupecall) {
 		$t = handle_dupecalls($call, $reason, "(CALL)", $just_find) if $do_call_check;
@@ -614,6 +628,7 @@ sub dup_add
 		return $t if $t && $just_find;
 	}
 
+	# This left here for reference but never fire
 	if ($floodinterval) {
 		$testtype = '(SP-FLOOD)';
 		$ldupkey = "XX$call|$text";

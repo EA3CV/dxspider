@@ -62,7 +62,7 @@ $pc9x_time_tolerance = 15*60;	# the time on a pc9x is allowed to be out by this 
 $pc9x_past_age = (122*60)+		# maximum age in the past of a px9x (a config record might be the only
 $pc9x_time_tolerance;           # thing a node might send - once an hour and we allow an extra hour for luck)
                                 # this is actually the partition between "yesterday" and "today" but old.
-$senderverify = 2;				# 1 - check for forged PC11 or PC61.
+$senderverify = 1;				# 1 - check for forged PC11 or PC61.
                                 # 2 - if forged, dump them.
 $pc11_dwell_time = 2;			# number of seconds to wait for a PC61 to come to substitute the PC11
 $pc61_extract_route = 0;		# generate missing  user route entry and IP address from passing PC61s
