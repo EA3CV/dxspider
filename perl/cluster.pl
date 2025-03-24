@@ -783,7 +783,7 @@ sub setup_start
 	dbg("Reading database descriptors ...");
 	DXDb::load();
 
-	dbg("Rtarting RBN ...");
+	dbg("Starting RBN ...");
 	RBN::init();
 
 	# starting local stuff
@@ -795,19 +795,6 @@ sub setup_start
 
 	# get any bad IPs 
 	DXCIDR::init();
-
-	# find our external host address - on a firewalled machine this may still be rfc1918 or localhost
-	my $old = $main::me->{hostname};
-	if ($old eq '127.0.0.1' || $old eq '::') {
-		my $socket = IO::Socket::IP->new(
-										 Proto       => 'udp',
-										 PeerAddr    => 'a.root-servers.net',
-										 PeerPort    => '53', # DNS
-										);
-		$main::me->{hostname} = alias_localhost($old) || $socket->{sockhost} || '127.0.0.1';
-	}
-	dbg("Local HostName on external interface was '$old' now '$main::me->{hostname}'");
-
 
 	dbg("Doing local initialisations ...");
 	if (defined &Local::init) {
@@ -908,6 +895,11 @@ sub per_minute
 	RBN::per_minute();
 }
 
+sub per_5_minute
+{
+	DXProt::evey_5_minutes();
+}
+
 sub per_10_minute
 {
 	RBN::per_10_minute();
@@ -943,6 +935,7 @@ my $persec =  Mojo::IOLoop->recurring(1 => \&per_sec);
 my $per5sec =  Mojo::IOLoop->recurring(5 => \&per_5_sec);
 my $per10sec =  Mojo::IOLoop->recurring(10 => \&per_10_sec);
 my $permin =  Mojo::IOLoop->recurring(60 => \&per_minute);
+my $per5min =  Mojo::IOLoop->recurring(600 => \&per_5_minute);
 my $per10min =  Mojo::IOLoop->recurring(600 => \&per_10_minute);
 my $perhour =  Mojo::IOLoop->recurring(3600 => \&per_hour);
 my $perday =  Mojo::IOLoop->recurring(86400 => \&per_day);

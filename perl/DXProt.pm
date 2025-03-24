@@ -258,8 +258,11 @@ sub init
 	$main::me->{build} = $main::build;
 	$main::me->{do_pc9x} = 1;
 	$main::me->{hostname} = $main::clusteraddr;
+		
 	$main::me->update_pc92_next($pc92_short_update_period);
 	$main::me->update_pc92_keepalive;
+	# find external ip address
+	$main::me->{hostname} = find_external_ipaddr() if !$main::me->{hostname} or $main::me->{hostname} !~ /:/ or $main::me->{hostname} =~ /127\./ or $main::me->{hostname} eq 'localhost' ;
 }
 
 #
@@ -386,6 +389,8 @@ sub start
 
 	# set next keepalive time
 	$self->update_pc92_keepalive;
+
+	
 }
 
 #
@@ -557,6 +562,19 @@ sub process
 	}
 
     pc11_process();
+}
+
+sub every_5_minutes
+{
+	# look to see if we need to update the IPV4 hostname (actually IP address) because it may have changed
+	# currently we only do this for the single callsign
+	my $h = $main::me->{hostname};
+	my $newh = find_external_ipaddr();
+	
+	if ($h !~ /:/ && $h ne $newh) {
+		$main::me->{hostname} = $newh;
+		LogDbg("DXProt: change $main::mycall channel ip address from $h to $newh");
+	}
 }
 
 #
@@ -909,7 +927,7 @@ sub send_local_config
 #		$self->send_last_pc92_config($main::routeroot);
 #		$self->send(pc92a($main::routeroot, $node)) unless $main::routeroot->last_PC92C =~ /$self->{call}/;
 		$self->send(pc92a($main::routeroot, $node));
-		$self->send(pc92k($main::routeroot, alias_localhost($main::me->{hostname} || '127.0.0.1')));
+		$self->send(pc92k($main::routeroot, $main::me->hostname));
 	} else {
 		# create a list of all the nodes that are not connected to this connection
 		# and are not themselves isolated, this to make sure that isolated nodes
@@ -1442,7 +1460,7 @@ sub talk
 {
 	my ($self, $from, $to, $via, $line, $origin) = @_;
 
-	my $ipaddr = alias_localhost($self->hostname || '127.0.0.1');
+	my $ipaddr = alias_localhost($main::me->hostname || '127.0.0.1');
 	if ($self->{do_pc9x}) {
 		$self->send(pc93($to, $from, $via, $line, undef, $ipaddr));
 	} else {
@@ -1595,6 +1613,7 @@ sub broadcast_route_pc9x
 			next if $origin eq $dxchan->{call};	# don't route some from this call back again.
 			next unless $dxchan->isa('DXProt');
 			next unless $dxchan->{do_pc9x};
+			next if $dxchan->is_ccluster;
 
 			$dxchan->send($line);
 		}

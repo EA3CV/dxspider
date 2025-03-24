@@ -1,3 +1,8 @@
+24Mar25======================================================================
+1. Try to sort out external IPV4 addresses. This *may* form a solution to
+   the dyndns address changing problem or, then again, not.
+2. Find call normalisation to prevent invalid calls crashing the node. 
+3. Fix various speeling mistooks.
 23Mar25======================================================================
 1. As it appears that senderverify is probably more trouble than it is worth
    I have set it back to 1 (warning mode), with a view to defaulting to 0

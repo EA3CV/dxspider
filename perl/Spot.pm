@@ -606,7 +606,7 @@ sub dup_add
 	}
 
 	if ($dupecallinfo) {
-		$testtype = '(CALL-INF0)';
+		$testtype = '(CALL-INFO)';
 		$$reason = $testtype if ref $reason;
 	    $ldupkey = "X$call|$text";
 		$t = DXDupe::find($ldupkey);

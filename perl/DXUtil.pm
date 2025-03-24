@@ -29,6 +29,7 @@ require Exporter;
 			 is_prefix dd is_ipaddr $pi $d2r $r2d localdata localdata_mv
 			 diffms _diffms _diffus difft parraydifft is_ztime basecall
 			 normalise_call is_numeric htime barecall is_rfc1918 alias_localhost
+			 find_external_ipaddr
             );
 
 
@@ -662,7 +663,7 @@ sub parraydifft
 # just the callsign, not any bits in front or behind
 sub barecall
 {
-	my ($r) = $_[0] =~ m{^(?:[\w\d]+\/)?([\w\d]+)};
+	my ($r) = $_[0] =~ m{^(?:[\w\d]+\/)*?([\w\d]+)};
 	return $r;
 }
 
@@ -674,7 +675,8 @@ sub basecall
 
 sub normalise_call
 {
-	my ($c, $ssid) = $_[0] =~ m|^(?:\w+\/)?(\w+)(?:\/\w+)*?(?:-(\d+))?$|;
+#	my ($c) $_[0] =~ m|^(?:\w+\/)?(\w+*)(?:-(\d+))?$|;
+	my ($c, $ssid) = $_[0] =~ m|^(?:\w{0,2}\/)?(\w+)(?:\/\w{0,3})?(?:\-(\d+))?$| ;
 	my $ncall = $c;
 	$ssid += 0;
 	$ncall .= "-$ssid" if $ssid;
@@ -699,6 +701,16 @@ sub alias_localhost
 		return (grep $hostname eq $_, @main::localhost_names) ? $main::localhost_alias_ipv6 : $hostname;
 	}
 	return $hostname;
+}
+
+sub find_external_ipaddr
+{
+	my $addr;
+	
+	$addr = $main::localhost_alias_ipv4;
+	$addr ||= `wget -qO- ifconfig.me/ip`;
+	$addr ||= `curl ipinfo.io/ip`;
+	return $addr;
 }
 
 1;

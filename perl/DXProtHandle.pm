@@ -1900,7 +1900,7 @@ sub _add_thingy
 	$build ||= 0;
 	$version ||= 0;
 
-	if ($call) {
+	if ($call && is_callsign($call)) {
 		my $ncall = $parent->call;
 		if ($ncall ne $call) {
 			my $user;
@@ -1909,6 +1909,11 @@ sub _add_thingy
 			# normalise call, delete any unnormalised calls in the users file.
 			# then ignore this thingy
 			my $normcall = normalise_call($call);
+			unless ($normcall) {
+				LogDbg('err', "ROUTE: $call normalised as $normcall is not considered a valid callsign");
+				dbgprintring(3) if isdbg('nologchan');
+				return;
+			}
 			if ($normcall ne $call) {
 				next if DXChannel::get($call);
 				$user = DXUser::get($call);

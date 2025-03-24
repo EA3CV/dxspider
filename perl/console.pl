@@ -566,13 +566,7 @@ $call = uc shift @ARGV if @ARGV;
 $call = uc $myalias unless $call;
 $node = uc $mycall unless $node;
 
-my ($scall, $ssid) = normalise_call($call);
-
-$ssid = undef unless $ssid && $ssid =~ /^\d+$/;  
-if ($ssid) {
-	$ssid = 99 if $ssid > 99;
-	$call = "$scall-$ssid";
-}
+$call = normalise_call($call);
 
 if ($call eq $mycall) {
 	print "You cannot connect as your cluster callsign ($mycall)\n";
