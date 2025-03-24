@@ -693,7 +693,7 @@ sub is_numeric
 sub alias_localhost
 {
 	my $hostname = shift;
-	if ($hostname =~ /./) {
+	if ($hostname =~ /\./) {
 		return $hostname unless $main::localhost_alias_ipv4;
 		return (grep $hostname eq $_, @main::localhost_names) ? $main::localhost_alias_ipv4 : $hostname;
 	} elsif ($hostname =~ /:/) {
