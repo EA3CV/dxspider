@@ -80,7 +80,7 @@ sub new
 	my $pkg = shift;
 	my $call = shift;
 	#	my @rout = $main::routeroot->add_user($call, Route::here(1));
-	my $ipaddr = alias_localhost($self->hostname);
+	my $ipaddr = alias_localhost($self->hostname || '127.0.0.1');
 	DXProt::_add_thingy($main::routeroot, [$call, 0, 0, 1, undef, undef, $ipaddr], );
 
 	# ALWAYS output the user (except if the updates not enabled)

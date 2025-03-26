@@ -706,6 +706,8 @@ sub alias_localhost
 sub find_external_ipaddr
 {
 	my $addr;
+
+	return $main::me->hostname if $main::is_win;
 	
 	$addr = $main::localhost_alias_ipv4;
 	$addr ||= `wget -qO- ifconfig.me/ip`;

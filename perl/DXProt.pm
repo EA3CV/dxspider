@@ -86,6 +86,8 @@ $pc92_keepalive_period = 1*60*60;	# frequency of PC92 K (keepalive) records
 $pc92_find_timeout = 30;		# maximum time to wait for a reply
 $pc92_ad_enabled = 1;			# send pc92 A & D records.
 $pc92c_ipaddr_enable = 0;		# add the local ip address info to each callsign in a PC92 C
+our $disable_set_external_ip = 0;	# set this if set/external_ip causes you problems
+
 
 @checklist =
 (
@@ -262,7 +264,9 @@ sub init
 	$main::me->update_pc92_next($pc92_short_update_period);
 	$main::me->update_pc92_keepalive;
 	# find external ip address
-	$main::me->{hostname} = find_external_ipaddr() if !$main::me->{hostname} or $main::me->{hostname} !~ /:/ or $main::me->{hostname} =~ /127\./ or $main::me->{hostname} eq 'localhost' ;
+	#	$main::me->{hostname} = find_external_ipaddr() if !$main::me->{hostname} or $main::me->{hostname} !~ /:/ or $main::me->{hostname} =~ /127\./ or $main::me->{hostname} eq 'localhost' ;
+
+	DXCommandmode::run_cmd($main::me, 'set/external_ip') unless $disable_set_external_ip;
 }
 
 #
@@ -562,19 +566,6 @@ sub process
 	}
 
     pc11_process();
-}
-
-sub every_5_minutes
-{
-	# look to see if we need to update the IPV4 hostname (actually IP address) because it may have changed
-	# currently we only do this for the single callsign
-	my $h = $main::me->{hostname};
-	my $newh = find_external_ipaddr();
-	
-	if ($h !~ /:/ && $h ne $newh) {
-		$main::me->{hostname} = $newh;
-		LogDbg("DXProt: change $main::mycall channel ip address from $h to $newh");
-	}
 }
 
 #

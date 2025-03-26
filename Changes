@@ -1,3 +1,18 @@
+26Mar25======================================================================
+1. Added set/external_ip and show/external_ip to handle the situation of
+   running a node behind a masquerading IPV4 firewall. It will discover and
+   set the external IPV4 ip address and then use that as the hostname in
+   PC92/announce/dx etc.
+
+   This command is run as part of the startup. If this causes problems you 
+   can disable it by settin $DXProt::disable_set_external_ip = 1. 
+
+   You can also run this command however often you want to update your 
+   external IP address, either from the command line or in your local 
+   crontab. 
+
+   The command does nothing if the local address is IPV6.
+2. show/external_ip will do what it says on the tin. Works on IPV4 and 6.
 24Mar25======================================================================
 1. Try to sort out external IPV4 addresses. This *may* form a solution to
    the dyndns address changing problem or, then again, not.

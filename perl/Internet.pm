@@ -72,6 +72,9 @@ $db0sdx_suffix = '.asmx';
 $dx425_url = 'https://www.425dxn.org/';		# used by show/425
 $contest_host = 'contest.dxtron.com';         # used by show/contest
 #$contest_url = "/contest/text";         # used by show/contest
+$ipaddr_host = 'ipinfo.io';	# used by set/external_ip
+$ipaddr_url = '/ip';	# used by set/external_ip
+
 
 #SHOW/IK3QAR <callsign> Show the 5 most recent informations found on IK3QAR
 ##Callsign Database about QSL Manager, Manager address and comments. This

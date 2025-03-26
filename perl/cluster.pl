@@ -804,7 +804,6 @@ sub setup_start
 		dbg("Local::init error $@") if $@;
 	}
 
-
 	# this, such as it is, is the main loop!
 	dbg("Orft we jolly well go ...");
 
@@ -897,7 +896,7 @@ sub per_minute
 
 sub per_5_minute
 {
-	DXProt::evey_5_minutes();
+#	DXProt::evey_5_minutes();
 }
 
 sub per_10_minute
