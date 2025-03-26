@@ -29,7 +29,7 @@ require Exporter;
 			 is_prefix dd is_ipaddr $pi $d2r $r2d localdata localdata_mv
 			 diffms _diffms _diffus difft parraydifft is_ztime basecall
 			 normalise_call is_numeric htime barecall is_rfc1918 alias_localhost
-			 find_external_ipaddr
+			 find_external_ipaddr find_local_ipaddr
             );
 
 
@@ -676,7 +676,7 @@ sub basecall
 sub normalise_call
 {
 #	my ($c) $_[0] =~ m|^(?:\w+\/)?(\w+*)(?:-(\d+))?$|;
-	my ($c, $ssid) = $_[0] =~ m|^(?:\w{0,2}\/)?(\w+)(?:\/\w{0,3})?(?:\-(\d+))?$| ;
+	my ($c, $ssid) = $_[0] =~ m|^(?:\w{0,4}\/)?(\w+)(?:\/\w{0,4})?(?:\-(\d+))?$| ;
 	my $ncall = $c;
 	$ssid += 0;
 	$ncall .= "-$ssid" if $ssid;
@@ -693,6 +693,7 @@ sub is_numeric
 sub alias_localhost
 {
 	my $hostname = shift;
+	
 	if ($hostname =~ /\./) {
 		return $hostname unless $main::localhost_alias_ipv4;
 		return (grep $hostname eq $_, @main::localhost_names) ? $main::localhost_alias_ipv4 : $hostname;
@@ -715,4 +716,12 @@ sub find_external_ipaddr
 	return $addr;
 }
 
+sub find_local_ipaddr
+{
+	my $sock = IO::Socket::IP->new(
+                       PeerAddr=> "example.com",
+                       PeerPort=> 80,
+                       Proto   => "tcp");
+	return $sock->sockhost;
+}
 1;

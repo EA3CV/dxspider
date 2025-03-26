@@ -146,13 +146,13 @@ sub sockhost
 		$conn->{sockhost} ||= 'UNKNOWN';
 	}
 	$conn->{sockhost} =~ s/^::ffff://;
-	if (! defined $main::localhost_alias_ipv4 && $conn->{sockhost} =~ /\./ && $conn->{sockhost} !~ /^127\./) {
-		$main::localhost_alias_ipv4 = $conn->{sockhost};
-		dbg("Msg: localhost_alias_ipv4 = '$main::localhost_alias_ipv4'");
-	} elsif (! defined $main::localhost_alias_ipv6 && $conn->{sockhost} =~ /:/ && $conn->{sockhost} !~ /^::1$/) {
-		$main::localhost_alias_ipv6 = $conn->{sockhost};
-		dbg("Msg: localhost_alias_ipv6 = '$main::localhost_alias_ipv6'");
-	}
+#	if (! defined $main::localhost_alias_ipv4 && $conn->{sockhost} =~ /\./ && $conn->{sockhost} !~ /^127\./) {
+#		$main::localhost_alias_ipv4 = $conn->{sockhost};
+#		dbg("Msg: localhost_alias_ipv4 = '$main::localhost_alias_ipv4'");
+#	} elsif (! defined $main::localhost_alias_ipv6 && $conn->{sockhost} =~ /:/ && $conn->{sockhost} !~ /^::1$/) {#
+#		$main::localhost_alias_ipv6 = $conn->{sockhost};
+#		dbg("Msg: localhost_alias_ipv6 = '$main::localhost_alias_ipv6'");
+#	}
 	return $conn->{sockhost};
 }
 #-----------------------------------------------------------------

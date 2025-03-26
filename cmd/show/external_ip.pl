@@ -6,6 +6,6 @@ sub handle
 	my @out;
 	my $chan = DXChannel::get($main::mycall);
 	
-	push @out, "me: $main::me->{hostname} node: $chan->{hostname}";
+	push @out, "$self->{call}: $self->{hostname} main::me: $main::me->{hostname} node: $chan->{hostname}";
 	return (1, @out);
 }

@@ -24,7 +24,7 @@ return (1, $self->msg('e5')) if $self->remotecmd || $self->inscript;
 return (1, $self->msg('e28')) unless $self->isregistered;
 
 
-my $addr = DXCommandmode::alias_localhost($self->hostname || '127.0.0.1');
+my $addr = alias_localhost($self->hostname || '127.0.0.1');
 
 Log('cmd', "$self->{call}|$addr|dx|$line");
 

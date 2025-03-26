@@ -13,6 +13,12 @@
 
    The command does nothing if the local address is IPV6.
 2. show/external_ip will do what it says on the tin. Works on IPV4 and 6.
+3. Fix normalise_call('BV1/G1TLH/JA-3') normalises to G1TLH-2. Silly me for 
+   not allowing more than 2 characters before and after a / around a 
+   callsign.
+4. For those people running item 1 above, arrange for their local IP address
+   to be added to the list of possible aliases for localhost. This will put
+   up the correct external address in protocol sentences.
 24Mar25======================================================================
 1. Try to sort out external IPV4 addresses. This *may* form a solution to
    the dyndns address changing problem or, then again, not.

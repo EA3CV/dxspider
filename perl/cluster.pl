@@ -172,6 +172,7 @@ use DXDebug;
 
 use Data::Dumper;
 use IO::File;
+use Sys::Hostname;
 use Fcntl ':flock';
 use POSIX ":sys_wait_h";
 use Web;
@@ -226,8 +227,12 @@ our $localhost_alias_ipv6;		# for things (PC92, PC61 etc) that expose IP address
                                 # certanty then set/var them in the startup file.
 
 our $save_route_cache;			# save and restore route cache on restart. Probably only useful for G1TLH testing
+our $local_ipaddr;
+
 
 use vars qw($version $subversion $build $gitversion $gitbranch);
+
+
 
 # send a message to call on conn and disconnect
 sub already_conn
@@ -803,6 +808,9 @@ sub setup_start
 		};
 		dbg("Local::init error $@") if $@;
 	}
+
+	$local_ipaddr = find_local_ipaddr();
+	push @localhost_names, $local_ipaddr if $local_ipaddr;
 
 	# this, such as it is, is the main loop!
 	dbg("Orft we jolly well go ...");

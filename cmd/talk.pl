@@ -48,7 +48,7 @@ my $call = $to;
 # default the 'via'
 $via ||= '*';
 
-my $ipaddr = DXCommandmode::alias_localhost($self->hostname || '127.0.0.1');
+my $ipaddr = alias_localhost($self->hostname || '127.0.0.1');
 
 # if there is a line send it, otherwise add this call to the talk list
 # and set talk mode for command mode
