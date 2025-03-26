@@ -22,7 +22,7 @@ sub extract_ip
 			push @out, "set/external_ip: no IP address change for $main::mycall required";
 		} 			
 	} else {
-		if ($old =~ /:/) {
+		if ($old =~ /\:/) {
 			push @out, "set/external_ip: $main::mycall has IPV6 ip address $old, cannot change it here";
 		} else {
 			push @out, "set/external_ip: unknown error $main::mycall hostname old = $old, new = $new, ignored";
