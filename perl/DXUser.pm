@@ -307,6 +307,10 @@ sub put
 	my $self = shift;
 	confess "Trying to put nothing!" unless $self && ref $self;
 	my $call = $self->{call};
+	unless ($call) {
+		LogDbg("DXUser::put undefined/zero callsign");
+		return;
+	}
 
 	$dbm->del($call);
 	delete $self->{annok};
@@ -758,7 +762,7 @@ sub export
 		
 
         for ($action = R_FIRST; !$dbm->seq($key, $val, $action); $action = R_NEXT) {
-			if (!is_callsign($key) || $key =~ /^0/) {
+			if (!is_callsign($key) || $key =~ /^\d+$/) {
 				my $eval = $val;
 				my $ekey = $key;
 				$eval =~ s/([\%\x00-\x1f\x7f-\xff])/sprintf("%%%02X", ord($1))/eg; 
@@ -804,7 +808,7 @@ sub export
 						LogDbg('DXCommand', sprintf("NODE $ref->{call} deleted (%s) old", difft($t, ' ')));
 						++$del;
 						++$nodes;
-						$del{$key} = $val;
+						$del{$key} = undef;
 						next;
 					}
 					
@@ -841,6 +845,7 @@ sub export
 	
 	while (my ($k, $v) = each %del) {
 		eval {$dbm->del($k)};
+		$v = "undef" unless $v;
 		LogDbg('DXCommand', "Error deleting key: $k value: $v error: $@") if $@;
 	}
 

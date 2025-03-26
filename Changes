@@ -19,6 +19,12 @@
 4. For those people running item 1 above, arrange for their local IP address
    to be added to the list of possible aliases for localhost. This will put
    up the correct external address in protocol sentences.
+5. Fixed crashes in export_users. Clearly I was not paranoid enough in 
+   checking for invalid records and keys. As normalising of callsigns now
+   strips off all the extraneous prefixes and suffixes as per 3, above,
+   export_users will now remove quite a (largely empty) entries. 
+
+   Thanks to Mike W1NR for the heads up.
 24Mar25======================================================================
 1. Try to sort out external IPV4 addresses. This *may* form a solution to
    the dyndns address changing problem or, then again, not.
