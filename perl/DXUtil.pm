@@ -507,10 +507,13 @@ sub is_ipaddr
 sub is_rfc1918
 {
 	my $in = shift;
+	return 0 if $in =~ /\:/;
+	
 	my @ip = split /\./, $in;
 	return 1 if ($ip[0] == 127 || $ip[0] == 10 || ($ip[0] == 192 && $ip[1] == 168) || ($ip[0] == 172 && $ip[1] >= 16 && $ip[1] <= 31));
 	return 0;
 }
+
 # is it a zulu time hhmmZ
 sub is_ztime
 {
@@ -693,6 +696,9 @@ sub is_numeric
 sub alias_localhost
 {
 	my $hostname = shift;
+
+	# a band aid
+	$hostname = '127.0.0.1' if $hostname eq 'localhost';
 	
 	if ($hostname =~ /\./) {
 		return $hostname unless $main::localhost_alias_ipv4;

@@ -1,3 +1,7 @@
+27Mar25======================================================================
+1. Fix IPV6 issue in is_rfc1918()
+2. Apply band aid in alias_hostname if the input hostname is "localhost".
+   PLEASE check that your /etc/hosts file (or equiv) is correct!
 26Mar25======================================================================
 1. Added set/external_ip and show/external_ip to handle the situation of
    running a node behind a masquerading IPV4 firewall. It will discover and
