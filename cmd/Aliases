@@ -37,6 +37,7 @@ package CmdAlias;
 				  '^b$', 'bye', 'bye',
 				 ],
 		  'c' => [
+				  '^cccl?u?s?t?e?r?', 'apropos ccluster', 'apropos',
 				  '^cle?a?r?$', 'apropos clear', 'apropos',
 				  '^cre?a?t?e?$', 'apropos create', 'apropos',
 				 ],

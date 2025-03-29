@@ -75,12 +75,12 @@ our $minselfspotqrg = 1240000;	# minimum freq above which self spotting is allow
 
 our $readback = $main::is_win ? 0 : 1; # don't read spot files backwards if it's windows
 our $qrggranularity = 1;       # normalise the qrg to this number of khz (default: 25khz), so tough luck if you have a fumble fingers moment
-our $timegranularity = 600;		# ditto to the nearest 100 seconds 
+our $timegranularity = 60;		# ditto to the nearest 60 seconds 
 our $dupecall = 10;	            # check that call is not spotted too often - this the base dedupe interval - set to 0 to disable
 our $calltick = 5;				# the escalator by which duping of calls are added to get them to actual DUPE status - meaning that below the threshold this call is passed above DUPE.
 our $dupecallthreshold = 35;    # This is threshold at which a repeated call's dupe record actually becomes a dupe. So
                                 # somewhere between 4 slowish and 3 fast spots will cause this indicate a possible flood.
-our $dupeqrgcall = 5*60+5;	    # check that call is not spotted on the same (normalised) qrg too often - this the dedupe interval - set to 0 to disable1
+our $dupeqrgcall = 1*60+5;	    # check that call is not spotted on the same (normalised) qrg too often - this the dedupe interval - set to 0 to disable1
 our $store_nocomment = 0;		# Don't take into account the comments (add a time period for these)
 our $nodetime = 10;				# as $dupecall but for nodes
 our $nodetimethreshold = 50;	# as $dupecallthreshold but for nodes
@@ -500,16 +500,21 @@ sub dup_add
 	my ($just_find, $freq, $call, $d, $text, $by, $node, $ipaddr, $reason) = @_;
 
 	my $check = $just_find ? 'CHECK' : 'ADD  ';
-	dbg("Spot::add_dup: $check (+INPUT+)   freq=$freq call=$call d=$d text='$text' by=$by node=$node ipaddr='$ipaddr'") if isdbg('spotdup');
+
+	# turn the time into minutes (it is seconds to a granularity of seconds)
+	$d = int ($d / 60);
+    $d *= 60;
+	#	my $nd = nearest($timegranularity, $d);
+	my $nd = $d;
+	
+	my $hd = htime($d);
+	
+	dbg("Spot::add_dup: $check (+INPUT+)   freq=$freq call=$call d=$d ($hd) text='$text' by=$by node=$node ipaddr='$ipaddr'") if isdbg('spotdup');
 
 	# dump if too old
 	return 2 if $d < $main::systime - $dupage;
 
-	# turn the time into minutes (should be already but...)
-	$d = int ($d / 60);
-	$d *= 60;
-
-	my $nd = nearest($timegranularity, $d);
+	
 
 
 	$freq = sprintf "%.1f", $freq;       # normalise frequency
@@ -563,11 +568,12 @@ sub dup_add
 	my $t;
 	my $testtype;
 
+	$text =~ s/^\s*$//;
 	$text ||= 'blank';
 	if ($dupage) {
 		$testtype = '(NORM TEXT)';
 		$$reason = $testtype if ref $reason;
-		$ldupkey = "X$call|$by|$qrg|$text";
+		$ldupkey = "X$call|$by|$qrg|$nd|$text";
 		$t = DXDupe::find($ldupkey);
 		$storet = !$t && !$just_find ? " +$dupage secs STORE=>".htime($main::systime+$dupage) :'';
 		dbg(sprintf("Spot::add_dup: $check %-11.11s $ldupkey $storet", $testtype) . ($t?(' DUPE=>'.htime($t)) :'')) if isdbg('spotdup');

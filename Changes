@@ -1,3 +1,12 @@
+29Mar25======================================================================
+1. Change the default QRG/CALL interval to 65 seconds.
+2. Remove the extra Spot::dup_finds from the delaying PC11 whilst waiting
+   for a better offer.
+3. Make sure that the time we use is a multiple of 60 secs for Spot deduping
+4. Remove (in effect) a per spot increase in senderverify + 2 when using
+   set/debug suspicious for each spot caught by this test. This really only 
+   for my benefit usage may change over time - without warning. 
+5. Improve NORM TEXT detection by adding the time to the key(gasp, horror).
 27Mar25======================================================================
 1. Fix IPV6 issue in is_rfc1918()
 2. Apply band aid in alias_hostname if the input hostname is "localhost".

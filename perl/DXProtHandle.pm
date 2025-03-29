@@ -312,11 +312,11 @@ sub handle_11
 
 			if ($pc11_saved{$key}) {
 				# before we promote  because it's a better pc61, check that it's not a dupe (but don't insert it).
-				if (Spot::dup_find(@spot[0..4,7,14], \$dupe_reason)) {
-					dbg("PCPROT: Duplicate Spot $self->{call}: $pc->[0] $key ignored $dupe_reason\n") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
-					delete $pc11_saved{$key};
-					return;
-				}
+#				if (Spot::dup_find(@spot[0..4,7,14], \$dupe_reason)) {
+#					dbg("PCPROT: Duplicate Spot $self->{call}: $pc->[0] $key ignored $dupe_reason\n") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
+#					delete $pc11_saved{$key};
+#					return;
+#				}
 
 				++$pc11_to_61;
 
@@ -337,17 +337,18 @@ sub handle_11
 
 			# if this fires then we have already had one or more PC11s but no PC61 for this spot
 			if ($pc11_saved{$key}) {
-				dbg("DUPE $self->{call} $pc->[0] key: $key is saved, ignored (SAVED)") if isdbg("pc11");
+				
+				dbg("DUPE $self->{call} $pc->[0] key: $key is already being processed, ignored (PROCESSING)") if isdbg("pc11");
 				return;		# because it's a dup
 			}
 
-			# before we promote by route, check that it's not been preceded by a previous PC61
-			if (Spot::dup_find(@spot[0..4,7,14], \$dupe_reason)) {
-				my $s = exists $pc11_saved{$key} ? " stored $key removed" : " key $key";
-				dbg("PCPROT: Duplicate Spot $self->{call}: PC11$s, recurse: $recurse, ignored $dupe_reason") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
-				delete $pc11_saved{$key};
-				return;
-			}
+#			# before we promote by route, check that it's not been preceded by a previous PC61
+#			if (Spot::dup_find(@spot[0..4,7,14], \$dupe_reason)) {
+#				my $s = exists $pc11_saved{$key} ? " stored $key removed" : " key $key";
+#				dbg("PCPROT: Duplicate Spot $self->{call}: PC11$s, recurse: $recurse, ignored $dupe_reason") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
+#				delete $pc11_saved{$key};
+#				return;
+#			}
 
 			# If we have an ip address we can promote by route
 			if ($rug && $rug->ip) {
@@ -360,7 +361,7 @@ sub handle_11
 				dbg(sprintf("PROMOTED $self->{call}: ROUTE pc11 $key PROMOTED to pc61 with IP $spot[14] pc61: $pc61_rx pc11: $pc11_rx route->pc61 $rpc11_to_61 (%0.1f%%)", $percent)) if isdbg("pc11");
 				$line = join '^', @$pc, $hops, '~';
 
-				# update the stats (NOTE, thie record was a PC11, it has now become a PC61
+				# update the stats (NOTE, this record was a PC11, it has now become a PC61
 				# this is NOT the same choosing a better PC61, that is a separate record. 
 				++$pc11_rx;		# 'cos we received as a PC11 it and it won't be a pc11 anymore 
 				--$pc61_rx;		# 'cos we'll increment it later as it's now a pc61, no double counting
@@ -437,7 +438,7 @@ sub handle_11
 	##            output to users are added to the duplicate cache
 	#
 	#
-	
+
 	if (Spot::dup_find(@spot[0..4,7,14], \$dupe_reason)) {
 		dbg("PCPROT: Duplicate Spot $self->{call}: $pc->[0] $key ignored $dupe_reason\n") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
 		return;
@@ -451,7 +452,7 @@ sub handle_11
 	#
 	if ($senderverify || isdbg('suspicious')) {
 		my $sv = $senderverify;
-		$sv += 2 if isdbg('suspicious');
+#		$sv += 2 if isdbg('suspicious');
 		my $nroute = Route::Node::get($pc->[7]);
 		my $local = DXChannel::get($pc->[7]);
 		my $uref = DXUser::get_current($pc->[7]);
@@ -484,7 +485,8 @@ sub handle_11
 	Spot::add_local(@spot);
 
 	my $ip = '';
-	$ip ||= $spot[14] if exists $spot[14];
+	$ip ||= $spot[14] if defined $spot[14];
+
 	if (isdbg('progress')) {
 		my $sip = $ip ? sprintf "($ip)" : '' unless $ip =~ m|[\(\)\*]|;
 		$sip ||= '';
