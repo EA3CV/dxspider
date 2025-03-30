@@ -71,7 +71,7 @@ $use_db_for_search = 0;
 
 our %spotcache;					# the cache of data within the last $spotcachedays 0 or 2+ days
 our $spotcachedays = 2;			# default 2 days worth
-our $minselfspotqrg = 1240000;	# minimum freq above which self spotting is allowed
+our $minselfspotqrg = 0;        # minimum freq above which self spotting is allowed
 
 our $readback = $main::is_win ? 0 : 1; # don't read spot files backwards if it's windows
 our $qrggranularity = 1;       # normalise the qrg to this number of khz (default: 25khz), so tough luck if you have a fumble fingers moment
@@ -92,6 +92,8 @@ our $do_ipaddr_check = 1;		#
 
 our $floodinterval = 0;			# superceded by the next variable
 our $dupecallinfo = 5*60+5;		# floodinterval replacement
+our $spotage = 2*60+5;			# the spot time stamp cannot be older than this no of secs
+
 
 
 if ($readback) {
@@ -439,7 +441,7 @@ sub search
 				last if $count >= $to; # stop after to
 			}
 		}
-7	}
+	}
 	return ("Spot search error", $@) if $@;
 
 	@out = sort {$b->[2] <=> $a->[2]} @out if @out;
@@ -506,15 +508,18 @@ sub dup_add
     $d *= 60;
 	#	my $nd = nearest($timegranularity, $d);
 	my $nd = $d;
-	
 	my $hd = htime($d);
-	
+	my $testtype;
+
 	dbg("Spot::add_dup: $check (+INPUT+)   freq=$freq call=$call d=$d ($hd) text='$text' by=$by node=$node ipaddr='$ipaddr'") if isdbg('spotdup');
 
-	# dump if too old
-	return 2 if $d < $main::systime - $dupage;
-
-	
+		# dump if too old
+	if ($spotage && $nd < $main::systime - $spotage) {
+		$testtype ='(TOO OLD)';
+		$$reason = $testtype if ref $reason;
+		dbg("PCPROT: Spot too old req=$freq call=$call d=$hd text='$text' by=$by node=$node ipaddr='$ipaddr' is more than " . ($main::systime - $nd) . " (max $spotage) secs old $testtype") if isdbg('pc11');
+		return $d;
+	}
 
 
 	$freq = sprintf "%.1f", $freq;       # normalise frequency
@@ -566,7 +571,6 @@ sub dup_add
 	# new feature: don't include the origin node in Spot dupes and use normalised qrg, rather than raw freq
 	# $text = normalised text
 	my $t;
-	my $testtype;
 
 	$text =~ s/^\s*$//;
 	$text ||= 'blank';

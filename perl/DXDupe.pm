@@ -124,7 +124,10 @@ sub listdups
 	my @out;
 	for (grep { m{$regex}i } keys %d) {
 		my ($dum, $key) = unpack "a1a*", $_;
-		push @out, "$key = " . cldatetime($d{$_} - $dupage) . " expires in " . ($d{$_}-$main::systime) . "secs";
+		my $left = $d{$_}-$main::systime;
+		$left = 0 if $left < 0;
+		my $expires = $left ? "expires in $left secs" : 'is expired';
+		push @out, "$key = " . cldatetime($d{$_} - $dupage) . "$expires";
 	}
 	return @out;
 }

@@ -1,3 +1,10 @@
+30Mar25======================================================================
+1. Prevent a spot progressing if it more than $Spot::spotage seconds old.
+   Currently 125 secs.
+2. Set $Spot::minselfspotqrg = 0 as requested by many.
+3. Tart show/dup_spots up a bit,
+4. Removed all trailing ' characters in Messages - in all langauges. But I
+   might still have missed the odd one.
 29Mar25======================================================================
 1. Change the default QRG/CALL interval to 65 seconds.
 2. Remove the extra Spot::dup_finds from the delaying PC11 whilst waiting

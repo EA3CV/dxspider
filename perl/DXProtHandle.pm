@@ -223,7 +223,7 @@ sub handle_11
 	# bang out (and don't pass on) if date is invalid or the spot is too old (or too young)
 	if (!$d || (($pcno == 11 || $pcno == 61) && ($d < $main::systime - $pc11_max_age || $d > $main::systime + 900))) {
 		dbg($line) if isdbg('nologchan');
-		dbg("PCPROT: Spot ignored, invalid date or out of range ($pc->[3] $pc->[4])\n");
+		dbg("PCPROT: Spot ignored, invalid date or out of range ($pc->[3] $pc->[4])");
 		return;
 	}
 
@@ -313,7 +313,7 @@ sub handle_11
 			if ($pc11_saved{$key}) {
 				# before we promote  because it's a better pc61, check that it's not a dupe (but don't insert it).
 #				if (Spot::dup_find(@spot[0..4,7,14], \$dupe_reason)) {
-#					dbg("PCPROT: Duplicate Spot $self->{call}: $pc->[0] $key ignored $dupe_reason\n") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
+#					dbg("PCPROT: Duplicate Spot $self->{call}: $pc->[0] $key ignored $dupe_reason") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
 #					delete $pc11_saved{$key};
 #					return;
 #				}
@@ -440,7 +440,7 @@ sub handle_11
 	#
 
 	if (Spot::dup_find(@spot[0..4,7,14], \$dupe_reason)) {
-		dbg("PCPROT: Duplicate Spot $self->{call}: $pc->[0] $key ignored $dupe_reason\n") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
+		dbg("PCPROT: Duplicate Spot $self->{call}: $pc->[0] $key ignored $dupe_reason") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
 		return;
 	}
 
@@ -1361,7 +1361,7 @@ sub handle_23
 	}
 	$pc->[7] =~ s/-\d+$//o;		# remove spotter's ssid
 	if (Geomag::dup($d,$sfi,$k,$i,$pc->[6],$pc->[7])) {
-		dbg("PCPROT: Dup WWV Spot ignored\n") if isdbg('chanerr');
+		dbg("PCPROT: Dup WWV Spot ignored") if isdbg('chanerr');
 		return;
 	}
 
@@ -1768,7 +1768,7 @@ sub handle_73
 	}
 	$pc = [ map { unpad($_) } @$pc ];
 	if (WCY::dup($d)) {
-		dbg("PCPROT: Dup WCY Spot ignored\n") if isdbg('chanerr');
+		dbg("PCPROT: Dup WCY Spot ignored") if isdbg('chanerr');
 		return;
 	}
 
