@@ -5,6 +5,8 @@
 3. Tart show/dup_spots up a bit,
 4. Removed all trailing ' characters in Messages - in all langauges. But I
    might still have missed the odd one.
+5. Change senderverify message so it is clear whether it is a warning or the
+   spot is being dumped.
 29Mar25======================================================================
 1. Change the default QRG/CALL interval to 65 seconds.
 2. Remove the extra Spot::dup_finds from the delaying PC11 whilst waiting
