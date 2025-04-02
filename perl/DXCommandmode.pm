@@ -610,7 +610,7 @@ sub process
 		}
 		
 		# send a prompt if no activity out on this channel
-		if ($t >= $dxchan->t + $dxchan->{user_interval}) {
+		if ($t >= $dxchan->t + ($dxchan->{user_interval} || 11*60)) {
 			$dxchan->prompt() if $dxchan->{state} =~ /^prompt/o;
 			$dxchan->t($t);
 		}

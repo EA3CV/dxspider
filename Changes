@@ -1,3 +1,10 @@
+02Apr25======================================================================
+1. Fix one of those "impossible errors" that happen. One of those now 1 in
+   several trillion that happen 9 times out of 10 [tm] T Prachett altered.
+   
+   Basically Keith G6NHU has a corrupted user record that had triggered 
+   something that can only happen with a corrupted record. Recommend restore
+   from backup - if he has one... (I only fixed that on 26th March).
 30Mar25======================================================================
 1. Prevent a spot progressing if it more than $Spot::spotage seconds old.
    Currently 125 secs.
