@@ -11,8 +11,9 @@ sub extract_ip
 	
 	my $chan = DXChannel::get($main::mycall);
 	my $old = $chan->hostname;
+	$old = '127.0.0.1' if $old =~/localhost/;
 	
-	if ($new =~ /\./ && $old =~ /\./ && is_ipaddr($new)) {
+	if ($new =~ /\./ && is_ipaddr($new)) {
 		if ($new ne $chan->hostname) {
 			LogDbg("Changing IP address of node from $old to $new");
 			$chan->hostname($new);

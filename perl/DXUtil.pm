@@ -624,10 +624,11 @@ sub difft
 			$t = $adds - $b;
 			$adds = shift;
 		} else {
-			$t = time - $b;
+			$t = $main::systime - $b;
 		}
 	}
 	return '-(ve)' if $t < 0;
+	$t ||= 0;
 	my ($y,$d,$h,$m,$s);
 	my $out = '';
 	$y = int $t / (86400*365);
@@ -640,7 +641,7 @@ sub difft
 	$out .= sprintf ("%s${h}h", $adds?' ':'') if $h;
 	$t -= $h * 3600;
 	$m = int $t / 60;
-	$out .= sprintf ("%s${m}m", $adds?' ':'') if $m;
+	$out .= sprintf ("%s${m}m", $adds?' ':'') if  $m;
 	if (($d == 0 && $adds) || (int $adds && $adds == 2)) {
 		$s = int $t % 60;
 		$out .= sprintf ("%s${s}s", $adds?' ':'') if $s;

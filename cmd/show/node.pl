@@ -51,6 +51,7 @@ foreach $call (sort @call) {
 		$sort = "BBS   " if $uref->is_bbs;
 		$sort = "DXNet " if $uref->is_dxnet;
 		$sort = "ARClus" if $uref->is_arcluster;
+		$sort = 'CCClus' if $uref->is_ccluster;
 		$sort = "AK1A  " if !$sort && $uref->is_ak1a;
 		$sort = "Unknwn" unless $sort;
 	} else {
@@ -62,10 +63,11 @@ foreach $call (sort @call) {
 	if ($call eq $main::mycall) {
 		$sort = "Spider";
 		$ver = $main::version;
+		$build = "build: $main::build";
 	} else {
 		$ver = $clref->version if $clref && $clref->version;
-		$ver = $uref->version if !$ver && $uref->version;
-		$sort = "CCClus" if $ver >= 1000 && $ver < 4000 && $sort eq "Spider";
+		$ver ||= $uref->version if  $uref->version;
+		$sort ||= "CCClus" if $ver >= 1000 && $ver < 4000 && $sort eq "Spider";
 	}
 	
 	if ($uref->is_spider || ($clref && $clref->do_pc9x)) {

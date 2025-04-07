@@ -85,7 +85,7 @@ $pc92_keepalive_period = 1*60*60;	# frequency of PC92 K (keepalive) records
 %pc92_find = ();				# outstanding pc92 find operations
 $pc92_find_timeout = 30;		# maximum time to wait for a reply
 $pc92_ad_enabled = 1;			# send pc92 A & D records.
-$pc92c_ipaddr_enable = 0;		# add the local ip address info to each callsign in a PC92 C
+$pc92c_ipaddr_enable = 1;		# add the local ip address info to each callsign in a PC92 C
 our $disable_set_external_ip = 0;	# set this if set/external_ip causes you problems
 
 

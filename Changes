@@ -1,3 +1,22 @@
+06Apr25======================================================================
+1. Fix set/external_ip to accept 'localhost' as an acceptable input IP
+   address.
+05Apr25======================================================================
+1. Set autoflush on in watchdbg so that it behaves in the same way if STDOUT 
+   is redirected to a file with > or >>, as it does in normal console use.
+04Apr25======================================================================
+1. Modernise sh/nodes to take into account ccluster nodes and also add the
+   buildno to the entry of the running node.  
+2. Try to fix Keith G6NHU's issuette of an apparently addition of a
+   non-numeric "number", but only connection. I have yet to reproduce it. 
+3. Set $DXProt::$pc92c_ipaddr_enable = 1 as default from now. This will 
+   allow us to scope the problem of ignoring spots with rfc1918 addresses, 
+   as well as making the routing system more informed. 
+
+   One of the potential benefits of is to be able to detect IP address 
+   spoofing.  
+4. Late news: I stopped broadcast PC92 packets going to CC Cluster nodes on
+   23Mar25.
 02Apr25======================================================================
 1. Fix one of those "impossible errors" that happen. One of those now 1 in
    several trillion that happen 9 times out of 10 [tm] T Prachett altered.

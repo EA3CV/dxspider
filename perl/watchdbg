@@ -54,6 +54,7 @@ while (@ARGV) {
 
 # seek to end of file
 $fh->seek(0, 2);
+STDOUT->autoflush(1);
 for (;;) {
 	my $line = $fh->getline;
 	if ($line) {

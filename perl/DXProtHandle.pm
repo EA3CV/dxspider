@@ -470,7 +470,7 @@ sub handle_11
 		#	$s .= "PC$pcno has spurious ipaddr '$ip' from non-pc9x node $pc->[7]";
 		#}
 		if ($s) {
-			my $action = $sv > 1 ? ", DUMPED" : 'WARNING';
+			my $action = $sv > 1 ? ", DUMPED" : ', WARNING';
 			$s =~ s/, $//;
 			$hops ||= '0';
 			dbg("PCPROT: Bad Spot $pc->[2] on $pc->[1] by $pc->[6]($ip)\@$pc->[7] $s$action via $self->{call} $hops hops");
