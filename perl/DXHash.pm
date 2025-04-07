@@ -49,7 +49,7 @@ sub add
 {
 	my $self = shift;
 	my $n = uc shift;
-	my $t = shift || time;
+	my $t = shift || $main::systime;
 	$self->{$n} = $t;
 
 	# also add the base version if it has some ssid on it

@@ -1,3 +1,5 @@
+07Apr25======================================================================
+1. Fix adding the local ip address in pc92 K records in all circumstances.
 06Apr25======================================================================
 1. Fix set/external_ip to accept 'localhost' as an acceptable input IP
    address.

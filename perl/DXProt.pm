@@ -226,7 +226,7 @@ sub update_pc92_next
 {
 	my $self = shift;
 	my $period = shift || ($self->{do_pc9x} ? $pc92_update_period : $pc92_extnode_update_period);
-	$self->{next_pc92_update} = $main::systime + $period - int rand($period / 4);
+	$self->{next_pc92_update} = $main::systime + $period - int rand($period / 30);
 	dbg("ROUTE: update_pc92_next: $self->{call} " . atime($self->{next_pc92_update})) if isdbg('obscount');
 }
 
@@ -234,7 +234,7 @@ sub update_pc92_keepalive
 {
 	my $self = shift;
 	my $period = shift || $pc92_keepalive_period;
-	$self->{next_pc92_keepalive} = $main::systime + $period - int rand($period / 4);
+	$self->{next_pc92_keepalive} = $main::systime + $period - int rand($period / 30);
 	dbg("ROUTE: update_pc92_keepalive: $self->{call} " . atime($self->{next_pc92_keepalive})) if isdbg('obscount');
 }
 
@@ -393,8 +393,6 @@ sub start
 
 	# set next keepalive time
 	$self->update_pc92_keepalive;
-
-	
 }
 
 #
@@ -550,7 +548,7 @@ sub process
 		# do the keepalive for me, if required
 		if ($main::systime >= $main::me->{next_pc92_keepalive}) {
 			time_out_pc92_routes();
-			$main::me->broadcast_pc92_keepalive($main::mycall);
+			$main::me->broadcast_pc92_keepalive($main::mycall, $main::me->{hostname});
 		}
 
 		if ($pc92_slug_changes && $main::systime >= $last_pc92_slug + $pc92_slug_changes) {
@@ -1020,6 +1018,7 @@ sub broadcast_pc92_keepalive
 {
 	my $self = shift;
 	my $call = shift;
+	my $ipaddr = shift;
 
 	dbg("ROUTE: broadcast_pc92_keepalive $call") if isdbg('obscount');
 
@@ -1029,7 +1028,7 @@ sub broadcast_pc92_keepalive
 		$self->update_pc92_keepalive;
 		return;
 	}
-	my $l = pc92k($nref);
+	my $l = pc92k($nref, $ipaddr);
 	$nref->lastid(last_pc9x_id());
 	$main::me->broadcast_route_pc9x($main::mycall, undef, $l, 0);
 	$self->update_pc92_keepalive;
