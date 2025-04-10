@@ -1,3 +1,6 @@
+10Apr25======================================================================
+1. Fix difft "not numeric" issue, which I can't reproduce, but now is much
+   less likely to happen.`
 07Apr25======================================================================
 1. Fix adding the local ip address in pc92 K records in all circumstances.
 06Apr25======================================================================
