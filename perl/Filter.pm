@@ -429,14 +429,17 @@ use vars qw(@ISA);
 sub encode_regex
 {
 	my $s = shift;
-	$s =~ s/\{(.*?)\}/'{'. unpack('H*', $1) . '}'/eg if $s;
-	return $s;
+	my ($field) = $s =~ m'^(\w+\s+){';
+	$s =~ s'^(\w+\s+){'';
+	$s =~ s'}$'';
+	$s = "{". unpack("H*", $s) . "}" if $s;
+	return $field . $s;
 }
 
 sub decode_regex
 {
 	my $r = shift;
-	my ($v) = $r =~ /^\{(.*?)}$/;
+	my ($v) = $r =~ m'^\{(.*)\}$';
 	return pack('H*', $v);
 }
 
@@ -447,21 +450,23 @@ sub include_regex
 	my $v = shift;
 	
 	my @t;
-	if (my ($r) = $v =~ /^\{(.*)\}$/) { # we have a regex
-		dbg("Filter::parse regex b: '\{$r\}'") if isdbg('filter'); 
-		$v = decode_regex($v);
-		dbg("Filter::parse regex a: '$v'") if isdbg('filter'); 
-		return  ('regex', $dxchan->msg('e38', $v)) unless (qr{$v});
-		push @t, "\$r->[$fref->[2]]=~m{$v}i";
-		$v = "{$r}"; # put it back together again for humans
+	if ($v =~ /^{/ && $v =~ /}$/) {
+		dbg("include_regex before decode regex v: '$v'") if isdbg('filter'); 
+		my $s = decode_regex($v);
+		dbg("include_regex after decode regex s: '$s'") if isdbg('filter'); 
+		return  ('regex', $dxchan->msg('e38', $s)) unless (qr'$s');
+		my $e = "\$r->[$fref->[2]]=~m\'$s\'i";
+		push @t, $e;
+		$v = "{$s}"; # put it back together again for humans
 	} else {
-		if ($v =~ /\*$/) {
+		if ($v =~ /\*/) {
 			$v =~ s/\*+\$//g;        # remove any trailing *
 			push @t, "\$r->[$fref->[2]]=~m{^$v}i";
 		} else {
 			push @t, "\$r->[$fref->[2]]=~m{$v}i";
 		} 
 	}
+	dbg 'include_regex @t = "' . join('", "', @t) . '"' if isdbg 'filterparse';
 	return @t;
 }
 
@@ -478,7 +483,7 @@ sub parse
 	my $user = '';
 	
 	# check the line for non legal characters
-	dbg("Filter::parse line: '$line'") if isdbg('filter');
+	dbg("Filter::parse line: '$line'") if isdbg('filterparse');
 	my @ch = $line =~ m|([^\s\w,_\.:\/\-\*\(\)\$!])|g;
 	return ('ill', $dxchan->msg('e19', join(' ', @ch))) if $line !~ /{.*}/ && @ch;
 
@@ -486,14 +491,17 @@ sub parse
 
 	# disguise regexes
 
-	dbg("Filter parse line after regex check: '$line'") if isdbg('filter');
-	$line = encode_regex($line);
+	dbg("Filter parse line before regex check: '$line'") if isdbg('filterparse');
+	if ($line =~ /\{.*\}/) {
+		$line = encode_regex($line);
+	}
+	dbg("Filter parse line after regex check: '$line'") if isdbg('filterparse');
 	
 	# add some spaces for ease of parsing
 	$line =~ s/([\(\!\)])/ $1 /g;
 	
 	my @f = split /\s+/, $line;
-	dbg("filter parse: tokens '" . join("' '", @f) . "'") if isdbg('filter');
+	dbg("filter parse: $line tokens '" . join("' '", @f) . "'") if isdbg('filterparse');
 	
 	my $lasttok = '';
 	while (@f) {
@@ -524,7 +532,7 @@ sub parse
 		if (@f) {
 			my $tok = shift @f;
 
-			dbg("filter::parse: tok '$tok'") if isdbg('filter');
+			dbg("filter::parse: tok '$tok'") if isdbg('filterparse');
 			
 			if ($tok eq 'all') {
 				$s .= '1';
@@ -545,7 +553,7 @@ sub parse
 				my $val = shift @f;
 				my @val = split /,/, $val;
 
-				dbg("filter::parse: tok '$tok' val '$val'") if isdbg('filter');
+				dbg("filter::parse: tok '$tok' val '$val'") if isdbg('filterparse');
 				$user .= " $tok $val";
 				
 				my $fref;
@@ -568,7 +576,7 @@ sub parse
 								push @t, @a;
 							}
 							$s .= "(" . join(' || ', @t) . ")";
-							dbg("filter parse: s '$s'") if isdbg('filter');
+							dbg("filter parse: s '$s'") if isdbg('filterparse');
 						# } elsif ($fref->[1] eq 'c') {
 						# 	my @t;
 						# 	foreach my $v ($val) {
@@ -576,7 +584,7 @@ sub parse
 						# 		push @t, "\$r->[$fref->[2]]=~m{^\U$_}";
 						# 	}
 						# 	$s .= "(" . join(' || ', @t) . ")";
-						# 	dbg("filter parse: s '$s'") if isdbg('filter');
+						# 	dbg("filter parse: s '$s'") if isdbg('filterparse');
 						} elsif ($fref->[1] eq 'n') {
 							my @t;
 							for (@val) {
@@ -584,19 +592,19 @@ sub parse
 								push @t, "\$r->[$fref->[2]]==$_";
 							}
 							$s .= "(" . join(' || ', @t) . ")";
-							dbg("filter parse: s '$s'") if isdbg('filter');
+							dbg("filter parse: s '$s'") if isdbg('filterparse');
 						} elsif ($fref->[1] =~ /^n[ciz]$/ ) {    # for DXCC, ITU, CQ Zone    
 							my $cmd = $fref->[1];
 							my @pre = Prefix::to_ciz($cmd, @val);
 							return ('numpre', $dxchan->msg('e27', $_)) unless @pre;
 							$s .= "(" . join(' || ', map {"\$r->[$fref->[2]]==$_"} @pre) . ")";
-							dbg("filter parse: s '$s'") if isdbg('filter');
+							dbg("filter parse: s '$s'") if isdbg('filterparse');
 						} elsif ($fref->[1] =~ /^ns$/ ) {    # for DXCC, ITU, CQ Zone    
 							my $cmd = $fref->[1];
 							my @pre = Prefix::to_ciz($cmd, @val);
 							return ('numpre', $dxchan->msg('e27', $_)) unless @pre;
 							$s .= "(" . "!\$USDB::present || grep \$r->[$fref->[2]] eq \$_, qw(" . join(' ' ,map {uc} @pre) . "))";
-							dbg("filter parse: s '$s'") if isdbg('filter');
+							dbg("filter parse: s '$s'") if isdbg('filterparse');
 						} elsif ($fref->[1] eq 'r') {
 							my @t;
 							for (@val) {
@@ -604,7 +612,7 @@ sub parse
 								push @t, "(\$r->[$fref->[2]]>=$1 && \$r->[$fref->[2]]<=$2)";
 							}
 							$s .= "(" . join(' || ', @t) . ")";
-							dbg("filter parse: s '$s'") if isdbg('filter');
+							dbg("filter parse: s '$s'") if isdbg('filterparse');
 						} else {
 							confess("invalid filter function $fref->[1]");
 						}
@@ -630,12 +638,12 @@ sub parse
 		$user =~ s/\s+/ /g;
 		$user =~ s/\{(.*?)\}/'{'. pack('H*', $1) . '}'/eg;
 		$user =~ s/^\s+//;
-		dbg("filter parse: user '$user'") if isdbg('filter');
+		dbg("filter parse: user '$user'") if isdbg('filterparse');
 	}
 
 	if ($s) {
 		$s =~ s/\)\s*\(/ && /g;
-		dbg("filter parse: s '$s'") if isdbg('filter');
+		dbg("filter parse: s '$s'") if isdbg('filterparse');
 	}
 
 	

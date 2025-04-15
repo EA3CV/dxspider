@@ -139,8 +139,8 @@ sub handle
 	dbg("sh/dx: flist = '" . join(',', @flist). "'") if isdbg('sh/dx');
 	
 	if ($pre) {
-		# someone (probably me) has forgotten the 'info' keyword
-		if ($pre =~ /^{.*}$/) {
+		# someone (probably me) has forgotten the 'call' keyword
+		if ($pre =~ m'^{.*}$') {
 			push @flist, 'call', $pre;
 		} else {
 			$pre .= '*' unless $pre =~ /[\*\?\[]$/o;

@@ -321,6 +321,7 @@ sub shellregex
 	my $in = shift;
 	$in =~ s{(.)} { $patmap{$1} || "\Q$1" }ge;
 	$in =~ s|\\/|/|g;
+	$in =~ s|\.\*$||; #remove useless trailing .* if present
 	return '^' . $in;
 }
 
