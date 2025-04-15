@@ -12,7 +12,7 @@ sub handle
 	my ($self, $line) = @_;
 
 	# disguise regexes
-	$line =~ s/\{(.*?)\}/'{'. unpack('H*', $1) . '}'/eg;
+	$line =~ s/\{(.*)\}/'{'. unpack('H*', $1) . '}'/eg;
 	dbg("sh/dx disguise any regex: '$line'") if isdbg('sh/dx');
 
 	# now space out brackets and !
@@ -141,12 +141,14 @@ sub handle
 	if ($pre) {
 		# someone (probably me) has forgotten the 'info' keyword
 		if ($pre =~ /^{.*}$/) {
-			push @flist, 'info', $pre;
+			push @flist, 'call', $pre;
 		} else {
 			$pre .= '*' unless $pre =~ /[\*\?\[]$/o;
 			$pre = shellregex($pre);
-			$pre =~ s/\.\*\$$//;
-			$pre .= '$' if $exact;
+			if ($exact) {
+				$pre =~ s/\.\*\$$//;
+				$pre .= '^$pre';
+			}
 			$pre =~ s/\^//;
 			push @flist, 'call', $pre;
 		}
@@ -158,7 +160,7 @@ sub handle
 
 	return (0, "sh/dx parse error '$r' " . $filter) if $r;
 
-	$user ||= '';
+	$user ||= $self->call;
 	$expr ||= '';
 	dbg("sh/dx user: $user expr: $expr from: $from to: $to fromday: $fromday today: $today") if isdbg('sh/dx');
   

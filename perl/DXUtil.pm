@@ -321,7 +321,7 @@ sub shellregex
 	my $in = shift;
 	$in =~ s{(.)} { $patmap{$1} || "\Q$1" }ge;
 	$in =~ s|\\/|/|g;
-	return '^' . $in . "\$";
+	return '^' . $in;
 }
 
 # read in a file into a string and return it. 

@@ -440,6 +440,30 @@ sub decode_regex
 	return pack('H*', $v);
 }
 
+sub include_regex
+{
+	my $dxchan = shift;
+	my $fref = shift;
+	my $v = shift;
+	
+	my @t;
+	if (my ($r) = $v =~ /^\{(.*)\}$/) { # we have a regex
+		dbg("Filter::parse regex b: '\{$r\}'") if isdbg('filter'); 
+		$v = decode_regex($v);
+		dbg("Filter::parse regex a: '$v'") if isdbg('filter'); 
+		return  ('regex', $dxchan->msg('e38', $v)) unless (qr{$v});
+		push @t, "\$r->[$fref->[2]]=~m{$v}i";
+		$v = "{$r}"; # put it back together again for humans
+	} else {
+		if ($v =~ /\*$/) {
+			$v =~ s/\*+\$//g;        # remove any trailing *
+			push @t, "\$r->[$fref->[2]]=~m{^$v}i";
+		} else {
+			push @t, "\$r->[$fref->[2]]=~m{$v}i";
+		} 
+	}
+	return @t;
+}
 
 # the general purpose command processor
 # this is called as a subroutine not as a method
@@ -536,31 +560,23 @@ sub parse
 							}
 							@val = @nval;
 						}
-						if ($fref->[1] eq 'a' || $fref->[1] eq 't') {
+						if ($fref->[1] eq 'c' || $fref->[1] eq 't' || $fref->[1] eq 'a') {
 							my @t;
 							foreach my $v (@val) {
-								$v =~ s/\*//g;        # remove any trailing *
-								if (my ($r) = $v =~ /^\{(.*)\}$/) { # we have a regex
-									dbg("Filter::parse regex b: '\{$r\}'") if isdbg('filter'); 
-									$v = decode_regex($v);
-									dbg("Filter::parse regex a: '$v'") if isdbg('filter'); 
-									return  ('regex', $dxchan->msg('e38', $v)) unless (qr{$v});
-									push @t, "\$r->[$fref->[2]]=~m{$v}i";
-									$v = "{$r}"; # put it back together again for humans
-								} else {
-									push @t, "\$r->[$fref->[2]]=~m{$v}i";
-								}
+								my @a = include_regex($dxchan, $fref, $v);
+								return @a if $a[0] eq 'regex';
+								push @t, @a;
 							}
 							$s .= "(" . join(' || ', @t) . ")";
 							dbg("filter parse: s '$s'") if isdbg('filter');
-						} elsif ($fref->[1] eq 'c') {
-							my @t;
-							for (@val) {
-								s/\*//g;
-								push @t, "\$r->[$fref->[2]]=~m{^\U$_}";
-							}
-							$s .= "(" . join(' || ', @t) . ")";
-							dbg("filter parse: s '$s'") if isdbg('filter');
+						# } elsif ($fref->[1] eq 'c') {
+						# 	my @t;
+						# 	foreach my $v ($val) {
+						# 		$v =~ s/\*//g;
+						# 		push @t, "\$r->[$fref->[2]]=~m{^\U$_}";
+						# 	}
+						# 	$s .= "(" . join(' || ', @t) . ")";
+						# 	dbg("filter parse: s '$s'") if isdbg('filter');
 						} elsif ($fref->[1] eq 'n') {
 							my @t;
 							for (@val) {

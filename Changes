@@ -1,3 +1,7 @@
+14Apr25======================================================================
+1. Fix issue with regex search on fields defined as callsigns. Then there is
+   the whole question of which field I should use as a default in the case of
+   sh/dx <some string or regex>. Currently it defaults to the info field. 
 10Apr25======================================================================
 1. Fix difft "not numeric" issue, which I can't reproduce, but now is much
    less likely to happen.`
