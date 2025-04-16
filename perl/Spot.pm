@@ -44,28 +44,32 @@ $filterdef = bless ([
 					 ['info', 't', 3],
 					 ['spotter', 'c', 4],
 					 ['by', 'c', 4],
-					 ['dxcc', 'nc', 5],
-					 ['call_dxcc', 'nc', 5],
-					 ['by_dxcc', 'nc', 6],
+					 ['dxcc', 'n', 5],
+					 ['call_dxcc', 'n', 5],
+					 ['by_dxcc', 'n', 6],
 					 ['origin', 'c', 7, 9],
-					 ['call_itu', 'ni', 8],
-					 ['itu', 'ni', 8],
-					 ['call_zone', 'nz', 9],
-					 ['cq', 'nz', 9],
-					 ['zone', 'nz', 9],
-					 ['by_itu', 'ni', 10],
-					 ['byitu', 'ni', 10],
-					 ['by_zone', 'nz', 11],
-					 ['byzone', 'nz', 11],
-					 ['bycq', 'nz', 11],
-					 ['call_state', 'ns', 12],
-					 ['state', 'ns', 12],
-					 ['by_state', 'ns', 13],
-					 ['bystate', 'ns', 13],
+					 ['call_itu', 'n', 8],
+					 ['itu', 'n', 8],
+					 ['call_zone', 'n', 9],
+					 ['cq', 'n', 9],
+					 ['zone', 'n', 9],
+					 ['by_itu', 'n', 10],
+					 ['byitu', 'n', 10],
+					 ['by_zone', 'n', 11],
+					 ['byzone', 'n', 11],
+					 ['bycq', 'n', 11],
+					 ['call_state', 'n', 12],
+					 ['state', 'n', 12],
+					 ['by_state', 'n', 13],
+					 ['bystate', 'n', 13],
 					 ['ip', 'c', 14],
-#					 ['channel', 'c', 15],
-#					 ['rbn', 'a', 4, 0, \&filterrbnspot],
+					 ['db', 'n', 15 ],
+					 ['q', 'n', 16],
+					 #					 ['channel', 'c', 15],
+					 #					 ['rbn', 'a', 4, 0, \&filterrbnspot],
 					], 'Filter::Cmd');
+
+
 $totalspots = $hfspots = $vhfspots = 0;
 $use_db_for_search = 0;
 
@@ -272,6 +276,7 @@ sub prepare
 
 	# thus we now have:
 	# freq, call, time, comment, spotter, call country code, spotter country code, origin, call itu, call cqzone, spotter itu, spotter cqzone, call state, spotter state, spotter ip address
+	# RBN stuff is tacked on by the RBN module after this the base spot preparation
 	return @out;
 }
 
@@ -326,6 +331,8 @@ sub add_local
 #   $f12 = spotted us state
 #   $f13 = spotter us state
 #   $f14 = ip address
+#   $f15 = signal strength (RBN)
+#   $f16 = quality  (RBN)
 #
 # In addition you can specify a range of days, this means that it will start searching
 # from <n> days less than today to <m> days less than today

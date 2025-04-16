@@ -484,7 +484,7 @@ sub parse
 	
 	# check the line for non legal characters
 	dbg("Filter::parse line: '$line'") if isdbg('filterparse');
-	my @ch = $line =~ m|([^\s\w,_\.:\/\-\*\(\)\$!])|g;
+	my @ch = $line =~ m|([^\s\w,_\.:\/\-\+\*\(\)\$!])|g;
 	return ('ill', $dxchan->msg('e19', join(' ', @ch))) if $line !~ /{.*}/ && @ch;
 
 	$line = lc $line;
@@ -552,6 +552,7 @@ sub parse
 			if (@f) {
 				my $val = shift @f;
 				my @val = split /,/, $val;
+				my @range = split m|/|, $val;
 
 				dbg("filter::parse: tok '$tok' val '$val'") if isdbg('filterparse');
 				$user .= " $tok $val";
@@ -588,8 +589,18 @@ sub parse
 						} elsif ($fref->[1] eq 'n') {
 							my @t;
 							for (@val) {
-								return ('num', $dxchan->msg('e21', $_)) unless /^\d+$/;
-								push @t, "\$r->[$fref->[2]]==$_";
+								if (m|^(\d+)\s*[/-]\s*(\d+)$|) {
+									# range
+									push @t, "(\$r->[$fref->[2]]>=$1 && \$r->[$fref->[2]]<=$2)"
+								} elsif (m|^(\d+)\+$|) {
+									push @t, "\$r->[$fref->[2]]>=$1";
+								} elsif (m|\-(\d+)$|) {
+									push @t, "\$r->[$fref->[2]]<=$1";
+								} elsif (m|^(\d+)$|) {
+									push @t, "\$r->[$fref->[2]]==$1";
+								} else {
+									return ('num', $dxchan->msg('e21', $_)) unless /^\d+$/;
+								}
 							}
 							$s .= "(" . join(' || ', @t) . ")";
 							dbg("filter parse: s '$s'") if isdbg('filterparse');
@@ -608,7 +619,7 @@ sub parse
 						} elsif ($fref->[1] eq 'r') {
 							my @t;
 							for (@val) {
-								return ('range', $dxchan->msg('e23', $_)) unless /^(\d+)\/(\d+)$/;
+								return ('range', $dxchan->msg('e23', $_)) unless m|^(\d+)[/-](\d+)$|;
 								push @t, "(\$r->[$fref->[2]]>=$1 && \$r->[$fref->[2]]<=$2)";
 							}
 							$s .= "(" . join(' || ', @t) . ")";

@@ -1,4 +1,22 @@
 15Apr25======================================================================
+1. Allow RBN users to filter on all the usual spot fields as well as quality,
+   keyword 'q' and strength, keyword 'db'. For example:
+   
+   acc/rbn db 8-30 q 4-9 byzone 14,15,20
+
+   Ranges can be specified 8/30 or 4/9 as well. NOTE: you MUST specify an
+   upper value, if you use a range. 
+
+   It is now also possible to say something like: db -7 q 3+ meaning 
+   strength < 7db quality > 3. 
+
+   This new interface applies to all Filters for any value which is 
+   defined as a number ('n') in the Filter definition for that thing.
+
+2. For reasons of clarity (at least for me) I have put back the zone of the
+   spotter if it happens to be in the same zone as the user in the zone list.
+   
+15Apr25======================================================================
 1. Fix Mikel's conudrum (sh/dx {^[A-Z0-9]{1,3}\/[A-Z0-9]{1,12}(\/P)?$} which
    could be simplified to {^\w{1,3}/\w{1,12}/?p?} but both work. As does 
    the more normal shell escaped stuff like: sh/dx ea/*/p. 

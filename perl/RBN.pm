@@ -38,6 +38,27 @@ use constant {
 			  RSpotData => 9,
 			 };
 
+#   List of Spot fields that can be filtered on.
+#
+#   f0 = frequency
+#   f1 = call
+#   f2 = date in unix format
+#   f3 = comment
+#   f4 = spotter
+#   f5 = spotted dxcc country
+#   f6 = spotter dxcc country
+#   f7 = origin
+#   f8 = spotted itu
+#   f9 = spotted cq zone
+#   f10 = spotter itu
+#   f11 = spotter cq zone
+#   f12 = spotted us state
+#   f13 = spotter us state
+#   f14 = ip address
+#   f15 = signal strength (RBN)
+#   f16 = quality  (RBN)
+#
+
 use constant {
 			  SQrg => 0,
 			  SCall => 1,
@@ -45,6 +66,8 @@ use constant {
 			  SComment => 3,
 			  SOrigin => 4,
 			  SZone => 11,
+			  SStrength => 15,
+			  SQ => 16,
 			 };
 use constant {
 			  OQual => 0,
@@ -446,7 +469,8 @@ sub normal
 			dbg("RBN: ERROR invalid prefix/callsign $call from $origin-# on $qrg, dumped");
 			return;
 		}
-		
+
+
 		if ($self->{inrbnfilter}) {
 			my ($want, undef) = $self->{inrbnfilter}->it($s);
 			return unless $want;	
@@ -539,6 +563,7 @@ sub dx_spot
 		$comment = sprintf "%-3s %2ddB $quality", $r->[RMode], $r->[RStrength];
 		my $s = $r->[RSpotData];		# the prepared spot
 		$s->[SComment] = $comment;		# apply new generated comment
+		($s->[SQ]) = $quality =~ m|(\d)|;
 
 		++$zone{$s->[SZone]};		# save the spotter's zone
 
@@ -548,10 +573,12 @@ sub dx_spot
 			$saver = $s;
 			dbg("RBN: STRENGTH spot: $s->[SCall] qrg: $s->[SQrg] origin: $s->[SOrigin] dB: $r->[RStrength] < $strength") if isdbg 'rbnll';
 		}
-
+		
+		# 
 		if ($rf) {
+			$s->[SStrength] = $r->[RStrength]; # for this spot
 			my ($want, undef) = $rf->it($s);
-			dbg("RBN: FILTERING for $call spot: $s->[SCall] qrg: $s->[SQrg] origin: $s->[SOrigin] dB: $r->[RStrength] com: '$s->[SComment]' want: " . ($want ? 'YES':'NO')) if isdbg 'rbnll';
+			dbg("RBN: FILTERING for $call spot: $s->[SCall] qrg: $s->[SQrg] origin: $s->[SOrigin] dB: $s->[SStrength] Q: $s->[SQ] info: '$s->[SComment]' want: " . ($want ? 'YES':'NO')) if isdbg 'rbnll' || isdbg 'rbnfilter';
 			next unless $want;
 			$filtered = $s;
 		}
@@ -564,7 +591,7 @@ sub dx_spot
 	if ($saver) {
 		my $buf;
 		# create a zone list of spotters
-		delete $zone{$saver->[SZone]};  # remove this spotter's zone (leaving all the other zones)
+		#delete $zone{$saver->[SZone]};  # remove this spotter's zone (leaving all the other zones)
 		my $z = join ',', sort {$a <=> $b} keys %zone;
 
 		# alter spot data accordingly
