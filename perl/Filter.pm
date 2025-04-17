@@ -529,33 +529,42 @@ sub parse
 		}
 
 		# do the rest of the filter tokens
+		my $andor = 0;
 		if (@f) {
 			my $tok = shift @f;
 
-			dbg("filter::parse: tok '$tok'") if isdbg('filterparse');
+			dbg("filter::parse: lasttok='$lasttok' tok='$tok' s='$s'") if isdbg('filterparse');
 			
 			if ($tok eq 'all') {
 				$s .= '1';
 				$user .= $tok;
+				dbg("filter::parse: user=$user") if isdbg('filterparse');
 				last;
 			} elsif (grep $tok eq $_, qw{and or not ( )}) {
-				$s .= ' && ' if $tok eq 'and';
-				$s .= ' || ' if $tok eq 'or';
-				$s .= ' !' if $tok eq 'not';
-				$s .=  $tok if $tok eq '(' or $tok eq ')';
-				$user .= " $tok ";
-				next;
+				my $t;
+				
+				$t = ' && ', ++$andor if $tok eq 'and';
+				$t = ' || ', ++$andor if $tok eq 'or';
+				$t = ' !', ++$andor if $tok eq 'not';
+				$t =  $tok if $tok eq '(' or $tok eq ')';
+				$s .= $t if length $t; 
+				$user .= " $tok " if $t;
+				dbg "filter::parse: and or not andor=$andor tok: $tok -> $t, s='$s'" if isdbg 'filterparse';
+				dbg("filter::parse: and or not user='$user'") if isdbg('filterparse');
+				$lasttok = $tok;
+				next if length $t;
 			} elsif ($tok eq '') {
+				dbg "filter::parse: empty tok" if isdbg 'filterparse'; 
 				next;
 			}
-			
 			if (@f) {
 				my $val = shift @f;
 				my @val = split /,/, $val;
 				my @range = split m|/|, $val;
 
-				dbg("filter::parse: tok '$tok' val '$val'") if isdbg('filterparse');
+				dbg("filter::parse: \@f andor=$andor user='$user' tok='$tok' val='$val'") if isdbg('filterparse');
 				$user .= " $tok $val";
+				dbg("filter::parse: \@f user='$user'") if isdbg('filterparse');
 				
 				my $fref;
 				my $found;
@@ -577,7 +586,7 @@ sub parse
 								push @t, @a;
 							}
 							$s .= "(" . join(' || ', @t) . ")";
-							dbg("filter parse: s '$s'") if isdbg('filterparse');
+							dbg("filter parse: s='$s'") if isdbg('filterparse');
 						# } elsif ($fref->[1] eq 'c') {
 						# 	my @t;
 						# 	foreach my $v ($val) {
@@ -589,33 +598,34 @@ sub parse
 						} elsif ($fref->[1] eq 'n') {
 							my @t;
 							for (@val) {
+								# don't try to "BE CLEVER" and remove these extraneous brackets around the generated perl!!!
 								if (m|^(\d+)\s*[/-]\s*(\d+)$|) {
 									# range
-									push @t, "(\$r->[$fref->[2]]>=$1 && \$r->[$fref->[2]]<=$2)"
+									push @t, "(\$r->[$fref->[2]]>=$1 \&\& \$r->[$fref->[2]]<=$2)"
 								} elsif (m|^(\d+)\+$|) {
-									push @t, "\$r->[$fref->[2]]>=$1";
+									push @t, "(\$r->[$fref->[2]]>=$1)";
 								} elsif (m|\-(\d+)$|) {
-									push @t, "\$r->[$fref->[2]]<=$1";
+									push @t, "(\$r->[$fref->[2]]<=$1)";
 								} elsif (m|^(\d+)$|) {
-									push @t, "\$r->[$fref->[2]]==$1";
+									push @t, "(\$r->[$fref->[2]]==$1)";
 								} else {
-									return ('num', $dxchan->msg('e21', $_)) unless /^\d+$/;
+									return ('num', $dxchan->msg('e21', $_));
 								}
 							}
-							$s .= "(" . join(' || ', @t) . ")";
-							dbg("filter parse: s '$s'") if isdbg('filterparse');
+							$s .= @t > 1 ? ("(" . join(' || ', @t) . ")") : ' ' . (shift @t);
+							dbg("filter::parse: s='$s'") if isdbg('filterparse');
 						} elsif ($fref->[1] =~ /^n[ciz]$/ ) {    # for DXCC, ITU, CQ Zone    
 							my $cmd = $fref->[1];
 							my @pre = Prefix::to_ciz($cmd, @val);
 							return ('numpre', $dxchan->msg('e27', $_)) unless @pre;
 							$s .= "(" . join(' || ', map {"\$r->[$fref->[2]]==$_"} @pre) . ")";
-							dbg("filter parse: s '$s'") if isdbg('filterparse');
+							dbg("filter parse: s='$s'") if isdbg('filterparse');
 						} elsif ($fref->[1] =~ /^ns$/ ) {    # for DXCC, ITU, CQ Zone    
 							my $cmd = $fref->[1];
 							my @pre = Prefix::to_ciz($cmd, @val);
 							return ('numpre', $dxchan->msg('e27', $_)) unless @pre;
 							$s .= "(" . "!\$USDB::present || grep \$r->[$fref->[2]] eq \$_, qw(" . join(' ' ,map {uc} @pre) . "))";
-							dbg("filter parse: s '$s'") if isdbg('filterparse');
+							dbg("filter parse: s='$s'") if isdbg('filterparse');
 						} elsif ($fref->[1] eq 'r') {
 							my @t;
 							for (@val) {
@@ -623,7 +633,7 @@ sub parse
 								push @t, "(\$r->[$fref->[2]]>=$1 && \$r->[$fref->[2]]<=$2)";
 							}
 							$s .= "(" . join(' || ', @t) . ")";
-							dbg("filter parse: s '$s'") if isdbg('filterparse');
+							dbg("filter parse: s='$s'") if isdbg('filterparse');
 						} else {
 							confess("invalid filter function $fref->[1]");
 						}
@@ -636,6 +646,7 @@ sub parse
 				$s = $tok =~ /^{.*}$/ ? '{' . decode_regex($tok) . '}' : $tok;
 				return (1, $dxchan->msg('filter2', $s));
 			}
+
 			$lasttok = $tok;
 		}
 	}
@@ -653,8 +664,10 @@ sub parse
 	}
 
 	if ($s) {
-		$s =~ s/\)\s*\(/ && /g;
-		dbg("filter parse: s '$s'") if isdbg('filterparse');
+		#		$s =~ s/\)\s*\(/ && /g;
+		dbg("filter parse: end before s='$s'") if isdbg('filterparse');
+		$s =~ s|\)\s*\(| && |g;
+		dbg("filter parse: end after s='$s'") if isdbg('filterparse');
 	}
 
 	
@@ -667,6 +680,8 @@ sub cmd
 	my ($self, $dxchan, $sort, $type, $line) = @_;
 	return $dxchan->msg('filter5') unless $line;
 
+	dbg "Filter::Cmd::cmd line: '$line'" if isdbg 'filterparse';
+	
 	my ($r, $filter, $fno, $user, $s) = $self->parse($dxchan, $sort, $line);
 	return (1, $filter) if $r;
 	
