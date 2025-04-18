@@ -1,3 +1,5 @@
+17Apr25======================================================================
+1. Improve Filter cmd parsing (a bit).
 15Apr25======================================================================
 1. Allow RBN users to filter on all the usual spot fields as well as quality,
    keyword 'q' and strength, keyword 'db'. For example:
