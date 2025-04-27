@@ -1,3 +1,14 @@
+27Apr25======================================================================
+1. Done some delicate surgery to sh/dx and filtering. I think it's working
+   better, having improved shell -> regex translation meaning with less need 
+   to go into perl regexes. Please test it. By all means check my workings
+   with set/deb sh/dx filterparse and a watchdbg 'sh/dx|filterparse'. 
+23Apr25======================================================================
+1. Fix various shell like regexes. 
+2. Restore by_zone, itu and state name lookups in filtering. 
+3. Allow ranges  on all numeric 
+18Apr25======================================================================
+1. Fix sh/c/n (I was being a bit too paranoid on the command checking)
 17Apr25======================================================================
 1. Improve Filter cmd parsing (a bit).
 15Apr25======================================================================

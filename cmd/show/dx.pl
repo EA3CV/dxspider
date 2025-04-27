@@ -7,13 +7,35 @@
 require 5.10.1;
 use warnings;
 
+sub expandregex
+{
+	my $input = shift;
+	my $exact = shift;
+	
+	$input .= '*' unless $input =~ /[\*\?\[]$/o;
+	dbg("sh/dx: expandregex before shellregex input='$input'") if isdbg 'sh/dx'; 
+	$input = shellregex($input);
+	dbg("sh/dx: expandregex  after shellregex input='$input'") if isdbg 'sh/dx'; 
+	if ($exact) {
+		$input =~ s/\.\*\$$//;
+		$input .= '{^$input}$';
+	} else {
+		$input =~ s|\$+|\$|;
+		$input =~ s/\^//;
+	}
+	dbg("sh/dx: expandregex processed input='$input'") if isdbg 'sh/dx';
+	return $input;
+	
+}
+
 sub handle
 {
 	my ($self, $line) = @_;
 
 	# disguise regexes
+	dbg("sh/dx disguise any regex input: '$line'") if isdbg('sh/dx');
 	$line =~ s/\{(.*)\}/'{'. unpack('H*', $1) . '}'/eg;
-	dbg("sh/dx disguise any regex: '$line'") if isdbg('sh/dx');
+	dbg("sh/dx disguise any regex   now: '$line'") if isdbg('sh/dx');
 
 	# now space out brackets and !
 	$line =~ s/([\(\!\)])/ $1 /g;
@@ -23,7 +45,7 @@ sub handle
 	# put back the regexes 
 	@list = map { my $l = $_; $l =~ s/\{([0-9a-fA-F]+)\}/'{' . pack('H*', $1) . '}'/eg; $l } @list;
 
-	dbg("sh/dx after regex return: '" . join(' ', @list) . "'") if isdbg('sh/dx');
+	dbg("sh/dx after regex return: '" . join(' ', @list) . "'") if isdbg('sh/dx') || isdbg('filterparse');
 	
 	my @out;
 	my $f;
@@ -125,8 +147,12 @@ sub handle
 		}
 		if (grep {lc $f eq $_} qw(on freq call info spotter by dxcc call_dxcc by_dxcc bydxcc origin call_itu itu call_zone zone cq bycq  byitu by_itu by_zone byzone call_state state bystate by_state ip) ) {
 			push @flist, $f;
-			push @flist, shift @list if @list;
-			dbg("sh/dx function $flist[-2] $flist[-1]") if isdbg('sh/dx');
+			if (@list) {
+				my $string = shift @list;
+				my $regex = expandregex($string, $exact);
+				push @flist,  qq|\{$regex\}|;
+			}
+			dbg("sh/dx function -2 = '$flist[-2]' -1 = '$flist[-1]'") if isdbg('sh/dx');
 			next;
 		}
 		unless ($pre) {
@@ -136,33 +162,28 @@ sub handle
 		push @flist, $f;
 	}
 
-	dbg("sh/dx: flist = '" . join(',', @flist). "'") if isdbg('sh/dx');
+	dbg("sh/dx: flist = '" . join(',', @flist). "'") if isdbg('sh/dx') || isdbg('filterparse');
 	
 	if ($pre) {
 		# someone (probably me) has forgotten the 'call' keyword
+		dbg("sh/dx: input pre='$pre'") if isdbg 'sh/dx'; 
 		if ($pre =~ m'^{.*}$') {
 			push @flist, 'call', $pre;
 		} else {
-			$pre .= '*' unless $pre =~ /[\*\?\[]$/o;
-			$pre = shellregex($pre);
-			if ($exact) {
-				$pre =~ s/\.\*\$$//;
-				$pre .= '^$pre';
-			}
-			$pre =~ s/\^//;
-			push @flist, 'call', $pre;
+			$pre = expandregex($pre, $exact);
+			push @flist, 'call', qq|\{$pre\}|;
 		}
 	}
 	
     my $newline = join(' ', @flist);
-	dbg("sh/dx newline: '$newline'") if isdbg('sh/dx');
+	dbg("sh/dx newline: '$newline'") if isdbg('sh/dx') || isdbg('filterparse');
 	my ($r, $filter, $fno, $user, $expr) = $Spot::filterdef->parse($self, 'spots', $newline, 1);
 
 	return (0, "sh/dx parse error '$r' " . $filter) if $r;
 
 	$user ||= $self->call;
 	$expr ||= '';
-	dbg("sh/dx user: $user expr: $expr from: $from to: $to fromday: $fromday today: $today") if isdbg('sh/dx');
+	dbg("sh/dx user: '$user' expr: '$expr' from: $from to: $to fromday: $fromday today: $today") if isdbg('sh/dx');
   
 	# now do the search
 

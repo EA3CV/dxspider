@@ -44,24 +44,24 @@ $filterdef = bless ([
 					 ['info', 't', 3],
 					 ['spotter', 'c', 4],
 					 ['by', 'c', 4],
-					 ['dxcc', 'n', 5],
-					 ['call_dxcc', 'n', 5],
-					 ['by_dxcc', 'n', 6],
+					 ['dxcc', 'nc', 5],
+					 ['call_dxcc', 'nc', 5],
+					 ['by_dxcc', 'nc', 6],
 					 ['origin', 'c', 7, 9],
-					 ['call_itu', 'n', 8],
-					 ['itu', 'n', 8],
-					 ['call_zone', 'n', 9],
-					 ['cq', 'n', 9],
-					 ['zone', 'n', 9],
-					 ['by_itu', 'n', 10],
-					 ['byitu', 'n', 10],
-					 ['by_zone', 'n', 11],
-					 ['byzone', 'n', 11],
-					 ['bycq', 'n', 11],
-					 ['call_state', 'n', 12],
-					 ['state', 'n', 12],
-					 ['by_state', 'n', 13],
-					 ['bystate', 'n', 13],
+					 ['call_itu', 'ni', 8],
+					 ['itu', 'ni', 8],
+					 ['call_zone', 'nz', 9],
+					 ['cq', 'nz', 9],
+					 ['zone', 'nz', 9],
+					 ['by_itu', 'ni', 10],
+					 ['byitu', 'ni', 10],
+					 ['by_zone', 'nz', 11],
+					 ['byzone', 'nz', 11],
+					 ['bycq', 'nz', 11],
+					 ['call_state', 'ns', 12],
+					 ['state', 'ns', 12],
+					 ['by_state', 'ns', 13],
+					 ['bystate', 'ns', 13],
 					 ['ip', 'c', 14],
 					 ['db', 'n', 15 ],
 					 ['q', 'n', 16],
@@ -123,7 +123,7 @@ sub decodefreq
 	
 	foreach $f (@f) {
 		my ($a, $b); 
-		if ($f =~ m{^\d+/\d+$}) {
+		if ($f =~ m{^\d+[-/]\d+$}) {
 			push @out, $f;
 		} elsif (($a, $b) = $f =~ m{^(\w+)(?:/(\w+))?$}) {
 			$b = lc $b if $b;

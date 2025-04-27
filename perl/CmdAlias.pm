@@ -85,6 +85,7 @@ sub get_cmd
 			my $ri = qq{\$ro = "$ref->[$i+1]"};
 			my $ro;
 			eval $ri;
+			dbg qq{CmdAlias: s='$s' let='$let', ri='$ri', ro='$ro'} if isdbg 'cmdalias'; 
 			return $ro;
 		}
 	}
