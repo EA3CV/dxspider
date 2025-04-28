@@ -429,18 +429,19 @@ use vars qw(@ISA);
 sub encode_regex
 {
 	my $s = shift;
-	my ($field) = $s =~ m'^(\w+\s+){';
-	$s =~ s'^(\w+\s+){'';
-	$s =~ s'}$'';
-	$s = "{". unpack("H*", $s) . "}" if $s;
-	return $field . $s;
+	dbg("encode_regex:  in s='$s'") if isdbg('filterparse'); 
+	$s =~ s/(?:\{([^\}]+)\})/'{'.unpack("H*", $1).'}'/ge;
+	dbg("encode_regex: out s='$s'") if isdbg('filterparse'); 
+	return $s;
 }
 
 sub decode_regex
 {
 	my $r = shift;
-	my ($v) = $r =~ m'^\{(.*)\}$';
-	return pack('H*', $v);
+	dbg("decode_regex:  in r='$r'") if isdbg('filterparse'); 
+	$r =~ s/(?:\{([^\}]+)\})/'{'.pack("H*", $1).'}'/ge;
+	dbg("decode_regex: out r='$r'") if isdbg('filterparse'); 
+	return $r;
 }
 
 sub include_regex
@@ -451,19 +452,22 @@ sub include_regex
 	
 	my @t;
 	if ($v =~ /^{/ && $v =~ /}$/) {
-		dbg("include_regex before decode regex v: '$v'") if isdbg('filter'); 
+		dbg("include_regex before decode regex v: '$v'") if isdbg('filterparse'); 
 		my $s = decode_regex($v);
-		dbg("include_regex after decode regex s: '$s'") if isdbg('filter'); 
+		dbg("include_regex after decode regex s: '$s'") if isdbg('filterparse'); 
+		$s =~ s/^\{(.+)\}$/$1/;
+		dbg("include_regex check regex s: '$s'") if isdbg('filterparse'); 
 		return  ('regex', $dxchan->msg('e38', $s)) unless (qr'$s');
-		my $e = "\$r->[$fref->[2]]=~m\'$s\'i";
+		my $e = qq|\$r->[$fref->[2]]=~m\'$s\'i|;
+		dbg("include_regex generated string '$s'->'$e'") if isdbg('filterparse'); 
 		push @t, $e;
-		$v = "{$s}"; # put it back together again for humans
+		$v = "$s"; # put it back together again for humans
 	} else {
 		if ($v =~ /\*/) {
 			$v =~ s/\*+\$//g;        # remove any trailing *
-			push @t, "\$r->[$fref->[2]]=~m{^$v}i";
+			push @t, "\$r->[$fref->[2]]=~m'^$v'i";
 		} else {
-			push @t, "\$r->[$fref->[2]]=~m{$v}i";
+			push @t, "\$r->[$fref->[2]]=~m'$v'i";
 		} 
 	}
 	dbg 'include_regex @t = "' . join('", "', @t) . '"' if isdbg 'filterparse';
@@ -484,7 +488,7 @@ sub parse
 	
 	# check the line for non legal characters
 	dbg("Filter::parse line: '$line'") if isdbg('filterparse');
-	if ($line !~ /{.*}/) {
+	if ($line !~ /{.*}+/) {
 		$line =~ s|\\\$|\$|;
 		my @ch = $line =~ m|([\^\\\,\:\!\&\|\.])|g;
 		dbg qq{Filter::parse filtered chars: (} . join (',', @ch) . ')' if isdbg 'filterparse'; 
@@ -497,8 +501,8 @@ sub parse
 	# disguise regexes
 
 	dbg("Filter parse line before regex check: '$line'") if isdbg('filterparse');
-	if ($line =~ /\{.*\}/) {
-		$line = encode_regex($line);
+	if ($line =~ /\{.+\}/) {
+		$line =~ s/(\{.+\})/encode_regex($1)/ge;
 	}
 	dbg("Filter parse line after regex check: '$line'") if isdbg('filterparse');
 	
@@ -648,7 +652,10 @@ sub parse
 				}
 				return (1, $dxchan->msg('e20', $tok)) unless $found;
 			} else {
-				$s = $tok =~ /^{.*}$/ ? '{' . decode_regex($tok) . '}' : $tok;
+				
+				dbg("filter parse: decode \$tok '$tok'") if isdbg('filterparse');
+				$s = $tok =~ /^\{.*\}$/ ?  decode_regex($tok) : $tok;
+				dbg("filter parse: result \$tok '$s'") if isdbg('filterparse');
 				return (1, $dxchan->msg('filter2', $s));
 			}
 
@@ -658,14 +665,15 @@ sub parse
 
 	# tidy up the user string (why I have to stick in an if statement when I have initialised it I have no idea! 5.28 bug)?
 	if ($user) {
+		dbg("filter parse: user start '$user'") if isdbg('filterparse');
 		$user =~ s/\)\s*\(/ and /g;
 		$user =~ s/\&\&/ and /g;
 		$user =~ s/\|\|/ or /g;
 		$user =~ s/\!/ not /g;
 		$user =~ s/\s+/ /g;
-		$user =~ s/\{(.*?)\}/'{'. pack('H*', $1) . '}'/eg;
+		$user =~ decode_regex($user);
 		$user =~ s/^\s+//;
-		dbg("filter parse: user '$user'") if isdbg('filterparse');
+		dbg("filter parse: user  end '$user'") if isdbg('filterparse');
 	}
 
 	if ($s) {

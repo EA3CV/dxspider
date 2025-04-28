@@ -1,3 +1,7 @@
+28Apr25======================================================================
+1. Fix basic shell regexes and compound statements like:
+   sh/dx call oh8 and not call kxk
+2. Make sure that user input perl regexes are still recognised. 
 27Apr25======================================================================
 1. Done some delicate surgery to sh/dx and filtering. I think it's working
    better, having improved shell -> regex translation meaning with less need 

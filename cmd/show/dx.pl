@@ -34,16 +34,18 @@ sub handle
 
 	# disguise regexes
 	dbg("sh/dx disguise any regex input: '$line'") if isdbg('sh/dx');
-	$line =~ s/\{(.*)\}/'{'. unpack('H*', $1) . '}'/eg;
+	$line = Filter::Cmd::encode_regex($line);
 	dbg("sh/dx disguise any regex   now: '$line'") if isdbg('sh/dx');
 
 	# now space out brackets and !
 	$line =~ s/([\(\!\)])/ $1 /g;
+
+	$line = Filter::Cmd::decode_regex($line);
 	
 	my @list = split /\s+/, $line; # split the line up
 
 	# put back the regexes 
-	@list = map { my $l = $_; $l =~ s/\{([0-9a-fA-F]+)\}/'{' . pack('H*', $1) . '}'/eg; $l } @list;
+#	@list = map { my $l = $_; $l =~ s/\{([0-9a-fA-F]+)\}/'{' . pack('H*', $1) . '}'/eg; $l } @list;
 
 	dbg("sh/dx after regex return: '" . join(' ', @list) . "'") if isdbg('sh/dx') || isdbg('filterparse');
 	
@@ -149,8 +151,13 @@ sub handle
 			push @flist, $f;
 			if (@list) {
 				my $string = shift @list;
-				my $regex = expandregex($string, $exact);
-				push @flist,  qq|\{$regex\}|;
+				if ($string =~ /^\{/) {
+					push @flist, $string;
+				} else {
+					my $regex = expandregex($string, $exact);
+					push @flist,  qq|\{$regex\}|;
+				}
+				
 			}
 			dbg("sh/dx function -2 = '$flist[-2]' -1 = '$flist[-1]'") if isdbg('sh/dx');
 			next;
