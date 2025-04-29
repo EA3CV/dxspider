@@ -1,3 +1,6 @@
+29Apr25======================================================================
+1. Fix things like acc/spot by_dxcc ea,f,i,ea6 or by_zone 14,15. Thanks for
+   the heads up from Mikel EA2CW.
 28Apr25======================================================================
 1. Fix basic shell regexes and compound statements like:
    sh/dx call oh8 and not call kxk

@@ -490,7 +490,7 @@ sub parse
 	dbg("Filter::parse line: '$line'") if isdbg('filterparse');
 	if ($line !~ /{.*}+/) {
 		$line =~ s|\\\$|\$|;
-		my @ch = $line =~ m|([\^\\\,\:\!\&\|\.])|g;
+		my @ch = $line =~ m|([\^\\\:\!\&\|\.])|g;
 		dbg qq{Filter::parse filtered chars: (} . join (',', @ch) . ')' if isdbg 'filterparse'; 
 		return ('ill', $dxchan->msg('e19', '('.join(',', @ch).')')) if @ch;
 	}
