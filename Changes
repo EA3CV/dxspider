@@ -11,6 +11,9 @@
        'eb*r$'- means {^eb.*r$}
        '^eb*r$'- means {^.*eb.*r$}
 
+   Also character classes work:
+       sh/dx eb5* not by_zone 14,15 not info ft[48]     
+
 2. Improve sh/dx so that it handles more complex expressions and also reduces
    the need to break into raw perl expressions, such as:
    
