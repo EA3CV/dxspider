@@ -38,7 +38,9 @@ require Exporter;
 		   '*' => '.*',
 		   '?' => '.',
 		   '[' => '[',
-		   ']' => ']'
+		   ']' => ']',
+		   '^' => '^',
+		   '$' => '$',
 );
 
 $pi = 3.141592653589;
@@ -321,8 +323,11 @@ sub shellregex
 	my $in = shift;
 	$in =~ s{(.)} { $patmap{$1} || "\Q$1" }ge;
 	$in =~ s|\\/|/|g;
-	$in =~ s|\.\*$||; #remove useless trailing .* if present
-	return '^' . $in;
+	if ($in =~ m|\.\*$|) {
+		$in =~ s|\.\*$||;
+		$in = "^$in" unless $in =~ m|^\^|;
+	}
+	return $in;
 }
 
 # read in a file into a string and return it. 

@@ -7,6 +7,14 @@
 require 5.10.1;
 use warnings;
 
+sub iskeyword
+{
+	my $word = lc shift;
+	
+	my @keywords = qw|on freq call info spotter by ip ( ) or and not dxcc call_dxcc by_dxcc bydxcc origin call_itu itu call_zone zone cq bycq  byitu by_itu by_zone byzone call_state state bystate by_state day exact rt real filt qsl <es> <tr> <ms> iota qra |;
+	return grep { $word eq $_ } @keywords;
+}
+	
 sub expandregex
 {
 	my $input = shift;
@@ -21,7 +29,7 @@ sub expandregex
 		$input .= '{^$input}$';
 	} else {
 		$input =~ s|\$+|\$|;
-		$input =~ s/\^//;
+		$input =~ s/\\^//g;
 	}
 	dbg("sh/dx: expandregex processed input='$input'") if isdbg 'sh/dx';
 	return $input;
@@ -70,7 +78,9 @@ sub handle
 	
 	while (@list) {	# next field
 		$f = shift @list;
-		dbg("sh/dx arg: $f list: '" . join(',', @list) . "'") if isdbg('sh/dx');
+
+		dbg("sh/dx buildup: \$pre: '$pre' \$f: '$f' left: ". join(',', @list) . " created: " . join(',', @flist)) if isdbg('sh/dx');
+
 		if ($f && !$from && !$to) {
 			($from, $to) = $f =~ m|^(\d+)[-/](\d+)$| || (0,0); # is it a from -> to count?
 			dbg("sh/dx from: $from to: $to") if isdbg('sh/dx');
@@ -142,16 +152,42 @@ sub handle
 			dbg("sh/dx qra info {$doqra}") if isdbg('sh/dx');
 			next;
 		}
+		if (grep {lc $f eq $_} qw(freq on)) {
+			my $in = shift @list;
+			dbg("sh/dx $f arg: $in") if isdbg('sh/dx');
+			push @flist, $f, $in;
+			
+			# my @arg = split ',', $in;
+			# my $out;
+			# foreach my $part (@arg) {
+			# 	if ($part =~ m|^[\d/]+$|) {
+			# 	    $out .= "$part,";
+			# 	} else {
+			# 		my ($s, $sb) = split m|/|, $part;
+			# 		my @bands = Band::get_freq($s, $sb);
+			# 		if (@bands) {
+			# 			$out .= join(',', @bands) . ',';
+			# 		}
+			# 	}
+			# 	$out =~ s/,$//;
+			# }
+			# dbg("sh/dx on or freq out: $out") if isdbg('sh/dx');
+		}
+		if (grep {lc $f eq $_} qw(dxcc call_dxcc by_dxcc bydxcc origin call_itu itu call_zone zone cq bycq  byitu by_itu by_zone byzone call_state state bystate by_state)) {
+			my $arg = shift @list;
+			dbg("sh/dx operator '$f' = '$arg'") if isdbg('sh/dx');
+			push @flist, $f, $arg;
+		}
 		if (grep {lc $f eq $_} qw { ( or and not ) }) {
 			push @flist, $f;
 			dbg("sh/dx operator $f") if isdbg('sh/dx');
 			next;
 		}
-		if (grep {lc $f eq $_} qw(on freq call info spotter by dxcc call_dxcc by_dxcc bydxcc origin call_itu itu call_zone zone cq bycq  byitu by_itu by_zone byzone call_state state bystate by_state ip) ) {
+		if (grep {lc $f eq $_} qw(call info spotter by ip) ) {
 			push @flist, $f;
 			if (@list) {
 				my $string = shift @list;
-				if ($string =~ /^\{/) {
+				if ($string =~ /^\{/ || $string =~ m|[,/]|) {
 					push @flist, $string;
 				} else {
 					my $regex = expandregex($string, $exact);
@@ -162,25 +198,29 @@ sub handle
 			dbg("sh/dx function -2 = '$flist[-2]' -1 = '$flist[-1]'") if isdbg('sh/dx');
 			next;
 		}
+
 		unless ($pre) {
 			$pre = $f;
 			next;
 		}
-		push @flist, $f;
+
+		push @flist, $f unless iskeyword($f);
 	}
 
-	dbg("sh/dx: flist = '" . join(',', @flist). "'") if isdbg('sh/dx') || isdbg('filterparse');
-	
+	dbg("sh/dx buildup: \$pre: $pre left: ". join(',', @list) . " created: " . join(',', @flist)) if isdbg('sh/dx');
+
 	if ($pre) {
 		# someone (probably me) has forgotten the 'call' keyword
-		dbg("sh/dx: input pre='$pre'") if isdbg 'sh/dx'; 
+		dbg("sh/dx: add \$pre: $pre before: flist='" . join(',', @flist)) if isdbg 'sh/dx'; 
 		if ($pre =~ m'^{.*}$') {
-			push @flist, 'call', $pre;
-		} else {
+			unshift @flist, 'call', $pre;
+		} elsif (!iskeyword($pre)) {
 			$pre = expandregex($pre, $exact);
-			push @flist, 'call', qq|\{$pre\}|;
+			unshift @flist, 'call', qq|\{$pre\}|;
 		}
 	}
+
+	dbg("sh/dx buildup: \$pre: '$pre' left: ". join(',', @list) . " created: " . join(',', @flist)) if isdbg('sh/dx');
 	
     my $newline = join(' ', @flist);
 	dbg("sh/dx newline: '$newline'") if isdbg('sh/dx') || isdbg('filterparse');
@@ -190,7 +230,6 @@ sub handle
 
 	$user ||= $self->call;
 	$expr ||= '';
-	dbg("sh/dx user: '$user' expr: '$expr' from: $from to: $to fromday: $fromday today: $today") if isdbg('sh/dx');
   
 	# now do the search
 

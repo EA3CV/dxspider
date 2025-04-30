@@ -85,6 +85,11 @@ $ipaddr_url = '/ip';	# used by set/external_ip
 $ik3qar_url = 'www.ik3qar.it';    # used by show/ik3qar
 $ik3qar_pw = 'PUT-PASSWORD-HERE';    # used by show/ik3qar
 
+#
+# webserver stuff
+#
+our $server_app = "$root/web_server/script/web_server";
+
 # NOTE: you must copy $ik3qar_* lines to local/Internet.pm for them to have
 # any effect on an already running node.
 #

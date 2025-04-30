@@ -1,6 +1,37 @@
+30Apr25======================================================================
+1. Fix the standard expansion of string regex expressions such that the need
+   for breaking into perl {<regex>} expressions is reduced. 
+
+   For example:
+       'eb'   - means {eb} (in perl regex terms)
+       'eb*'  - means {^eb} - can also be written '^eb' i.e. without {}
+       '*eb'  - means {eb$} - can also be written 'eb$'
+       'eb*r' - means {^eb.*r}
+       '*eb*r' - means {^.*eb.*r}
+       'eb*r$'- means {^eb.*r$}
+       '^eb*r$'- means {^.*eb.*r$}
+
+2. Improve sh/dx so that it handles more complex expressions and also reduces
+   the need to break into raw perl expressions, such as:
+   
+	  sh/dx call ^eb*r$ and on 80m,40m,28000/30000 and not by_zone 14,15
+
+   This call also be written as:
+
+      sh/dx ^eb*r$ on 80m,40m,28000/30000 not by_zone 14,15
+
+   The 'and' keyword is optional between terms (eg 'by_zone 14,15).
+
+   The keyword 'call' is optional if a callsign is the first term after
+   'sh/dx'. So 'sh/dx ^eb*r$' means 'sh/dx call ^eb*r$'
 29Apr25======================================================================
 1. Fix things like acc/spot by_dxcc ea,f,i,ea6 or by_zone 14,15. Thanks for
    the heads up from Mikel EA2CW.
+2. Add a missing 'call' keyword on sh/dx for things like 'sh/dx EB5. This is 
+   a shortcut for 'sh/dx call EB5'. This is how it used to work (not certain
+   how) but then only simple examples as above. It didn't work on things like
+   'sh/dx {^eb5} and info cq and not by_zone 14,15', or at least not very 
+   reliably.   
 28Apr25======================================================================
 1. Fix basic shell regexes and compound statements like:
    sh/dx call oh8 and not call kxk

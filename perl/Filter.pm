@@ -660,6 +660,7 @@ sub parse
 			}
 
 			$lasttok = $tok;
+
 		}
 	}
 
@@ -679,7 +680,7 @@ sub parse
 	if ($s) {
 		#		$s =~ s/\)\s*\(/ && /g;
 		dbg("filter parse: end before s='$s'") if isdbg('filterparse');
-		$s =~ s|\)\s*\(| && |g;
+		$s =~ s|\)(\s*!\s*)?\(|) && $1(|g;
 		dbg("filter parse: end after s='$s'") if isdbg('filterparse');
 	}
 
