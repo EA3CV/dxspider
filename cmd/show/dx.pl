@@ -18,18 +18,20 @@ sub iskeyword
 sub expandregex
 {
 	my $input = shift;
-	my $exact = shift;
+	my $exact = shift || 0;
 	
 	$input .= '*' unless $input =~ /[\*\?\[]$/o;
-	dbg("sh/dx: expandregex before shellregex input='$input'") if isdbg 'sh/dx'; 
+	dbg("sh/dx: expandregex before shellregex input='$input' exact: $exact") if isdbg 'sh/dx'; 
 	$input = shellregex($input);
-	dbg("sh/dx: expandregex  after shellregex input='$input'") if isdbg 'sh/dx'; 
+	dbg("sh/dx: expandregex  after shellregex input='$input' exact: $exact") if isdbg 'sh/dx'; 
 	if ($exact) {
-		$input =~ s/\.\*\$$//;
-		$input .= '{^$input}$';
+		$input =~ s|\.\*\$$||;
+		$input = '{^$input$}';
 	} else {
 		$input =~ s|\$+|\$|;
-		$input =~ s/\\^//g;
+		$input =~ s|\\^||g;
+		$input =~ s|^\.\*(.+)\$?$|$1\$|;
+		$input =~ s|\$+$|\$|;	# tidy up multiple $ signs at the end
 	}
 	dbg("sh/dx: expandregex processed input='$input'") if isdbg 'sh/dx';
 	return $input;

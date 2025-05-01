@@ -325,7 +325,7 @@ sub shellregex
 	$in =~ s|\\/|/|g;
 	if ($in =~ m|\.\*$|) {
 		$in =~ s|\.\*$||;
-		$in = "^$in" unless $in =~ m|^\^|;
+#		$in = "^$in" unless $in =~ m|^\^|;
 	}
 	return $in;
 }

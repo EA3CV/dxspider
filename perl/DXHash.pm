@@ -55,7 +55,7 @@ sub add
 	# also add the base version if it has some ssid on it
 	my $nn = $n;
 	$nn =~ s|(?:-\d+)?(?:/\w)?$||;
-	$self->{$nn} = $t unless $n eq $nn;
+	$self->{$nn} = $t unless exists $self->{$nn} || $n eq $nn;
 }
 
 sub del
@@ -102,7 +102,7 @@ sub set
 			push @out, $dxchan->msg('hasha',uc $f, $self->{name});
 			next;
 		}
-		$self->add($f, 1);
+		$self->add($f, $main::systime);
 		push @out, $dxchan->msg('hashb', uc $f, $self->{name});
 	}
 	$self->put;

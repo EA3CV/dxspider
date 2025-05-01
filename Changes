@@ -1,3 +1,10 @@
+01May25======================================================================
+1. Fix timestamp on DXHash entries (e.g set/badnode badspotter etc). Thanks 
+   to Luigi IK5ZUK for nagging me enough to finally get it done.  
+2. Roll back the forced ^ added to the front of all shell regex expansions.
+   This means that the examples below actually as advertised below. Also 
+   correct 'eb' 'eb*' and '*eb' whilst retaining '^eb', 'eb$' and '^eb*r$'
+   matching. 
 30Apr25======================================================================
 1. Fix the standard expansion of string regex expressions such that the need
    for breaking into perl {<regex>} expressions is reduced. 
