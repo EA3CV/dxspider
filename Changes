@@ -5,6 +5,8 @@
    This means that the examples below actually as advertised below. Also 
    correct 'eb' 'eb*' and '*eb' whilst retaining '^eb', 'eb$' and '^eb*r$'
    matching. 
+3. Fix show/bands such that, on specifically selecting one or more bands, all
+   the subbands are also shown. Thanks to Keith G6HNU for the suggestion.
 30Apr25======================================================================
 1. Fix the standard expansion of string regex expressions such that the need
    for breaking into perl {<regex>} expressions is reduced. 

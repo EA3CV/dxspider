@@ -2287,8 +2287,12 @@ Display the bands and regions (collections of bands) known to
 the system. If you supply band or region names to SHOW/BANDS,
 the command will display just those bands or regions, e.g.:
 
-	sh/band
-	sh/band 2m hf
+	sh/bands
+	sh/bands 2m
+	sh/bands hf
+
+If you specify one or more specific bands then you will get a list of
+sub bands as well as the extent of that band. 
 
 === 0^SHOW/BUDDY^Show your list of buddies
 See SET/BUDDY for more information about buddies.
