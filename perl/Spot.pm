@@ -250,10 +250,10 @@ sub prefix
 
 # fix up the full spot data from the basic spot data
 # input is
-# freq, call, time, comment, spotter, origin[, ip_address]
+# freq, call, time, comment, spotter, origin[, ip_address, strength dB, quality]
 sub prepare
 {
-	# $freq, $call, $t, $comment, $spotter, node, ip address = @_
+	# $freq, $call, $t, $comment, $spotter, node, ip address, quality, dB = @_
 	my @out = @_[0..4];      # just up to the spotter
 
 	# normalise frequency
@@ -272,10 +272,13 @@ sub prepare
 	push @out, $spt[0];
 	push @out, $_[5];
 	push @out, @spd[1,2], @spt[1,2], $spd[3], $spt[3];
-	push @out, ($_[6] && is_ipaddr($_[6])) ? $_[6] : '';
 
+	push @out, ($_[6] && is_ipaddr($_[6])) ? $_[6] : '';
+	push @out, (defined $_[7]) ? $_[7] : 0;
+	push @out, (defined $_[8]) ? $_[7] : 0;
+	
 	# thus we now have:
-	# freq, call, time, comment, spotter, call country code, spotter country code, origin, call itu, call cqzone, spotter itu, spotter cqzone, call state, spotter state, spotter ip address
+	# freq, call, time, comment, spotter, call country code, spotter country code, origin, call itu, call cqzone, spotter itu, spotter cqzone, call state, spotter state, spotter ip address, dB strength, quality
 	# RBN stuff is tacked on by the RBN module after this the base spot preparation
 	return @out;
 }

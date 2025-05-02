@@ -1,3 +1,7 @@
+02May25======================================================================
+1. Add any missing fields (ip address, strength dB, quality) as blank or 
+   0 in Spot::prepare and also when searching files (including historical
+   spot data). 
 01May25======================================================================
 1. Fix timestamp on DXHash entries (e.g set/badnode badspotter etc). Thanks 
    to Luigi IK5ZUK for nagging me enough to finally get it done.  
