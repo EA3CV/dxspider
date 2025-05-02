@@ -275,7 +275,7 @@ sub prepare
 
 	push @out, ($_[6] && is_ipaddr($_[6])) ? $_[6] : '';
 	push @out, (defined $_[7]) ? $_[7] : 0;
-	push @out, (defined $_[8]) ? $_[7] : 0;
+	push @out, (defined $_[8]) ? $_[8] : 0;
 	
 	# thus we now have:
 	# freq, call, time, comment, spotter, call country code, spotter country code, origin, call itu, call cqzone, spotter itu, spotter cqzone, call state, spotter state, spotter ip address, dB strength, quality
@@ -430,6 +430,10 @@ sub search
 				while (<$fh>) {
 					chomp;
 					my @r = split /\^/;
+					$r[6] = '' unless defined $r[6];
+					$r[7] = 0 unless defined $r[7];
+					$r[8] = 0 unless defined $r[8];
+					
 					++$rec;
 					if ($dofilter && $dxchan && $dxchan->{spotsfilter}) {
 						my ($gotone, undef) = $dxchan->{spotsfilter}->it(@r);
