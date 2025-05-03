@@ -19,7 +19,7 @@
 #
 # The filters live in a directory tree of their own in $main::root/filter
 #
-# Each type of filter (e.g. spot, wwv) live in a tree of their own so you
+# Each type of filter (e.g spot, wwv) live in a tree of their own so you
 # can have different filters for different things for the same callsign.
 #
 
@@ -457,17 +457,17 @@ sub include_regex
 		dbg("include_regex after decode regex s: '$s'") if isdbg('filterparse'); 
 		$s =~ s/^\{(.+)\}$/$1/;
 		dbg("include_regex check regex s: '$s'") if isdbg('filterparse'); 
-		return  ('regex', $dxchan->msg('e38', $s)) unless (qr'$s');
-		my $e = qq|\$r->[$fref->[2]]=~m\'$s\'i|;
+		return  ('regex', $dxchan->msg('e38', $s)) unless qr{$s};
+		my $e = qq|\$r->[$fref->[2]]=~qr{$s}i|;
 		dbg("include_regex generated string '$s'->'$e'") if isdbg('filterparse'); 
 		push @t, $e;
 		$v = "$s"; # put it back together again for humans
 	} else {
-		if ($v =~ /\*/) {
+		if ($v =~ /\*$/) {
 			$v =~ s/\*+\$//g;        # remove any trailing *
-			push @t, "\$r->[$fref->[2]]=~m'^$v'i";
+			push @t, "\$r->[$fref->[2]]=~qr{^$v}i";
 		} else {
-			push @t, "\$r->[$fref->[2]]=~m'$v'i";
+			push @t, "\$r->[$fref->[2]]=~qr{$v}i";
 		} 
 	}
 	dbg 'include_regex @t = "' . join('", "', @t) . '"' if isdbg 'filterparse';
