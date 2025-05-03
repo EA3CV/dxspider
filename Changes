@@ -1,3 +1,6 @@
+03May25======================================================================
+1. Fixed an issue with some (problably more recent) perls with m' ' in the 
+   parsing of filter statements. This may need fixing elsewhere... 
 02May25======================================================================
 1. Add any missing fields (ip address, strength dB, quality) as blank or 
    0 in Spot::prepare and also when searching files (including historical

@@ -672,7 +672,7 @@ sub parse
 		$user =~ s/\|\|/ or /g;
 		$user =~ s/\!/ not /g;
 		$user =~ s/\s+/ /g;
-		$user =~ decode_regex($user);
+		$user = decode_regex($user);
 		$user =~ s/^\s+//;
 		dbg("filter parse: user  end '$user'") if isdbg('filterparse');
 	}
