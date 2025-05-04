@@ -300,7 +300,7 @@ sub it
 		my $dir = $self->{name} =~ /^in_/i ? "IN " : "OUT";
 
 		$call =~ s/\.PL$//i;
-		my $h = " hops: $hops" || '';
+		my $h = defined $hops ? "hops: $hops" :'hops: none'; 
 		if ($reason) {
 			dbg("Filter: $call $true $dir $type/$sort '$reason' on '$args'") if isdbg('filter');
 		} else {

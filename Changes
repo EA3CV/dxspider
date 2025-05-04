@@ -1,3 +1,6 @@
+04May25======================================================================
+1. Fix a possible uninitialised message in filtering things where no hops
+   are defined. Reported by Mikel EA2CW.
 03May25======================================================================
 1. Fixed an issue with some (problably more recent) perls with m' ' in the 
    parsing of filter statements. This may need fixing elsewhere... 
