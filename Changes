@@ -1,3 +1,6 @@
+06May25======================================================================
+1. Add countmojo.pm to measure how may people have updated to the latest 
+   version. 
 04May25======================================================================
 1. Fix a possible uninitialised message in filtering things where no hops
    are defined. Reported by Mikel EA2CW.
