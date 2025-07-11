@@ -29,13 +29,14 @@ sub new
 {
 	my ($pkg, $name) = @_;
 
-	# move existing file
+	# move existing file to localhost, if necessary.
 	localdata_mv($name);
 	my $s = readfilestr($main::local_data, $name);
 	my $self = undef;
 	$self = eval $s if $s;
 	dbg("error in reading $name in DXHash $@") if $@;
 	$self = bless({name => $name}, $pkg) unless defined $self;
+	
 	return $self;
 }
 
@@ -53,8 +54,7 @@ sub add
 	$self->{$n} = $t;
 
 	# also add the base version if it has some ssid on it
-	my $nn = $n;
-	$nn =~ s|(?:-\d+)?(?:/\w)?$||;
+	my $nn = basecall($n);
 	$self->{$nn} = $t unless exists $self->{$nn} || $n eq $nn;
 }
 
@@ -66,8 +66,7 @@ sub del
 	delete $self->{$n};
 	return if $exact;
 
-	my $nn = $n;
-	$nn =~ s|(?:-\d+)?(?:/\w)?$||;
+	my $nn = basecall($n);
 	my @ssid = (0..99);
 	delete $self->{"$nn-$_"} for @ssid;
 }
@@ -81,8 +80,8 @@ sub in
 	
 	return 1 if exists $self->{$n};
 	return 0 if $exact;
-	$n =~ s/-\d+$//;
-	return exists $self->{$n};
+	my $m = basecall($n);
+	return exists $self->{$m};
 }
 
 # this is really just a general shortcut for all commands to
