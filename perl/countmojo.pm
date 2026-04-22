@@ -13,6 +13,7 @@ my $gitbranch = 'none';
 my $gitversion = 'none';
 my $build = 'none';
 my $version = 'none';
+my $rank = 0;
 
 sub begin
 {
@@ -43,6 +44,17 @@ sub begin
 
 	($version) = $version =~ /^\d+\.(\d+)/;
 	$version = $version + 5400;
+
+	# override build no
+	while (@ARGV) {
+		my $b = shift @ARGV;
+		if ($b =~ /^\d+$/) {
+			$build = $b;
+		}
+		if ($b eq 'rank') {
+			$rank = 1;
+		}
+	}
 }
 
 sub handle
@@ -68,7 +80,7 @@ sub total
 {
 	my $good = 0;
 	my $bad = 0;
-	
+
 	foreach my $k (keys %count) {
 		my $b = $count{$k};
 		if ($b == $build) {
@@ -77,9 +89,35 @@ sub total
 			++$bad;
 		}
 	}
+
 	my $old = keys %countold;
-	my $ccc = keys %ccc;
 	my $mojo = $good + $bad;
+	
+	if ($rank) {
+		my @rankedkeys = sort {$count{$a} <=> $count{$b}} keys %count;
+		my $c = 1;
+		my $flag;
+		my $rk = shift @rankedkeys;
+		my $rv = $count{$rk};
+		my $last = $rv;
+		printf "%10s: %d", $rk, $rv;
+		
+		foreach $rk (@rankedkeys) {
+			$rv = $count{$rk};
+			if ($last != $rv) {
+				print "  = $c build $last\n";
+				$c = 0;
+			} else {
+				print "\n";
+			}
+			printf "%10s: %d", $rk, $rv;
+			++$c;
+			$last = $rv;
+		}
+		printf "  = $c build $last\n";
+	}
+
+	my $ccc = keys %ccc;
 	my $percentall = $good * 100 / ($mojo + $others);
 	my $percentmojo = $good * 100 / $mojo;
 	my $total = $good + $bad + $old;
