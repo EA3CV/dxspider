@@ -198,7 +198,7 @@ sub term
 {
 	dbg("caught INT or TERM signal") if isdbg('connect');
 	kill $pid if $pid;
-	sleep(2);
+#	sleep(2);
 	exit(12);
 }
 

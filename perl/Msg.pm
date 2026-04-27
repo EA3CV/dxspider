@@ -325,7 +325,7 @@ sub _close_it
 	$conn->{state} = 'E';
 	$conn->{timeout}->del if $conn->{timeout};
 
-	my $call = $conn->{call};
+	my $call = $conn->{call} || 'UNDEFINED';
 
 	if (isdbg('connll')) {
 		my ($pkg, $fn, $line) = caller;
@@ -566,19 +566,31 @@ sub set_event_handler {
 	dbg("Msg::set_event_handler called from ${pkg}::${fn} line $line doing $s");
 }
 
+#sub sleep
+#{
+#	my ($pkg, $interval) = @_;
+#	my $now = time;
+#	while (time - $now < $interval) {
+#		sleep 1;
+#	}
+#}
+
 sub sleep
 {
-	my ($pkg, $interval) = @_;
-	my $now = time;
-	while (time - $now < $interval) {
-		sleep 1;
-	}
+	my $conn = shift;
+	my $time = shift;
+	my $now = $main::systime;
+	dbg("Asking for sleep $time secs") if isdbg("connsleep");
+#	$conn->{sock}->timer($time, sub {
+#					 my $diff = $main::systime - $now;
+#					 dbg("Slept for $diff secs on $conn->{call}") if isdbg("connsleep");
+#				 }) if $time;
 }
 
 sub DESTROY
 {
 	my $conn = shift;
-	my $call = $conn->{call} || 'unallocated';
+	my $call = $conn->{call} || 'UNDEFINED';
 
 	if (isdbg('connll')) {
 		my ($pkg, $fn, $line) = caller;

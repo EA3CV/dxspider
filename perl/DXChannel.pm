@@ -397,6 +397,13 @@ sub is_believed
 	return grep $call eq $_, $self->user->believe;
 }
 
+sub sleep
+{
+	my $self = shift;
+	my $t = shift;
+	$self->conn->sleep($t);
+}
+
 # handle out going messages, immediately without waiting for the select to drop
 # this could, in theory, block
 sub send_now
