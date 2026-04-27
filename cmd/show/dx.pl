@@ -60,16 +60,16 @@ sub handle
 	dbg("sh/dx after regex return: '" . join(' ', @list) . "'") if isdbg('sh/dx') || isdbg('filterparse');
 	
 	my @out;
-	my $f;
+	my $f = '';
 	my $call = $self->call;
 	my $usesql = $main::dbh && $Spot::use_db_for_search;
 	my ($from, $to) = (0, 0);
 	my ($fromday, $today) = (0, 0);
-	my $exact;
-	my $real;
-	my $dofilter;
-	my $pre;
-	my $dxcc;
+	my $exact = '';
+	my $real = '';
+	my $dofilter = '';
+	my $pre = '';
+	my $dxcc = '';
 
 	my @flist;
 

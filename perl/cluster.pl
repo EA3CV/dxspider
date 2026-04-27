@@ -241,8 +241,8 @@ sub already_conn
 
 	$conn->disable_read(1);
 	dbg("-> D $call $mess\n") if isdbg('chan');
+	$conn->sleep(10);
 	$conn->send_now("D$call|$mess");
-	sleep(2);
 	$conn->disconnect;
 }
 
@@ -367,6 +367,7 @@ sub new_channel
 					my $ip = $dxchan->hostname;
 					$dxchan->send_now('D', DXM::msg($lang, 'conbump', $call, $ip));
 					LogDbg('', "$call bumped off by $ip, disconnected");
+					$dxchan->sleep(5);
 					$dxchan->disconnect;
 				} else {
 					already_conn($conn, $call, DXM::msg($lang, 'conother', $call, $main::mycall));
