@@ -54,7 +54,8 @@ my $nolines = 1;
 my @prev;
 my @patt;
 
-foreach my $arg (@ARGV) {
+while (@ARGV) {
+	my $arg = shift @ARGV;
 	if ($arg =~ /^-/) {
 		$arg =~ s/^-+//;
 		if ($arg =~ /\?|^he?l?p?/) {
@@ -74,6 +75,7 @@ foreach my $arg (@ARGV) {
 		} else {
 			die "$arg not found";
 		}
+		last;					# leave the rest of @ARV for the use of the plugin
 	} else {
 		$arg =~ s|\\?([\(\)])|$1|g;
 		push @patt, $arg;

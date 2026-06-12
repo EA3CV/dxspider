@@ -25,7 +25,7 @@ use DXJSON;
 
 use strict;
 
-use vars qw(%u $dbm $filename %valid $lastoperinterval $lasttime $lru $lrusize $tooold $veryold $v3);
+use vars qw(%u $dbm $filename %valid $lastoperinterval $lasttime $lru $lrusize $tooold $veryold $ephold  $v3);
 
 %u = ();
 $dbm = undef;
@@ -33,7 +33,9 @@ $filename = undef;
 $lastoperinterval = 60*24*60*60;
 $lasttime = 0;
 $lrusize = 5000;
-$tooold = 86400 * 365 * 2;		# this marks an old user who hasn't given enough info to be useful
+my $day = 86400;
+$ephold = $day * 35;			    # bare callsigns with no extra info that come in via protocol
+$tooold = $day * 365 * 2;		# this marks an old user who hasn't given enough info to be useful
 $veryold = $tooold * 6;	        # Ancient default 12 years
 $v3 = 0;
 our $maxconnlist = 3;			# remember this many connection time (duration) [start, end] pairs
@@ -749,6 +751,8 @@ sub export
 	my $ancient =  0;
 	my $nodes = 0;
 	my $renamed = 0;
+	my $eph =  0;
+	
 
 	my %del;
 	
@@ -782,11 +786,21 @@ sub export
 				$t //= 0;
 				
 				if ($ref->is_user) {
-					if (!$ref->{priv} && $main::systime > $t + $tooold) {
-						unless (($ref->{lat} && $ref->{long}) || $ref->{qth} || $ref->{name} || $ref->{qra}) {
-							LogDbg('DXCommand', sprintf("$ref->{call} deleted, empty and too Old at %s", difft($t, ' ')));
+					if ($ref->{homenode} != $main::mycall && !$ref->{priv} ) {
+
+						# ephmerals
+						if ($main::systime > $t + $ephold &&  !$ref->{qth} && !$ref->{name}) {
+							LogDbg('DXCommand', sprintf("Ephmeral $ref->{call} deleted at %s", difft($t, ' ')));
 							++$del;
 							++$old;
+							$del{$key} = $val;
+							next;
+						}
+
+						unless ( $ref->{homenode} && $main::systime < $t + $tooold) {
+							LogDbg('DXCommand', sprintf("Stale $ref->{call} deleted at %s", difft($t, ' ')));
+							++$del;
+							++$eph;
 							$del{$key} = $val;
 							next;
 						}
@@ -850,7 +864,7 @@ sub export
 	}
 
 	my $diff = _diffms($ta);
-	my $s = qq{Exported users to $fn - $count Users,  $del Deleted ($old empty \& too old, $ancient ancient, $nodes nodes, $spurious spurious), $renamed renamed, $unlocked Unlocked, $err Errors in $diff mS ('sh/log Export' for details)};
+	my $s = qq{Exported users to $fn - $count Users,  $del Deleted ($eph ephmeral, $old empty \& too old, $ancient ancient, $nodes nodes, $spurious spurious), $renamed renamed, $unlocked Unlocked, $err Errors in $diff mS ('sh/log Export' for details)};
 	LogDbg('command', $s);
 	return ($s);
 }
