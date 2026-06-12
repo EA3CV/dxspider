@@ -52,7 +52,7 @@ sub handler
 	my $t;
 	foreach $t (@timerchain) {
 		if ($now >= $t->{t}) {
-			&{$t->{proc}}();
+			&{$t->{proc}}() if $t->{proc};
 			$t->{t} = $now + $t->{interval} if exists $t->{interval};
 		}
 	}
