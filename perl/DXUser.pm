@@ -781,8 +781,8 @@ sub export
 			eval {$ref = decode($val); };
 			if ($ref) {
 				my $t = $ref->{lastseen} if exists $ref->{lastseen};
-				$t ||= $ref->{lastin} if exists $ref->{lastin};
-				$t ||= $ref->{lastoper} if exists $ref->{lastoper};
+				$t = $ref->{lastin} if exists $ref->{lastin} && $ref->{lastin} > $t;
+				$t = $ref->{lastoper} if exists $ref->{lastoper} && $ref->{lastoper} > $t;
 				$t //= 0;
 				
 				if ($ref->is_user) {

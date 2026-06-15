@@ -1,3 +1,5 @@
+12Jun26======================================================================
+1. Fix export_users so that more old users are removed. 
 06May25======================================================================
 1. Add countmojo.pm to measure how may people have updated to the latest 
    version. 
