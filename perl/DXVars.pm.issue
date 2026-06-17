@@ -50,9 +50,19 @@ $do_xml = 0;
 
 $Internet::contest_host = "contest.dxtron.com";
 
-# the SQL database DBI dsn
+# the SQL Spot database DBI dsn
 #$dsn = "dbi:SQLite:dbname=$root/data/dxspider.db";
 #$dbuser = "";
 #$dbpass = "";
+
+# From now on SQLite3 will be the User database storage method.
+# It is known to work with SQLite3 and *may* work with mysql
+# It does not use the '$dsn' variables because I believe that
+# the users file should be separate from spots and other things.
+# YMMV...
+#
+# If YM does indeed V then you can simply assign the "spot" $dsn to $userdsn.
+# Not tested but should work.
+our $userdsn = "dbi:sqlite:dbname=$root/local_data/dxusers.db";
 
 1;

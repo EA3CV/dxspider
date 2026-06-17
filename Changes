@@ -7,7 +7,8 @@
    /spider/local/DXVars.pm: 
 
    our $userdsn = "dbi:sqlite:dbname=$root/local_data/dxusers.db";
-2. Allow DBI database interface to create user_json backups.
+2. Add the above line to DXVars.pm.issue.
+3. Allow DBI database interface to create user_json backups.
 12Jun26======================================================================
 1. Fix export_users so that more old users are removed. 
 06May25======================================================================
