@@ -1,13 +1,25 @@
 17Jun26======================================================================
 1. Integrated sqlite3 (and possibly mysql) integration into DXUser such that
    these databases can be used instead of DB_File. Mysql has NOT been been 
-   tested. 
+   tested. If you switch this on, then the database will be converted to the
+   new format. 
 
    To switch this on, please add this the following line somewhere in your 
    /spider/local/DXVars.pm: 
 
    our $userdsn = "dbi:sqlite:dbname=$root/local_data/dxusers.db";
-2. Add the above line to DXVars.pm.issue.
+
+   If you don't like what you see after restart then simply # this line
+   out, do an export_users, stop the node, run 'perl user_json' to update
+   the DB_file database and then restart.
+
+   If you're not bothered, then just hash the line out and restart. You
+   can flip from one to the other with a restart as often as you like, but
+   need to remove the /spider/local_data/dxusers.db before restarting (to
+   recreate it from the latest DB_File user file. Dropping the table in 
+   either sqlite3 or mysql will (likely) do the same job.   
+ 
+2. Add the $userdsn line to DXVars.pm.issue.
 3. Allow DBI database interface to create user_json backups.
 4. Remove typos from cluster.pl
 12Jun26======================================================================
