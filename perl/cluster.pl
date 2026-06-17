@@ -862,9 +862,9 @@ sub idle_loop
 }
 
 sub per_sec
-{user_json.ooooo
+{
 	my $timenow = time;
-
+	
 	reap() if $zombies;
 	$systime = $timenow;
 	my $days = int ($systime / 86400);
