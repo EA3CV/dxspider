@@ -981,7 +981,7 @@ sub export
 				($key, $val) = @$r;
 			} else {
 				$r = $dbm->seq($key, $val, $action);
-				last unless $r;
+				last if $r;
 				$action = R_NEXT;
 			}
 			
