@@ -75,6 +75,7 @@ BEGIN {
 	# locally stored data lives here
 	$local_data = "$root/local_data";
 	mkdir $local_data, 02774 unless -d $local_data;
+	mkdir "$local_data/tmp", 02774 unless -d "$local_data/tmp";
 	$data = "$root/data";
 	$system = "$root/sys";
 	$cmd = "$root/cmd";
@@ -854,6 +855,8 @@ sub idle_loop
 			$main::me->disconnect;
 		}
 
+		DXUser::sync();
+		
 		Mojo::IOLoop->stop_gracefully if --$ending <= 0;
 	}
 }

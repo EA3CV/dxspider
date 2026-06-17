@@ -22,6 +22,7 @@ use Time::HiRes qw(gettimeofday tv_interval);
 use IO::File;
 use DXChannel;
 use DXJSON;
+use DBI;
 
 use strict;
 
@@ -41,6 +42,9 @@ $v3 = 0;
 our $maxconnlist = 3;			# remember this many connection time (duration) [start, end] pairs
 
 my $json;
+my $dsn;
+my $dbh;
+
 
 # hash of valid elements and a simple prompt
 %valid = (
@@ -149,29 +153,120 @@ sub init
 	my $mode = shift;
   
 	$json = DXJSON->new->canonical(1);
-	my $fn = "users";
-	$filename = localdata("$fn.v3j");
-	unless (-e $filename || $mode == 2 ) {
-		if (-e localdata("$fn.v3") || -e localdata("$fn.v2")) {
-			LogDbg('DXUser', "New User File version $filename does not exist, running conversion from users.v3 or v2, please wait");
-			system('/spider/perl/convert-users-v3-to-v3j.pl');
-			init(1);
-			export();
-			return;
-		}
-	}
-	if (-e $filename || $mode) {
-		$lru = LRU->newbase("DXUser", $lrusize);
-		if ($mode) {
-			$dbm = tie (%u, 'DB_File', $filename, O_CREAT|O_RDWR, 0666, $DB_BTREE) or confess "can't open user file: $fn ($!) [rebuild it from user_json?]";
-		} else {
-			$dbm = tie (%u, 'DB_File', $filename, O_RDONLY, 0666, $DB_BTREE) or confess "can't open user file: $fn ($!) [rebuild it from user_json?]";
-		}
-	}
-	$readonly = !$mode;
 	
-	die "Cannot open $filename ($!)\n" unless $dbm || $mode == 2;
+	my $fn = "users";
+
+    my ($user, $pass);
+
+	# initialise the cache
+	$lru = LRU->newbase("DXUser", $lrusize);
+
+	if (defined $main::userdsn && $main::userdsn) { 
+		if ($main::userdsn =~ /:sqlite:/i) {
+
+			my ($db_path) = $main::userdsn =~ /dbname=([^;]+)/;
+			my $db_missing = !-e $db_path;
+
+			
+			$dbh = DBI->connect($main::userdsn, $main::user, $main::pass, {
+													 RaiseError     => 1,
+													 AutoCommit     => 1,
+													 sqlite_unicode => 1,
+													}) or die "SQLite connect error: $DBI::errstr";
+
+			my $table_exists = _table_exists();
+
+			unless ($table_exists) {
+				print "[DXUser_SQL] Creating SQLite table and importing from users.v3j...\n";
+				_create_table();
+				_import_from_v3j();
+			}
+
+		} elsif ($main::userdsn) {
+			my $mysql_db = $main::mysql_db;
+
+			my $dbh_tmp = DBI->connect($main::userdsn, $user, $pass, {
+															RaiseError => 1,
+															AutoCommit => 1
+														   }) or die "MySQL connect error: $DBI::errstr";
+			
+			my $db_exists = $dbh_tmp->selectrow_array("SHOW DATABASES LIKE ?", undef, $mysql_db);
+			
+			unless ($db_exists) {
+				print "[DXUser_SQL] Creating MySQL database $mysql_db...\n";
+				$dbh_tmp->do("CREATE DATABASE `$mysql_db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+			}
+			
+			$dbh_tmp->disconnect;
+
+			$dbh = DBI->connect($dsn, $user, $pass, {
+													 RaiseError           => 1,
+													 AutoCommit           => 1,
+													 mysql_enable_utf8mb4 => 1,
+													}) or die "MySQL connect error: $DBI::errstr";
+			
+			my $table_exists = $dbh->selectrow_array("SHOW TABLES LIKE 'users'");
+			unless ($table_exists) {
+				print "[DXUser_SQL] Creating MySQL table and importing from users.v3j...\n";
+				_create_table();
+				_import_from_v3j();
+			}
+		}
+		
+	} else {
+		# 'original system'
+	
+		$filename = localdata("$fn.v3j");
+
+		unless (-e $filename || $mode == 2 ) {
+			if (-e localdata("$fn.v3") || -e localdata("$fn.v2")) {
+				LogDbg('DXUser', "New User File version $filename does not exist, running conversion from users.v3 or v2, please wait");
+				system('/spider/perl/convert-users-v3-to-v3j.pl');
+				init(1);
+				export();
+				return;
+			}
+		}
+		if (-e $filename || $mode) {
+			if ($mode) {
+				$dbm = tie (%u, 'DB_File', $filename, O_CREAT|O_RDWR, 0666, $DB_BTREE) or confess "can't open user file: $fn ($!) [rebuild it from user_json?]";
+			} else {
+				$dbm = tie (%u, 'DB_File', $filename, O_RDONLY, 0666, $DB_BTREE) or confess "can't open user file: $fn ($!) [rebuild it from user_json?]";
+			}
+		}
+		$readonly = !$mode;
+	
+		die "Cannot open $filename ($!)\n" unless $dbm || $mode == 2;
+	}
+
 	return;
+}
+
+# create a call/data table called users in a QSL database, if required
+sub _create_table {
+	LogDbg("command", "Creating new 'users' table in SQL DSN $main::userdsn");
+    my $sql = "CREATE TABLE users ( call TEXT PRIMARY KEY, data TEXT )";
+    my $r = $dbh->do($sql);
+	die "Failed to create SQL user file in $main::userdsn" unless $r;
+#	$sql = "CREATE UNIQUE INDEX on users ( call )";
+#	$r = $dbh->do($sql);
+#	die "Failed to create index on call field in $main::userdsn" unless $r;
+}
+
+# check to see if a table exists in a SQL database
+sub _table_exists {
+    my ($t) = @_;
+    if ($main::userdsn =~ /:sqlite:/i) {
+        my $sth = $dbh->prepare("SELECT name FROM sqlite_master WHERE type='table'");
+        $sth->execute();
+        my ($exists) = $sth->fetchrow_array;
+        return defined $exists && $exists eq 'users';
+    } elsif ($main::userdsn =~ /:mysql:/i) {
+        my $sth = $dbh->prepare("SHOW TABLES LIKE users");
+        $sth->execute();
+        my ($exists) = $sth->fetchrow_array;
+        return defined $exists;
+    }
 }
 
 # delete files with extreme prejudice
@@ -187,8 +282,8 @@ sub del_file
 #
 sub process
 {
-	if ($main::systime > $lasttime + 15) {
-		$dbm->sync if $dbm;
+	if ($main::systime > $lasttime + 5) {
+		sync();
 		$lasttime = $main::systime;
 	}
 }
@@ -200,8 +295,13 @@ sub process
 sub finish
 {
 	dbg('DXUser finished') unless $readonly;
-	$dbm->sync;
-	undef $dbm;
+	if ($dbm) {
+		$dbm->sync;
+		undef $dbm;
+	}
+	if ($dbh) {
+		undef $dbh;
+	}
 	untie %u;
 }
 
@@ -235,6 +335,8 @@ sub new
 #       called - see below
 #
 
+my $getsth;
+
 sub get
 {
 	my $call = uc shift;
@@ -246,26 +348,42 @@ sub get
 		return $ref;
 	}
 	
-	# search for it
-	unless ($dbm->get($call, $data)) {
-		eval { $ref = decode($data); };
-		if ($ref) {
-			if (!UNIVERSAL::isa($ref, 'DXUser')) {
-				dbg("DXUser::get: got strange answer from decode of $call". ref $ref. " ignoring");
-				return undef;
-			}
-			# we have a reference and it *is* a DXUser
-		} else {
-			if ($@) {
-				LogDbg('err', "DXUser::get decode error on $call '$@'");
-			} else {
-				dbg("DXUser::get: no reference returned from decode of $call $!");
-			}
+	# search for it in the appropriate source
+	if ($dbh) {
+		unless ($getsth) {
+			my $sql = "SELECT data FROM users WHERE call = ?";
+			dbg("DXUser get: sql $sql") if isdbg('sql');
+			$getsth = $dbh->prepare($sql);
+		}
+		$getsth->execute($call);
+		my $row = $getsth->fetchrow_arrayref;
+		return undef unless $row;
+		$data = $row->[0];
+	} else {
+		$dbm->get($call, $data);
+		return undef unless $data;
+	}
+
+	eval { $ref = decode($data); };
+
+	if ($ref) {
+		if (!UNIVERSAL::isa($ref, 'DXUser')) {
+			dbg("DXUser::get: got strange answer from decode of $call". ref $ref. " ignoring");
 			return undef;
 		}
+
+		# we have a reference and it *is* a DXUser
 		$lru->put($call, $ref);
 		return $ref;
+	} else {
+		if ($@) {
+			LogDbg('err', "DXUser::get decode error on $call '$@'");
+		} else {
+			dbg("DXUser::get: no reference returned from decode of $call $!");
+		}
+		return undef;
 	}
+	
 	return undef;
 }
 
@@ -304,27 +422,60 @@ sub get_all_calls
 # put - put a user
 #
 
+my $putsth;
+
 sub put
 {
 	my $self = shift;
 	confess "Trying to put nothing!" unless $self && ref $self;
 	my $call = $self->{call};
+	
 	unless ($call) {
 		LogDbg("DXUser::put undefined/zero callsign");
 		return;
 	}
 
-	$dbm->del($call);
-	delete $self->{annok};
-	delete $self->{dxok};
 	$self->{lastseen} = $main::systime;
+	my $js = $self->encode;
+
+	if ($dbh) {
+		my $sql;
+		if ($main::db_backend eq 'mysql') {
+			$sql = qq{INSERT INTO users (call, data) VALUES (`$call`, `$js`) ON DUPLICATE KEY UPDATE data = `$js`};
+		} else {
+			$sql = qq{INSERT OR REPLACE INTO users (call, data) VALUES (?, ?)};
+		}
+#		dbg("DXUser put: sql $sql") if isdbg('sql');
+		$putsth ||= $dbh->prepare($sql);
+		$putsth->execute($call, $js);
+		
+	} else {
+		$dbm->del($call);
+		delete $self->{annok};
+		delete $self->{dxok};
+		$dbm->put($call, $js);
+	}
+
 	$lru->put($call, $self);
-	my $ref = $self->encode;
-	$dbm->put($call, $ref);
-	DXChannel::refresh_user($call, $ref);
-	return $ref;
+	DXChannel::refresh_user($call, $js);
+
+	return $self;
 }
 
+# iterate through the complete users file
+#
+# This expects a reference to a function with the shape &process([decoded] DXUser reference)
+#
+
+sub interate
+{
+	my $dxuser = shift;
+
+	if ($dbh) {
+	} else {
+		
+	}
+}
 
 # thaw the user
 sub decode
@@ -348,7 +499,14 @@ sub del
 	my $self = shift;
 	my $call = $self->{call};
 	$lru->remove($call);
-	$dbm->del($call);
+	if ($dbh) {
+		my $sql = "DELETE FROM users WHERE call = ?";
+		my $sth = $dbh->prepare($sql);
+		$sth->execute($call);
+	} else {
+		$dbm->del($call);		
+	}
+	return 1;
 }
 
 #
@@ -373,10 +531,50 @@ sub close
 # sync the database
 #
 
+my $in_transaction;
+
 sub sync
 {
-	$dbm->sync;
+	if ($dbh) {
+		if ($in_transaction) {
+			$dbh->commit;
+			$in_transaction = 0;
+		}
+
+		unless ($main::ending) {
+			$dbh->begin_work;
+			++$in_transaction;
+		}
+	} else {
+		$dbm->sync;
+	}
 }
+
+sub _import_from_v3j {
+    LogDbg("command", "[DXUser] Importing users from users.v3j...\n");
+
+	my $secs = time;
+    my $file = "$main::root/local_data/users.v3j";
+    return unless -e $file;
+
+    my %u;
+    tie %u, 'DB_File', $file, O_RDONLY, 0644, $DB_BTREE or return;
+
+	$dbh->do('begin;') if $dbh;
+	
+    foreach my $call (keys %u) {
+        my $data = eval { $json->decode($u{$call}) };
+        next unless $data && ref $data eq 'HASH';
+        my $u = bless $data, 'DXUser';
+        put($u);
+    }
+
+	$dbh->do('commit;') if $dbh;
+    LogDbg("command", sprintf("[DXUser] Import finished in %d secs", time - $secs));
+
+    untie %u;
+}
+
 
 #
 # return a list of valid elements 
@@ -719,10 +917,11 @@ sub lastping
 	return $b->{$call};	
 }
 
-
 #
 # export the database to an ascii file
 #
+
+my $exsth;
 
 sub export
 {
@@ -752,7 +951,6 @@ sub export
 	my $nodes = 0;
 	my $renamed = 0;
 	my $eph =  0;
-	
 
 	my %del;
 	
@@ -760,12 +958,33 @@ sub export
 	if ($fh) {
 		my $key = 0;
 		my $val = undef;
-		my $action;
+		my $action = R_FIRST;
 		my $t = scalar localtime;
+		my $r;
+				
 		print $fh export_preamble();
-		
 
-        for ($action = R_FIRST; !$dbm->seq($key, $val, $action); $action = R_NEXT) {
+		if ($dbh) {
+			$dbh->commit if $in_transaction;
+			$exsth = $dbh->prepare("select * from users");
+			$exsth->execute;
+			$in_transaction = 0;
+		}  else {
+			$action = R_FIRST;
+		}
+
+		for (;;) {
+
+			if ($dbh) {
+				$r = $exsth->fetch;
+				last unless $r;
+				($key, $val) = @$r;
+			} else {
+				$r = $dbm->seq($key, $val, $action);
+				last unless $r;
+				$action = R_NEXT;
+			}
+			
 			if (!is_callsign($key) || $key =~ /^\d+$/) {
 				my $eval = $val;
 				my $ekey = $key;
@@ -856,11 +1075,25 @@ sub export
 		}
 	} 
 	$fh->close;
-	
+
+	if ($dbh) {
+		$dbh->begin_work;
+	}
+				
 	while (my ($k, $v) = each %del) {
-		eval {$dbm->del($k)};
-		$v = "undef" unless $v;
+		if ($dbh) {
+			del($k);
+		} else {
+			eval {$dbm->del($k)};
+			$v = "undef" unless $v;
+		}
 		LogDbg('DXCommand', "Error deleting key: $k value: $v error: $@") if $@;
+	}
+
+	if ($dbh) {
+		$dbh->commit;
+		$dbh->begin_work;
+		++$in_transaction;
 	}
 
 	my $diff = _diffms($ta);

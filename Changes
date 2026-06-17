@@ -1,3 +1,13 @@
+17Jun26======================================================================
+1. Integrated sqlite3 (and possibly mysql) integration into DXUser such that
+   these databases can be used instead of DB_File. Mysql has NOT been been 
+   tested. 
+
+   To switch this on, please add this the following line somewhere in your 
+   /spider/local/DXVars.pm: 
+
+   our $userdsn = "dbi:sqlite:dbname=$root/local_data/dxusers.db";
+2. Allow DBI database interface to create user_json backups.
 12Jun26======================================================================
 1. Fix export_users so that more old users are removed. 
 06May25======================================================================
