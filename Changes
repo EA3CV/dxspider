@@ -7,7 +7,12 @@
    To switch this on, please add this the following line somewhere in your 
    /spider/local/DXVars.pm: 
 
-   our $userdsn = "dbi:sqlite:dbname=$root/local_data/dxusers.db";
+   our $userdsn = "dbi:SQLite:dbname=$root/local_data/dxusers.db";
+
+   (Capitalisation of SQLite is important, it turns out)
+
+   Also please make sure you have installed the libdbd-sqlite3-perl 
+   package!
 
    If you don't like what you see after restart then simply # this line
    out, do an export_users, stop the node, run 'perl user_json' to update
