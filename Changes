@@ -1,3 +1,5 @@
+19Jun26======================================================================
+1. Add EA3CV EA4URE to @WCY::allowed to cover for DK0WCY during its outage(s)
 17Jun26======================================================================
 1. Integrated sqlite3 (and possibly mysql) integration into DXUser such that
    these databases can be used instead of DB_File. Mysql has NOT been been 
