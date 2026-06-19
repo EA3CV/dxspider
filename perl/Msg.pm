@@ -52,7 +52,7 @@ sub new
 				csort => 'telnet',
 				timeval => 60,
 				blocking => 0,
-				cnum => (($cnum < 999) ? (++$cnum) : ($cnum = 1)),
+				cnum => (($cnum < 99999) ? (++$cnum) : ($cnum = 1)),
 				linesin => 0,
 				linesout => 0,
 				datain => 0,
