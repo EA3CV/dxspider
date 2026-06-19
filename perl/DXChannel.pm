@@ -59,6 +59,7 @@ $count = 0;
 		  conn => '9,Msg Conn ref',
 		  consort => '5,Connection Type',
 		  cq => '0,CQ Zone',
+		  dcall => '5,Callsign+cnum for dbg',
 		  delayed => '5,Delayed messages,parray',
 		  disconnecting => '9,Disconnecting,yesno',
 		  do_pc9x => '9,Handles PC9x,yesno',
@@ -152,7 +153,7 @@ sub DESTROY
 			delete $self->{$_};
 		}
 	}
-	dbg("DXChannel $self->{call} destroyed ($count)") if isdbg('chan');
+	dbg("DXChannel $self->{dcall} destroyed ($count)") if isdbg('chan');
 	$count--;
 }
 
@@ -163,7 +164,7 @@ sub alloc
 	my $self = {};
   
 	die "trying to create a duplicate channel for $call" if $channels{$call};
-	$self->{call} = $call;
+	$self->{call} = $self->{dcall} = $call;
 	$self->{priv} = 0;
 	$self->{conn} = $conn if defined $conn;	# if this isn't defined then it must be a list
 	if (defined $user) {
@@ -198,9 +199,23 @@ sub alloc
 	}
 
 	$count++;
-	dbg("DXChannel $self->{call} created ($count)") if isdbg('chan');
-	bless $self, $pkg; 
+	dbg("DXChannel $self->{dcall} created ($count)") if isdbg('chan');
+	bless $self, $pkg;
+
+	# this will add a cnum to debugged callsigns
+	$self->check_cnum_debugging;
+
 	return $channels{$call} = $self;
+}
+
+sub check_cnum_debugging
+{
+	my $self = shift;
+	if (isdbg("cnum")) {
+		$self->{dcall} = "$self->{call}:$self->{conn}->{cnum}";
+	} elsif ($self->{dcall} ne $self->{call}) {
+		$self->{dcall} = $self->{call};
+	}
 }
 
 # count errors and disconnect if too many
@@ -212,7 +227,7 @@ sub _error_out
 	my $e = shift;
 	if ($self != $main::me && ++$self->{errors} > $maxerrors) {
 		$self->send($self->msg('e26'));
-		LogDbg('err', "DXChannel $self->{call}: too many errors ($self->{errors} > $maxerrors), disconnecting");
+		LogDbg('err', "DXChannel $self->{dcall}: too many errors ($self->{errors} > $maxerrors), disconnecting");
 		$self->disconnect;
 		return ();
 	} else {
@@ -231,6 +246,8 @@ sub rebless
 sub rec	
 {
 	my ($self, $msg) = @_;
+
+	$self->check_cnum_debugging;
 	
 	# queue the message and the channel object for later processing
 	if (defined $msg) {
@@ -413,6 +430,7 @@ sub send_now
 	return unless $conn;
 	my $sort = shift;
 	my $call = $self->{call};
+	$self->check_cnum_debugging;
 	
 	for (@_) {
 #		chomp;
@@ -420,7 +438,7 @@ sub send_now
 		for (@lines) {
 			$conn->send_now("$sort$call|$_");
 			# debug log it, but not if it is a log message
-			dbg("-> $sort $call $_") if $sort ne 'L' && isdbg('chan');
+			dbg("-> $sort $self->{dcall} $_") if $sort ne 'L' && isdbg('chan');
 		}
 	}
 	$self->{t} = time;
@@ -437,6 +455,7 @@ sub send_later
 	return unless $conn;
 	my $sort = shift;
 	my $call = $self->{call};
+	$self->check_cnum_debugging;
 	
 	for (@_) {
 #		chomp;
@@ -444,7 +463,7 @@ sub send_later
 		for (@lines) {
 			$conn->send_later("$sort$call|$_");
 			# debug log it, but not if it is a log message
-			dbg("-> $sort $call $_") if $sort ne 'L' && isdbg('chan');
+			dbg("-> $sort $self->{dcall} $_") if $sort ne 'L' && isdbg('chan');
 		}
 	}
 	$self->{t} = time;
@@ -459,13 +478,14 @@ sub send						# this is always later and always data
 	my $conn = $self->{conn};
 	return unless $conn;
 	my $call = $self->{call};
+	$self->check_cnum_debugging;
 
 	foreach my $l (@_) {
 		for (ref $l ? @$l : $l) {
 			my @lines = split /\n/;
 			for (@lines) {
 				$conn->send_later("D$call|$_");
-				dbg("-> D $call $_") if isdbg('chan');
+				dbg("-> D $self->{dcall} $_") if isdbg('chan');
 			}
 		}
 	}
@@ -514,7 +534,7 @@ sub state
 		$self->{oldstate} = $self->{state};
 		$self->{state} = shift;
 		$self->{func} = '' unless defined $self->{func};
-		dbg("$self->{call} channel func $self->{func} state $self->{oldstate} -> $self->{state}\n") if isdbg('state');
+		dbg("$self->{dcall} channel func $self->{func} state $self->{oldstate} -> $self->{state}\n") if isdbg('state');
 
 		# if there is any queued up broadcasts then splurge them out here
 		if ($self->{delayed} && ($self->{state} eq 'prompt' || $self->{state} eq 'talk')) {
@@ -739,7 +759,7 @@ sub process_one
 		if ($sort ne 'D') {
 			if (isdbg('chan')) {
 				if (($self->is_rbn && isdbg('rbnchan')) || !$self->is_rbn) {
-					dbg("<- $sort $call $line") if isdbg('chan'); # you may think this is tautology, but it's needed get the correct label on the debug line
+					dbg("<- $sort $self->{dcall} $line") if isdbg('chan'); # you may think this is tautology, but it's needed get the correct label on the debug line
 				}
 			}
 		}
@@ -792,7 +812,7 @@ sub error_handler
 {
 	my $self = shift;
 	my $error = shift || '';
-	dbg("$self->{call} ERROR '$error', closing") if isdbg('chan');
+	dbg("$self->{dcall} ERROR '$error', closing") if isdbg('chan');
 	$self->{conn}->set_error(undef) if exists $self->{conn};
 	$self->disconnect(1);
 }
