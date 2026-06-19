@@ -133,7 +133,7 @@ sub start
 	$self->{width} = 80 unless $self->{width} && $self->{width} > 80;
 	$self->{consort} = $line;	# save the connection type
 
-	LogDbg('DXCommand', "$call connected from $self->{hostname} cols $self->{width}" . ($self->{enhanced}?" enhanced":''));
+	LogDbg('DXCommand', "$self->{dcall} connected from $self->{hostname} cols $self->{width}" . ($self->{enhanced}?" enhanced":''));
 
 	# set some necessary flags on the user if they are connecting
 	$self->{beep} = $user->wantbeep;
@@ -348,7 +348,7 @@ sub normal
 			my $sendit = ($cmdline = unpad($cmdline));
 			if (@bad = BadWords::check($cmdline)) {
 				$self->badcount(($self->badcount||0) + @bad);
-				LogDbg('DXCommand', "$self->{call} swore: '$cmdline' with badwords: '" . join(',', @bad) . "'");
+				LogDbg('DXCommand', "$self->{dcall} swore: '$cmdline' with badwords: '" . join(',', @bad) . "'");
 			} else {
 				my $c;
 				my @in;
@@ -375,7 +375,7 @@ sub normal
 			# send what has been said to whoever is in this person's talk list
 			if (@bad = BadWords::check($cmdline)) {
 				$self->badcount(($self->badcount||0) + @bad);
-				LogDbg('DXCommand', "$self->{call} swore: '$cmdline' with badwords: '" . join(',', @bad) . "'");
+				LogDbg('DXCommand', "$self->{dcall} swore: '$cmdline' with badwords: '" . join(',', @bad) . "'");
 			} else {
 				for (@{$self->{talklist}}) {
 					if ($self->{state} eq 'talk') {
@@ -409,7 +409,7 @@ sub normal
 	} else {
 #		if (@bad = BadWords::check($cmdline)) {
 #			$self->badcount(($self->badcount||0) + @bad);
-#			LogDbg('DXCommand', "$self->{call} swore: '$cmdline' with badwords: '" . join(',', @bad) . "'");
+#			LogDbg('DXCommand', "$self->{dcall} swore: '$cmdline' with badwords: '" . join(',', @bad) . "'");
 		#		} else {
 		my @cmd = split /\s*\\n\s*/, $cmdline;
 		foreach my $l (@cmd) {
@@ -419,13 +419,13 @@ sub normal
 			if (($self->{cmdintstart} + $cmdinterval <= $main::systime) || $self->{inscript}) {
 				$self->{cmdintstart} = $main::systime;
 				$self->{cmdcount} = 1;
-				dbg("$self->{call} started cmdinterval") if isdbg('cmdcount');
+				dbg("$self->{dcall} started cmdinterval") if isdbg('cmdcount');
 			} else {
 				if (++$self->{cmdcount} > $maxcmdcount) {
-					LogDbg('baduser', qq{User $self->{call} sent $self->{cmdcount} (>= $maxcmdcount) cmds in $cmdinterval seconds starting at } . atime($self->{cmdintstart}) . ", disconnected" );
+					LogDbg('baduser', qq{User $self->{dcall} sent $self->{cmdcount} (>= $maxcmdcount) cmds in $cmdinterval seconds starting at } . atime($self->{cmdintstart}) . ", disconnected" );
 					$self->disconnect;
 				}
-				dbg("$self->{call} cmd: '$l' cmdcount = $self->{cmdcount} in $cmdinterval secs") if isdbg('cmdcount');
+				dbg("$self->{dcall} cmd: '$l' cmdcount = $self->{cmdcount} in $cmdinterval secs") if isdbg('cmdcount');
 			}
 			$self->send_ans(run_cmd($self, $l));
 		}
@@ -434,7 +434,7 @@ sub normal
 
 	# check for excessive swearing
 	if ($maxbadcount && $self->{badcount} && $self->{badcount} >= $maxbadcount) {
-		LogDbg('DXCommand', "$self->{call} logged out for excessive swearing");
+		LogDbg('DXCommand', "$self->{dcall} logged out for excessive swearing");
 		$self->disconnect;
 		return;
 	}
@@ -509,6 +509,7 @@ sub run_cmd
 	my $self = shift;
 	my $user = $self->{user};
 	my $call = $self->{call};
+	my $dcall = $self->{dcall};
 	my $cmdline = shift;
 	my @ans;
 	
@@ -525,7 +526,7 @@ sub run_cmd
 
 		# check for length of whole command line and any invalid characters
 		if (length $cmdline > $maxcmdlth || $cmd =~ m|\.| || $cmd !~ m|^\w+(?:/\w+){0,2}(?:/\d+)?$|) {
-			LogDbg('DXCommand', "cmd: $self->{call} - invalid characters in '$cmd'");
+			LogDbg('DXCommand', "cmd: $self->{dcall} - invalid characters in '$cmd'");
 			return $self->_error_out('e40');
 		}
 
@@ -554,7 +555,7 @@ sub run_cmd
 			if ($package && $self->can("${package}::handle")) {
 				no strict 'refs';
 				dbg("cmd: package $package") if isdbg('command');
-#				Log('cmd', "$self->{call} on $self->{hostname} : '$cmd $args'");
+#				Log('cmd', "$self->{dcall} on $self->{hostname} : '$cmd $args'");
 				my $t0 = [gettimeofday];
 				eval { @ans = &{"${package}::handle"}($self, $args) };
 				if ($@) {
@@ -563,7 +564,7 @@ sub run_cmd
 				}
 				if (isdbg('progress')) {
 					my $msecs = _diffms($t0);
-					my $s = "CMD: '$cmd $args' by $call ip: $self->{hostname} ${msecs}mS";
+					my $s = "CMD: '$cmd $args' by $dcall ip: $self->{hostname} ${msecs}mS";
 					dbg($s) if $cmd !~ /^(?:echo|blank)/ || isdbg('echo');     # cut down a bit on HRD and other clients' noise
 				}
 			} else {
@@ -571,7 +572,7 @@ sub run_cmd
 				return $self->_error_out('e1');
 			}
 		} else {
-			LogDbg('DXCommand', "$self->{call} cmd: '$cmd' not found");
+			LogDbg('DXCommand', "$self->{dcall} cmd: '$cmd' not found");
 			return $self->_error_out('e1');
 		}
 	}
@@ -662,7 +663,7 @@ sub disconnect
 		$main::me->route_pc17($main::mycall, undef, $main::routeroot, $uref);
 		$main::me->route_pc92d($main::mycall, undef, $main::routeroot, $uref) unless $DXProt::pc92_slug_changes || ! $DXProt::pc92_ad_enable;
 	} else {
-		confess "trying to disconnect a non existant user $call";
+		confess "trying to disconnect a non existant user $self->{dcall}";
 	}
 
 	# I was the last node visited
@@ -672,7 +673,7 @@ sub disconnect
 	$self->tell_login('logoutu');
 	$self->tell_buddies('logoutb');
 
-	LogDbg('DXCommand', "$call disconnected");
+	LogDbg('DXCommand', "$self->{dcall} disconnected");
 
 	$self->SUPER::disconnect;
 }
@@ -1113,13 +1114,13 @@ sub dx_spot
 	# if required (default: no) remove all FTx spots that are (or appear to be) autogenerated
 	if (exists $self->user->{autoftx} && $self->user->{autoftx} == 0 && $_[3] =~ /^\s*FT[48]\s+(?:db|hz|sent|rcvd)?[\-\+]?\d+\s*(?:db|hz)?/i) {
 		dbg($line) if isdbg('userftx');
-		dbg("Drop Auto FTx Spot by $nossid '$_[5]' for $self->{call}") if isdbg('userftx');
+		dbg("Drop Auto FTx Spot by $nossid '$_[5]' for $self->{dcall}") if isdbg('userftx');
 		return;
 	}
 	# Same as above but drop anything with an FT[48] in the comment
 	if (exists $self->user->{ftx} && $self->user->{ftx} == 0 && $_[3] =~ /\bFT[48]\b/i) {
 		dbg($line) if isdbg('userftx');
-		dbg("Drop FTx Spot by $nossid '$_[5]' for $self->{call}") if isdbg('userftx');
+		dbg("Drop FTx Spot by $nossid '$_[5]' for $self->{dcall}") if isdbg('userftx');
 		return;
 	}
 
@@ -1330,7 +1331,7 @@ sub import_cmd
 			}
 			$s->erase;
 			for (@out) {
-				LogDbg('DXCommand', "Import cmd $name/$call: $_");
+				LogDbg('DXCommand', "Import cmd $name/$call}: $_");
 			}
 		} else {
 			LogDbg('err', "Failed to open $cmdimportdir/$name $!");
@@ -1413,7 +1414,7 @@ sub spawn_cmd
 			 sub {
 				 my $subpro = shift;
 				 if (isdbg('progress')) {
-					 my $s = qq{$call line: "$line"};
+					 my $s = qq{$self->{dcall} line: "$line"};
 					 $s .= ", args: " . join(', ', map { defined $_ ? qq{'$_'} : q{'undef'} } @$args) if $args && @$args;
 					 dbg($s);
 				 }
@@ -1436,7 +1437,7 @@ sub spawn_cmd
 				 return unless $dxchan;
 
 				 if ($err) {
-					 my $s = "DXProt::spawn_cmd: call $call error $err";
+					 my $s = "DXProt::spawn_cmd: call $self->{dcall} error $err";
 					 dbg($s) if isdbg('chan');
 					 $dxchan->send($s);
 					 return;
@@ -1452,7 +1453,7 @@ sub spawn_cmd
 						 $dxchan->send(@res);
 					 }
 				 }
-				 diffms("by $call", $line, $t0, scalar @res) if isdbg('progress');
+				 diffms("by $self->{dcall}", $line, $t0, scalar @res) if isdbg('progress');
 			 });
 	
 	return @out;
