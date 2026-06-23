@@ -20,7 +20,7 @@ use Time::HiRes qw(gettimeofday tv_interval);
 
 use strict;
 
-use vars qw($date $sfi $k $expk $a $r $sa $gmf $au  @allowed @denied $fp $node $from 
+use vars qw($date $sfi $k $expk $a $r $sa $gmf $au @denied $fp $node $from 
             $dirprefix $param
             $duplth $dupage $filterdef);
 
@@ -35,7 +35,7 @@ $gmf = "";						# Geomag activity
 $au = 'no';						# aurora warning
 $node = "";						# originating node
 $from = "";						# who this came from
-@allowed = qw(EA3CV EA4URE DK0WCY);					# if present only these callsigns are regarded as valid WWV updators
+our @allowed = (qw{EA3CV EA4URE DK0WCY});					# if present only these callsigns are regarded as valid WWV updators
 @denied = ();					# if present ignore any wwv from these callsigns
 $duplth = 20;					# the length of text to use in the deduping
 $dupage = 12*3600;				# the length of time to hold spot dups
@@ -71,6 +71,7 @@ sub init
 	dbg(sprintf "WCY read in last %d records into cache %dmS", scalar @cache, _diffms($t0));	
 	confess $@ if $@;
 }
+
 
 # write the current data away
 sub store
