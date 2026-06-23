@@ -10,6 +10,8 @@
 
    The external dependencies requiring wget or curl being install have 
    been removed.
+2. Fix the W1AW/0 problem. Any '/0' string on the end of a callsign is now
+   ignored (until someone tells me what it means)
 19Jun26======================================================================
 1. Add EA3CV EA4URE to @WCY::allowed to cover for DK0WCY during its outage(s)
 2. Add the possibility of adding a cnum (connection number) to a callsign 

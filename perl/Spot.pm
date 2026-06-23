@@ -267,6 +267,8 @@ sub prepare
 	
 	# add the 'dxcc' country on the end for both spotted and spotter, then the cluster call
 	my @spd = Prefix::cty_data($out[1]);
+#	my ($tspd) = $out[1] =~ m|^(.*)(?:/0)?$|; # remove any trailing /0 as this (apparently) can't be handled
+#	my @spd = Prefix::cty_data($tspd);
 	push @out, $spd[0];
 	my @spt = Prefix::cty_data($out[4]);
 	push @out, $spt[0];

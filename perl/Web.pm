@@ -1,8 +1,9 @@
 #
 # DXSpider - The Web Interface Helper Routines
 #
-# Copyright (c) 2015 Dirk Koopman G1TLH
+# Copyright (c) 2015-2026 Dirk Koopman G1TLH
 #
+# This is a 
 
 use strict;
 
@@ -34,7 +35,7 @@ sub find_next_webcall
 
 sub new 
 {
-	my $self = DXChannel::alloc(@_);
+	my $self = (@_);
 	
 	return $self;
 }
