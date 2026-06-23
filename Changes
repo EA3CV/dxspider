@@ -1,3 +1,15 @@
+23Jun26======================================================================
+1. Improve auto external IP address detection and setting. 
+   
+   This also means that @main::localhost_names should not be set in normal
+   use. The only purpose where this should be used is if you want to override
+   a non-rfc1918 address. 
+
+   In normal use an external address will be auto discovered if we started 
+   with an rfc_1918 address OR @main::localhost_names is set.  
+
+   The external dependencies requiring wget or curl being install have 
+   been removed.
 19Jun26======================================================================
 1. Add EA3CV EA4URE to @WCY::allowed to cover for DK0WCY during its outage(s)
 2. Add the possibility of adding a cnum (connection number) to a callsign 

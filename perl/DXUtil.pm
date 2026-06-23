@@ -15,6 +15,7 @@ use File::Copy;
 use Data::Dumper;
 use Time::HiRes qw(gettimeofday tv_interval);
 use Text::Wrap;
+
 use strict;
 
 use vars qw(@month %patmap $pi $d2r $r2d @ISA @EXPORT);
@@ -31,6 +32,7 @@ require Exporter;
 			 normalise_call is_numeric htime barecall is_rfc1918 alias_localhost
 			 find_external_ipaddr find_local_ipaddr
             );
+
 
 
 @month = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
@@ -510,15 +512,15 @@ sub is_ipaddr
 	return undef;
 }
 
-sub is_rfc1918
-{
-	my $in = shift;
-	return 0 if $in =~ /\:/;
-	
-	my @ip = split /\./, $in;
-	return 1 if ($ip[0] == 127 || $ip[0] == 10 || ($ip[0] == 192 && $ip[1] == 168) || ($ip[0] == 172 && $ip[1] >= 16 && $ip[1] <= 31));
-	return 0;
-}
+#sub is_rfc1918
+#{
+#	my $in = shift;
+#	return 0 if $in =~ /\:/;
+#	
+#	my @ip = split /\./, $in;
+#	return 1 if ($ip[0] == 127 || $ip[0] == 10 || ($ip[0] == 192 && $ip[1] == 168) || ($ip[0] == 172 && $ip[1] >= 16 && $ip[1] <= 31));
+#	return 0;
+#}
 
 # is it a zulu time hhmmZ
 sub is_ztime
@@ -720,12 +722,23 @@ sub find_external_ipaddr
 {
 	my $addr;
 
-	return $main::me->hostname if $main::is_win;
-	
-	$addr = $main::localhost_alias_ipv4;
-	$addr ||= `wget -qO- ifconfig.me/ip`;
-	$addr ||= `curl ipinfo.io/ip`;
+	my $host = 'http://ifconfig.me/ip';
+
+	my $ua = Mojo::UserAgent->new->insecure(1)->max_redirects(5);
+	my $res = $ua->get($host)->result;
+	if ($res->is_success) {
+		$addr = $res->body;
+	}
+	elsif ($res->is_error)    { LogDbg("set/external_ip: error getting http://ifconfig.me/ip " . res->message) }
+    elsif ($res->code == 301) { LogDbg("Redirect of " . $res->headers->location) }
 	return $addr;
+}
+
+sub is_rfc1918
+{
+	my $addr = shift;
+	
+	return $addr =~ /^(?:10|127|169\.254|172\.1[6-9]|172\.2[0-9]|172\.3[0-1]|192\.168)(?:.\d{1,3}){2,3}$/;
 }
 
 sub find_local_ipaddr
@@ -736,4 +749,5 @@ sub find_local_ipaddr
                        Proto   => "tcp");
 	return $sock->sockhost;
 }
+
 1;
