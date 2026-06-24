@@ -406,8 +406,8 @@ sub _gen_pc92
 	}
 	for (@_) {
 		$s .= '^' . _encode_pc92_call($_, $ext);
-		$ext = 0 unless $sort eq 'A ';				# only the first slot has an ext except A
-		$ext = 2 if $pc92c_ipaddr_enable && $sort eq 'C';
+		$ext = 0 unless $sort eq 'A';				# only the first slot has an ext except A
+		$ext = 2 if $pc92c_ipaddr_enable && ($sort eq 'A' || $sort eq 'C');
 	}
 	return $s . '^H99^';
 }

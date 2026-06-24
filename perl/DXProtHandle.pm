@@ -1877,7 +1877,7 @@ sub _encode_pc92_call
 		}
 	}
 	if (($ext & 2) && $ref->ip) {
-		my $ip = $ref->ip;
+		my $ip = is_rfc1918($ref->ip) ? $main::me->hostname : $ref->ip;
 		$ip =~ s/:/,/g;
 		$extra .= ':' . $ip;
 	}
