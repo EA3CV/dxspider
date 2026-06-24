@@ -452,12 +452,13 @@ sub pc92k
 {
 	my $nref = shift;
 	my $ipaddr = shift;
+
 	
 	my $s = "PC92^$main::mycall^" . gen_pc9x_t() . "^K";
 	$s .= "^" . _encode_pc92_call($nref, 1) . ":$main::me->{build}";
 	$s .= "^" . scalar $nref->nodes;
 	$s .= "^" . scalar $nref->users;
-	$s .= "^$ipaddr";
+	$s .= "^" .  _encode_maybe_rfc1918_ip($ipaddr);
 	$s .= "^$main::gitbranch/$main::gitversion";
 	return $s . '^H99^';
 }
@@ -496,12 +497,17 @@ sub pc93
 	if ($ipaddr) {
 		$s .= '^' unless $origin;
 		$ipaddr =~ s/:/,/;
-		$s .= "^$ipaddr";
+		$s .= "^" . _encode_maybe_rfc1918_ip($ipaddr);
 	}
 	$s .= "^H99^";
 	return $s;
 }
 
+sub _encode_maybe_rfc1918_ip
+{
+	my $ipaddr = shift;
+	return is_rfc1918($ipaddr) ? $main::me->hostname : $ipaddr;
+}
 1;
 __END__
 
