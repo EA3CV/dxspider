@@ -263,10 +263,11 @@ sub init
 		
 	$main::me->update_pc92_next($pc92_short_update_period);
 	$main::me->update_pc92_keepalive;
-	# find external ip address
-	#	$main::me->{hostname} = find_external_ipaddr() if !$main::me->{hostname} or $main::me->{hostname} !~ /:/ or $main::me->{hostname} =~ /127\./ or $main::me->{hostname} eq 'localhost' ;
 
-	DXCommandmode::run_cmd($main::me, 'set/external_ip') unless $disable_set_external_ip;
+	# find external ip address
+	$main::me->{hostname} = find_external_ipaddr() if is_rfc1918($main::me->{hostname});
+
+#	DXCommandmode::run_cmd($main::me, 'set/external_ip') unless $disable_set_external_ip;
 }
 
 #
