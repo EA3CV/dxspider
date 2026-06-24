@@ -707,7 +707,7 @@ sub alias_localhost
 
 	# a band aid
 	$hostname = '127.0.0.1' if $hostname eq 'localhost';
-	
+
 	if ($hostname =~ /\./) {
 		return $hostname unless $main::localhost_alias_ipv4;
 		return (grep $hostname eq $_, @main::localhost_names) ? $main::localhost_alias_ipv4 : $hostname;
@@ -715,6 +715,9 @@ sub alias_localhost
 		return $hostname unless $main::localhost_alias_ipv6;
 		return (grep $hostname eq $_, @main::localhost_names) ? $main::localhost_alias_ipv6 : $hostname;
 	}
+
+	$hostname = $main::me->hostname if is_rfc1918($hostname);
+	
 	return $hostname;
 }
 
