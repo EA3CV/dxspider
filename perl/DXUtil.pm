@@ -15,6 +15,7 @@ use File::Copy;
 use Data::Dumper;
 use Time::HiRes qw(gettimeofday tv_interval);
 use Text::Wrap;
+use IO::Socket::IP -register;
 
 use strict;
 
@@ -727,8 +728,7 @@ sub find_external_ipaddr
 
 	my $host = 'http://ifconfig.me/ip';
 
-	my $ua = Mojo::UserAgent->new->insecure(1)->max_redirects(5);
-	$ua = $ua->socket_options({LocalAddr => '127.0.0.1'});    # try to force IPV4
+	my $ua = Mojo::UserAgent->new(socket_options => { Domain => PF_INET })->insecure(1)->max_redirects(5);
 	my $res = $ua->get($host)->result;
 	if ($res->is_success) {
 		$addr = $res->body;
