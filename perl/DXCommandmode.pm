@@ -46,6 +46,7 @@ use Mojo::IOLoop;
 use DXSubprocess;
 use Mojo::UserAgent;
 use DXCIDR;
+use IO::Socket::IP -register;
 
 use strict;
 use vars qw(%Cache %cmd_cache $errstr %aliases $scriptbase %nothereslug

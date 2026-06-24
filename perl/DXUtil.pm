@@ -728,7 +728,7 @@ sub find_external_ipaddr
 
 	my $host = 'http://ifconfig.me/ip';
 
-	my $ua = Mojo::UserAgent->new(socket_options => { Domain => PF_INET })->insecure(1)->max_redirects(5);
+	my $ua = Mojo::UserAgent->new(socket_options => { Domain => PF_INET }); #->insecure(1)->max_redirects(5);
 	my $res = $ua->get($host)->result;
 	if ($res->is_success) {
 		$addr = $res->body;

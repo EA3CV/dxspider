@@ -1,4 +1,4 @@
-
+use IO::Socket::IP -register;
 
 sub handle
 {
@@ -9,7 +9,7 @@ sub handle
 	my $new;
 	
 	#	my $new =  find_external_ipaddr();
-	my $ua = Mojo::UserAgent->new->insecure(1)->max_redirects(5);
+	my $ua = Mojo::UserAgent->new(socket_options => { Domain => PF_INET })->insecure(1)->max_redirects(5);
 	my $res = $ua->get('http://ifconfig.me/ip')->result;
 	if ($res->is_success) {
 		$new = $res->body;
