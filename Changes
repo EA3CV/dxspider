@@ -2,7 +2,6 @@
 1. Fix propagation of RFC1918 addresses in PC92 broadcasts. These IP 
    addresses are now replaced by the canonical, external IP address of the
    node. 
-
 23Jun26======================================================================
 1. Improve auto external IP address detection and setting. 
    
