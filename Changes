@@ -4,6 +4,8 @@
    $main::regreq. 
 3. Change stat/user <callsign> so that levelsysops can see all fields. 
    This includes restricted fields like registered and any password.
+4. Fix race condition when debugging cnum on connections that have not 
+   entirely initialised.
 24Jun26======================================================================
 1. Fix propagation of RFC1918 addresses in PC92 broadcasts. These IP 
    addresses are now replaced by the canonical, external IP address of the

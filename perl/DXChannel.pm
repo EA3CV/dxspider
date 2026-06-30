@@ -211,10 +211,12 @@ sub alloc
 sub check_cnum_debugging
 {
 	my $self = shift;
-	if (isdbg("cnum")) {
-		$self->{dcall} = "$self->{call}:$self->{conn}->{cnum}";
-	} elsif ($self->{dcall} ne $self->{call}) {
-		$self->{dcall} = $self->{call};
+	if ($self->{conn}) {
+		if (isdbg("cnum")) {
+			$self->{dcall} = "$self->{call}:$self->{conn}->{cnum}";
+		} elsif ($self->{dcall} ne $self->{call}) {
+			$self->{dcall} = $self->{call};
+		}
 	}
 }
 
