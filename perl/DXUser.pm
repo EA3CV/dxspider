@@ -84,7 +84,7 @@ our $dbh;
 		  nothere => '0,Not Here Text',
 		  pagelth => '0,Current Pagelth',
 		  passphrase => '9,Pass Phrase,yesno',
-		  passwd => '9,Password,yesno',
+		  passwd => '9,Password',
 		  pingint => '9,Node Ping interval',
 		  priv => '9,Privilege Level',
 		  prompt => '0,Required Prompt',

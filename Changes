@@ -2,6 +2,8 @@
 1. Modify set/register to work on SQL databases.
 2. Edit all modules, cmds and text / help etc files use $main::reqreg and not
    $main::regreq. 
+3. Change stat/user <callsign> so that levelsysops can see all fields. 
+   This includes restricted fields like registered and any password.
 24Jun26======================================================================
 1. Fix propagation of RFC1918 addresses in PC92 broadcasts. These IP 
    addresses are now replaced by the canonical, external IP address of the
