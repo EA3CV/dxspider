@@ -6367,7 +6367,7 @@ normal.
 Registration is a concept that you can switch on by executing the
 
 <tscreen><verb>
-  set/var $main::regreq = 1 
+  set/var $main::reqreg = 1 
 </verb></tscreen>
 
 command (usually in your startup file)

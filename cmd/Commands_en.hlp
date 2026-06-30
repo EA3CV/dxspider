@@ -2111,7 +2111,7 @@ you could connect to any skimmer that uses the same spot format.
 === 9^UNSET/REGISTER <call> ...^Mark a user as not registered
 Registration is a concept that you can switch on by executing the
 
-  set/var $main::regreq = 1 
+  set/var $main::reqreg = 1 
 
 command (usually in your startup file)
 

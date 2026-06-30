@@ -8,6 +8,9 @@
 #
 #
 
+use DB_File;
+use DBI;
+
 sub handle
 {
 	my ($self, $line) = @_;
@@ -15,14 +18,12 @@ sub handle
 
 	my @out;
 
-	use DB_File;
-
 	if ($line) {
 		$line =~ s/[^\w\-\/]+//g;
 		$line = "\U\Q$line";
 	}
 
-	if ($self->{_nospawn} || $main::is_win == 1) {
+	if ($self->{_nospawn} || $main::is_win == 1 ||  DXUser::using_database()) {
 		@out = generate($self, $line);
 	} else {
 		@out = $self->spawn_cmd("show/registered $line", sub { return (generate($self, $line)); });
@@ -45,14 +46,31 @@ sub generate
 	delete $call{'ALL'};
 
 	my ($action, $count, $key, $data) = (0,0,0,0);
+
 	unless (keys %call) {
-		for ($action = DXUser::R_FIRST, $count = 0; !$DXUser::dbm->seq($key, $data, $action); $action = DXUser::R_NEXT) {
-			if ($data =~ m{registered}) {
-				$call{$key} = 1;       # possible candidate
+#			$DB::single =1;
+#		push @out, "Working...";
+		if (DXUser::using_database()) {
+			my $sth = $DXUser::dbh->prepare(q{select * from users where data like '%registered%'});
+			my $r;
+			$r = $sth->execute;
+			while ($r =$sth->fetch) {
+				my ($k, $d) =@$r;
+				if ($d =~ m{registered}) {
+					$call{$k} = 1;       # possible candidate
+				}
+			}
+		} else {
+			for ($action = DXUser::R_FIRST, $count = 0; !$DXUser::dbm->seq($key, $data, $action); $action = DXUser::R_NEXT) {
+				if ($data =~ m{registered}) {
+					$call{$key} = 1;       # possible candidate
+				}
 			}
 		}
+#		push @out, "Finished";
 	}
-
+	
+	
 	foreach $key (sort keys %call) {
 		my $u = DXUser::get_current($key);
 		if ($u && defined (my $r = $u->registered)) {

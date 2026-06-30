@@ -1852,7 +1852,7 @@ Indique au système où vous vous trouvez. Par exemple :
 L'enregistrement est une fonction que vous pouvez activer en exécutant
 la commande : 
 
-  set/var $main::regreq = 1 
+  set/var $main::reqreg = 1 
 
 (qui se place habituellement dans votre fichier startup).
 

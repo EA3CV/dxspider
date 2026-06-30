@@ -1,3 +1,7 @@
+30Jun26======================================================================
+1. Modify set/register to work on SQL databases.
+2. Edit all modules, cmds and text / help etc files use $main::reqreg and not
+   $main::regreq. 
 24Jun26======================================================================
 1. Fix propagation of RFC1918 addresses in PC92 broadcasts. These IP 
    addresses are now replaced by the canonical, external IP address of the

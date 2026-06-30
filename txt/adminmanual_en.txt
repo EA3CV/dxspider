@@ -5762,7 +5762,7 @@
   Registration is a concept that you can switch on by executing the
 
 
-         set/var $main::regreq = 1
+         set/var $main::reqreg = 1
 
 
 

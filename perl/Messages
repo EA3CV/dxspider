@@ -1046,7 +1046,7 @@ package DXM;
 				rec => q{$_[0] registro(s)},
 				reg => q{$_[0] registrado},
 				regc => q{$_[0] creado y registrado},
-				reginac => q{El registro no está activo (set/var \$main::regreq = 1 para activarlo)},
+				reginac => q{El registro no está activo (set/var \$main::reqreg = 1 para activarlo)},
 				regun => q{El usuario $_[0] no está registrado},
 				route => q{$_[0] en $_[1] vía $_[2]},
 				sat1 => q{Tabla de seguimiento $_[0] para las próximas $_[1] horas cada $_[2] minutos},

@@ -1396,7 +1396,7 @@ Teilt dem System mit wo man seine Station hat z.B.:-
 === 9^UNSET/REGISTER <rufzeichen> ...^Markiert einen User als nicht registriert
 Registrierung ist ein Konzept das man Einschalten kann mit dem:-
 
-  set/var $main::regreq = 1 
+  set/var $main::reqreg = 1 
 
 Kommando (ueblicherweise im startup file)
 

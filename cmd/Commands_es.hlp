@@ -1878,7 +1878,7 @@ Informa al sistema de donde te encuentras. Por ejemplo:
 === 9^UNSET/REGISTER <indicativo> ...^Marca un usuario como no registrado
 El registro de usuarios es un concepto que puedes activar ejecutando:
 
-  set/var $main::regreq = 1 
+  set/var $main::reqreg = 1 
  este comando normalmente lo tendríamos en el fichero de arranque
 
 Si se activa y un usuario NO está registrado, primero, en lugar

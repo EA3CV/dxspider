@@ -43,7 +43,7 @@ our $maxconnlist = 3;			# remember this many connection time (duration) [start, 
 
 my $json;
 my $dsn;
-my $dbh;
+our $dbh;
 
 
 # hash of valid elements and a simple prompt
@@ -168,7 +168,7 @@ sub init
 			my $db_missing = !-e $db_path;
 
 			
-			$dbh = DBI->connect($main::userdsn, $main::user, $main::pass, {
+			$dbh = DBI->connect($main::userdsn, $main::dbuser, $main::dbpass, {
 													 RaiseError     => 1,
 													 AutoCommit     => 1,
 													 sqlite_unicode => 1,
@@ -183,27 +183,18 @@ sub init
 			}
 
 		} elsif ($main::userdsn) {
-			my $mysql_db = $main::mysql_db;
-
-			my $dbh_tmp = DBI->connect($main::userdsn, $user, $pass, {
-															RaiseError => 1,
-															AutoCommit => 1
-														   }) or die "MySQL connect error: $DBI::errstr";
+			my $dbh_tmp = open_database($main::userdsn, $main::dbuser, $main::dbpass) or die "cannot open $main::userdsn" ;
 			
-			my $db_exists = $dbh_tmp->selectrow_array("SHOW DATABASES LIKE ?", undef, $mysql_db);
+			my $db_exists = $dbh_tmp->selectrow_array("SHOW DATABASES LIKE ?", undef, $main::userdsn);
 			
 			unless ($db_exists) {
-				print "[DXUser_SQL] Creating MySQL database $mysql_db...\n";
-				$dbh_tmp->do("CREATE DATABASE `$mysql_db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+				print "[DXUser_SQL] Creating MySQL database $main::userdsn...\n";
+				$dbh_tmp->do("CREATE DATABASE `$main::userdsn` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
 			}
 			
 			$dbh_tmp->disconnect;
 
-			$dbh = DBI->connect($dsn, $user, $pass, {
-													 RaiseError           => 1,
-													 AutoCommit           => 1,
-													 mysql_enable_utf8mb4 => 1,
-													}) or die "MySQL connect error: $DBI::errstr";
+			$dbh = open_database($main::userdsn, $main::dbuser, $main::dbpass) or die qw("cannot open $main::userdsn" );
 			
 			my $table_exists = $dbh->selectrow_array("SHOW TABLES LIKE 'users'");
 			unless ($table_exists) {
@@ -242,6 +233,31 @@ sub init
 	return;
 }
 
+sub using_database
+{
+	return $main::userdsn && $dbh;
+}
+
+# get a (nother) data base connection
+sub open_database
+{
+	my $tmp;
+	my $dsn = shift  || $main::userdsn;
+	my $user = shift || $main::dbuser;
+	my $pass = shift || $main::dbpass;
+	
+	if ($main::userdsn) {
+		$tmp = DBI->connect($dsn, $user, $pass, {
+														   RaiseError => 1,
+														   AutoCommit => 1,
+														   mysql_enable_utf8mb4 => 1,
+														  }) or die "User Database '$main::userdsn' connect error: $DBI::errstr";
+	}
+	return $tmp;
+}
+
+# get existing database handle
+# WARNING use open_database in spawned connections
 # create a call/data table called users in a QSL database, if required
 sub _create_table {
 	LogDbg("command", "Creating new 'users' table in SQL DSN $main::userdsn");

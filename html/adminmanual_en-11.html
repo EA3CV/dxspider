@@ -2524,7 +2524,7 @@ UNSET/PROMPT will undo the SET/PROMPT command and set your prompt back tonormal.
 <P>Registration is a concept that you can switch on by executing the
 <BLOCKQUOTE><CODE>
 <PRE>
-  set/var $main::regreq = 1 
+  set/var $main::reqreg = 1 
 </PRE>
 </CODE></BLOCKQUOTE>
 command (usually in your startup file)If a user is NOT registered then, firstly, instead of the normalmotd file (/spider/data/motd) being sent to the user at startup, theuser is sent the motd_nor file instead. Secondly, the non registereduser only has READ-ONLY access to the node. The non-registered usercannot use DX, ANN etc. The only exception to this is that a non-registered user can TALK orSEND messages to the sysop.</P>
