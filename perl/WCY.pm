@@ -79,7 +79,7 @@ sub store
 	my $fh = new IO::File;
 	open $fh, "> $param" or confess "can't open $param $!";
 	print $fh "# WCY data parameter file last mod:", scalar gmtime, "\n";
-	my $dd = new Data::Dumper([ $date, $sfi, $a, $k, $expk, $r, $sa, $gmf, $au, $from, $node, \@denied, \@allowed ], [qw(date sfi a k expk r sa gmf au from node *denied *allowed)]);
+	my $dd = new Data::Dumper([ $date, $sfi, $a, $k, $expk, $r, $sa, $gmf, $au, $from, $node ], [qw(date sfi a k expk r sa gmf au from node)]);
 	$dd->Indent(1);
 	$dd->Terse(0);
 	$dd->Quotekeys(0);
