@@ -10,6 +10,8 @@
    channel stuff (GB7DJK, I'm looking at you!).
 4. Added the dbi/dbd prerequisites in UPDATE.mojo
 5. Remove reference to $main::db_backend. How did it ever work?
+6. Remove reference $dbh->finish on shutdown.
+7. Clean global get/put DBI $sth state variables.
 30Jun26======================================================================
 1. Modify set/register to work on SQL databases.
 2. Edit all modules, cmds and text / help etc files use $main::reqreg and not

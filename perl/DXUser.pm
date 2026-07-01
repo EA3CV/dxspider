@@ -309,21 +309,6 @@ sub process
 # close the system
 #
 
-sub finish
-{
-	dbg('DXUser finished') unless $readonly;
-	if ($dbm) {
-		$dbm->sync;
-		undef $dbm;
-	}
-	if ($dbh) {
-		sync();
-		$dbh->finish;
-		undef $dbh;
-	}
-	untie %u;
-}
-
 #
 # new - create a new user
 #
@@ -467,7 +452,6 @@ sub put
 #		dbg("DXUser put: sql $sql") if isdbg('sql');
 		$putsth ||= $dbh->prepare($sql);
 		$putsth->execute($call, $js);
-		
 	} else {
 		$dbm->del($call);
 		delete $self->{annok};
@@ -522,6 +506,7 @@ sub del
 		my $sql = "DELETE FROM users WHERE call = ?";
 		my $sth = $dbh->prepare($sql);
 		$sth->execute($call);
+		$sth->finish;
 	} else {
 		$dbm->del($call);		
 	}
@@ -960,8 +945,6 @@ sub lastping
 # export the database to an ascii file
 #
 
-my $exsth;
-
 sub export
 {
 	my $name = shift || 'user_json';
@@ -993,6 +976,8 @@ sub export
 
 	my %del;
 	
+	my $exsth;
+
 	my $fh = new IO::File ">$fn" or return "cannot open $fn ($!)";
 	if ($fh) {
 		my $key = 0;
@@ -1128,13 +1113,10 @@ sub export
 		}
 		LogDbg('DXCommand', "Error deleting key: $k value: $v error: $@") if $@;
 	}
-
 	if ($dbh) {
+		undef $exsth if $exsth;
 		$dbh->commit;
-		$dbh->begin_work;
-		++$in_transaction;
 	}
-
 	my $diff = _diffms($ta);
 	my $s = qq{Exported users to $fn - $count Users,  $del Deleted ($eph ephmeral, $old empty \& too old, $ancient ancient, $nodes nodes, $spurious spurious), $renamed renamed, $unlocked Unlocked, $err Errors in $diff mS ('sh/log Export' for details)};
 	LogDbg('command', $s);
@@ -1282,6 +1264,30 @@ sub recover
 	LogDbg('command', $s);
 	return ($s);
 }
+
+sub finish
+{
+	dbg('DXUser finished') unless $readonly;
+	if ($dbm) {
+		$dbm->sync;
+		undef $dbm;
+	}
+	if ($dbh) {
+		my $t = $dbh->sqlite_txn_state();
+		if ($t ) {
+			my $r = $dbh->commit;
+			unless ($r == 1) {
+				LogDbg("SQL ERROR commit: \$r = $r");
+			}
+		}
+		undef $putsth;
+		undef $getsth;
+		$dbh->disconnect;
+		undef $dbh;
+	}
+	untie %u;
+}
+
 
 sub END
 {
