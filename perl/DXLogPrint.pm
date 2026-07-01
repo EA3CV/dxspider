@@ -29,7 +29,7 @@ chomp $readback;
 use strict;
 
 use vars qw($maxmonths);
-$maxmonths = 36;
+$maxmonths = 2;
 
 #
 # print some items from the log backwards in time
