@@ -23,6 +23,7 @@ use IO::File;
 use DXChannel;
 use DXJSON;
 use DBI;
+use DBD::SQLite::Constants;
 
 use strict;
 
@@ -316,6 +317,8 @@ sub finish
 		undef $dbm;
 	}
 	if ($dbh) {
+		sync();
+		$dbh->finish;
 		undef $dbh;
 	}
 	untie %u;
@@ -552,14 +555,34 @@ my $in_transaction;
 sub sync
 {
 	if ($dbh) {
-		if ($in_transaction) {
-			$dbh->commit;
-			$in_transaction = 0;
+		my $t;
+		my $r;
+		
+		$t = $dbh->sqlite_txn_state();
+		if ($t ) {
+			$r = $dbh->commit;
+			dbg("SQL commit - \$in_transaction: $in_transaction, sql transaction state: $t, \$r: $r ") if isdbg('sql');
+			if ($r == 1) {
+				$in_transaction = 0 ;
+			} else {
+				LogDbg("SQL ERROR commit: \$r = $r");
+			}
+		} else {
+			LogDbg("SQL ERROR not in transaction - \$in_transaction: $in_transaction, sql transaction state: $t ") unless $main::ending;
 		}
-
 		unless ($main::ending) {
-			$dbh->begin_work;
-			++$in_transaction;
+			$t = $dbh->sqlite_txn_state();
+			unless ($t) {
+				$r = $dbh->begin_work unless $t;
+				if ($r == 1) {
+					dbg("SQL begin_work - \$in_transaction: $in_transaction, sql transaction state: $t, \$r: $r "  ) if isdbg('sql');
+					++$in_transaction; 
+				} else {
+					LogDbg("SQL ERROR begin work failed \$r = $r");
+				}
+			} else {
+				LogDbg("SQL ERROR begin_work NOT STARTED - \$in_transaction: $in_transaction, sql transaction state: $t" );
+			}
 		}
 	} else {
 		$dbm->sync;

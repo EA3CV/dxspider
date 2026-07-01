@@ -477,9 +477,9 @@ sub cease
 	DXDupe::finish();
 
 	# close all databases
-	DXDb::closeall;
+	DXDb::closeall();
 
-	# Write route cache
+		# Write route cache
 	Route::write_cache() if $save_route_cache;
 	
 	# close all listeners
@@ -493,8 +493,6 @@ sub cease
 	dbg("bye bye everyone - bye bye");
 	dbgclose();
 	Logclose();
-
-	$dbh->finish if $dbh;
 
 	unlink $lockfn;
 }
