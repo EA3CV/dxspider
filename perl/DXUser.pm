@@ -459,7 +459,7 @@ sub put
 
 	if ($dbh) {
 		my $sql;
-		if ($main::db_backend eq 'mysql') {
+		if ($main::userdsn =~ /mysql/i ) {
 			$sql = qq{INSERT INTO users (call, data) VALUES (`$call`, `$js`) ON DUPLICATE KEY UPDATE data = `$js`};
 		} else {
 			$sql = qq{INSERT OR REPLACE INTO users (call, data) VALUES (?, ?)};
