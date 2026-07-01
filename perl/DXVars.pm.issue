@@ -63,6 +63,6 @@ $Internet::contest_host = "contest.dxtron.com";
 #
 # If YM does indeed V then you can simply assign the "spot" $dsn to $userdsn.
 # Not tested but should work.
-our $userdsn = "dbi:sqlite:dbname=$root/local_data/dxusers.db";
+our $userdsn = "dbi:SQLite:dbname=$root/local_data/dxusers.db";
 
 1;
