@@ -8,6 +8,7 @@
 3. Reduce the size of the AnnTalk cache from 130 to 10 days. Hopefully this
    will speed up startup times on nodes that carry more debugging and 
    channel stuff (GB7DJK, I'm looking at you!).
+4. Added the dbi/dbd prerequisites in UPDATE.mojo
 30Jun26======================================================================
 1. Modify set/register to work on SQL databases.
 2. Edit all modules, cmds and text / help etc files use $main::reqreg and not
