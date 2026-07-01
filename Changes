@@ -13,8 +13,10 @@
 1. Modify set/register to work on SQL databases.
 2. Edit all modules, cmds and text / help etc files use $main::reqreg and not
    $main::regreq. 
-3. Change stat/user <callsign> so that levelsysops can see all fields. 
+3. Change stat/user <callsign> so that levels 9 (sysops) can see all fields. 
    This includes restricted fields like registered and any password.
+   REMINDER: this only applies to sysops connected via localhost. Remote
+   users automatically have privileges dropped.
 4. Fix race condition when debugging cnum on connections that have not 
    entirely initialised.
 24Jun26======================================================================
