@@ -23,7 +23,6 @@ use IO::File;
 use DXChannel;
 use DXJSON;
 use DBI;
-use DBD::SQLite::Constants;
 
 use strict;
 

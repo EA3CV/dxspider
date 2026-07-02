@@ -1,3 +1,5 @@
+02Jul26======================================================================
+1. Remove DBI::SQLite::Constants, no longer used
 01Jul26======================================================================
 1. Fix incorrect $userdsn in DXVars.pm.issue. Thanks (again) Kin for pointing
    it out. Case is very important in a DBI dsn.
