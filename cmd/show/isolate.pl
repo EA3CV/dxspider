@@ -40,6 +40,7 @@ sub generate
 			my ($k, $d) =@$r;
 			if ($d =~ m{"isolate":}) {
 				push @val, $k;	# possible candidate
+				++$count;
 			}
 		}
 	}
