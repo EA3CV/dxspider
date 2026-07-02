@@ -17,7 +17,7 @@ sub handle
 
 	my @out;
 
-	if ($self->{_nospawn} || $main::is_win == 1) {
+	if ($self->{_nospawn} || $main::is_win == 1 || DXUser::using_database()) {
 		return (1, generate($self));
 	} else {
 		return (1, $self->spawn_cmd("show/isolate $line", sub { return (generate($self)); }));
@@ -32,16 +32,29 @@ sub generate
 	my @val;
 							
 	my ($action, $count, $key, $data) = (0,0,0,0);
-
-	for ($action = DXUser::R_FIRST, $count=0; !$DXUser::dbm->seq($key, $data, $action); $action = DXUser::R_NEXT) {
-		if ($data =~ m{isolate}) {
-			my $u = DXUser::get_current($key);
-			if ($u && $u->isolate) {
-				push @val, $key;
-				++$count;
+	if (DXUser::using_database()) {
+		my $sth = $DXUser::dbh->prepare(q{select * from users where data not like '%"isolate":"%'});
+		my $r;
+		$r = $sth->execute;
+		while ($r =$sth->fetch) {
+			my ($k, $d) =@$r;
+			if ($d =~ m{"isolate":}) {
+				push @val, $k;	# possible candidate
 			}
 		}
-	} 
+	}
+	else {
+		for ($action = DXUser::R_FIRST, $count=0; !$DXUser::dbm->seq($key, $data, $action); $action = DXUser::R_NEXT) {
+			if ($data =~ m{isolate}) {
+				my $u = DXUser::get_current($key);
+				if ($u && $u->isolate) {
+					push @val, $key;
+					++$count;
+				}
+			}
+		}
+	}
+	
 
 	my @l;
 	foreach my $call (@val) {

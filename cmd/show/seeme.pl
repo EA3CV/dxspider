@@ -22,7 +22,7 @@ sub handle
 		$line = "\U\Q$line";
 	}
 
-	if ($self->{_nospawn} || $main::is_win == 1) {
+	if ($self->{_nospawn} || $main::is_win == 1 || DXUser::using_database()) {
 		@out = generate($self, $line);
 	} else {
 		@out = $self->spawn_cmd("show/seeme $line", sub { return (generate($self, $line)); });
@@ -45,14 +45,27 @@ sub generate
 	delete $call{'ALL'};
 
 	my ($action, $count, $key, $data) = (0,0,0,0);
-	unless (keys %call) {
-		for ($action = DXUser::R_FIRST, $count = 0; !$DXUser::dbm->seq($key, $data, $action); $action = DXUser::R_NEXT) {
-			if ($data =~ m{rbnseeme}) {
-				$call{$key} = 1;       # possible candidate
+	if (DXUser::using_database()) {
+		my $sth = $DXUser::dbh->prepare(q{select * from users where data not like '%"rbnseeme":"%'});
+		my $r;
+		$r = $sth->execute;
+		while ($r =$sth->fetch) {
+			my ($k, $d) =@$r;
+			if ($d =~ m{"rbnseeme":}) {
+				$call{$k} = 1;       # possible candidate
 			}
 		}
 	}
-
+	else {
+		unless (keys %call) {
+			for ($action = DXUser::R_FIRST, $count = 0; !$DXUser::dbm->seq($key, $data, $action); $action = DXUser::R_NEXT) {
+				if ($data =~ m{rbnseeme}) {
+					$call{$key} = 1; # possible candidate
+				}
+			}
+		}
+	}
+	
 	foreach $key (sort keys %call) {
 		my $u = DXUser::get_current($key);
 		if ($u && defined (my $r = $u->rbnseeme)) {

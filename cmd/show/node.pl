@@ -20,23 +20,33 @@ return (1, $self->msg('e5')) unless $self->priv >= 1;
 my @call = map {uc $_} split /\s+/, $line; 
 my @out;
 my $count;
+my $call;
 
 # search thru the user for nodes
 if (@call == 0) {
 	@call = map {$_->call} DXChannel::get_all_nodes();
-} elsif ($call[0] eq 'ALL') {
+} elsif (uc $call[0] eq 'ALL') {
 	shift @call;
-	my ($action, $key, $data) = (0,0,0);
-	for ($action = DXUser::R_FIRST, $count = 0; !$DXUser::dbm->seq($key, $data, $action); $action = DXUser::R_NEXT) {
-		if (is_callsign($key)) {
-			if ($data =~ /"sort":"[ACRSX]"/) {
+	if (DXUser::using_database()) {
+		my $sth = $DXUser::dbh->prepare(q{select * from users where data not like '%"sort":"U"%'});
+		my $r;
+		$r = $sth->execute;
+		while ($r =$sth->fetch) {
+			my ($k, $d) =@$r;
+			if ($d !~ m{"sort":"U"}) {
+				push @call, $k;       # possible candidate
+			}
+		}
+	} else {
+		my ($action, $key, $data) = (0,0,0);
+		for ($action = DXUser::R_FIRST, $count = 0; !$DXUser::dbm->seq($key, $data, $action); $action = DXUser::R_NEXT) {
+			if (is_callsign($key)) {
 				push @call, $key;
 			}
 		}
 	}
 }
 
-my $call;
 foreach $call (sort @call) {
 	my $clref = Route::Node::get($call);
 	my $uref = DXUser::get_current($call);

@@ -1,3 +1,7 @@
+02Jul26======================================================================
+1. Modernise set/external_ip command.
+2. Add DBI revisions to show/seeme, show/isolate, show/node
+3. Add eval {} around DBI commit and begin work
 01Jul26======================================================================
 1. Fix incorrect $userdsn in DXVars.pm.issue. Thanks (again) Kin for pointing
    it out. Case is very important in a DBI dsn.
