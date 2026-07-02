@@ -545,8 +545,9 @@ sub sync
 		
 		$t = $dbh->sqlite_txn_state();
 		if ($t ) {
-			$r = $dbh->commit;
+			eval {$r = $dbh->commit};
 			dbg("SQL commit - \$in_transaction: $in_transaction, sql transaction state: $t, \$r: $r ") if isdbg('sql');
+			LogDbg("SQL commit - transaction: $in_transaction, t: $t,  r:$r, \@: $@") if $@;
 			if ($r == 1) {
 				$in_transaction = 0 ;
 			} else {
@@ -558,14 +559,17 @@ sub sync
 		unless ($main::ending) {
 			$t = $dbh->sqlite_txn_state();
 			unless ($t) {
-				$r = $dbh->begin_work unless $t;
+				eval {$r = $dbh->begin_work; };
+				LogDbg("SQL begin_work - transaction: $in_transaction, t: $t,  r:$r, \@: $@") if $@;
 				if ($r == 1) {
 					dbg("SQL begin_work - \$in_transaction: $in_transaction, sql transaction state: $t, \$r: $r "  ) if isdbg('sql');
 					++$in_transaction; 
-				} else {
+				}
+				else {
 					LogDbg("SQL ERROR begin work failed \$r = $r");
 				}
-			} else {
+			}
+			else {
 				LogDbg("SQL ERROR begin_work NOT STARTED - \$in_transaction: $in_transaction, sql transaction state: $t" );
 			}
 		}
