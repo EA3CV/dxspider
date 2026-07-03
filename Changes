@@ -1,3 +1,5 @@
+03Jul26======================================================================
+1. Fix begin_work error during conversion from users.v3j to database.
 02Jul26======================================================================
 1. Remove DBI::SQLite::Constants, no longer used
 2. Modernise set/external_ip command.

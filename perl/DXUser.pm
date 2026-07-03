@@ -37,9 +37,11 @@ $lrusize = 5000;
 my $day = 86400;
 $ephold = $day * 35;			    # bare callsigns with no extra info that come in via protocol
 $tooold = $day * 365 * 2;		# this marks an old user who hasn't given enough info to be useful
-$veryold = $tooold * 6;	        # Ancient default 12 years
+$veryold = $tooold * 3;	        # Ancient default 6 years
 $v3 = 0;
 our $maxconnlist = 3;			# remember this many connection time (duration) [start, end] pairs
+our $sync_interval = 5;	    # no of secs between commit / begin_work syncs
+
 
 my $json;
 my $dsn;
@@ -211,7 +213,7 @@ sub init
 
 		unless (-e $filename || $mode == 2 ) {
 			if (-e localdata("$fn.v3") || -e localdata("$fn.v2")) {
-				LogDbg('DXUser', "New User File version $filename does not exist, running conversion from users.v3 or v2, please wait");
+				LogDbg('`dxuser', "New User File version $filename does not exist, running conversion from users.v3 or v2, please wait");
 				system('/spider/perl/convert-users-v3-to-v3j.pl');
 				init(1);
 				export();
@@ -260,7 +262,7 @@ sub open_database
 # WARNING use open_database in spawned connections
 # create a call/data table called users in a QSL database, if required
 sub _create_table {
-	LogDbg("command", "Creating new 'users' table in SQL DSN $main::userdsn");
+	LogDbg("dxuser", "Creating new 'users' table in SQL DSN $main::userdsn");
     my $sql = "CREATE TABLE users ( call TEXT PRIMARY KEY, data TEXT )";
     my $r = $dbh->do($sql);
 	die "Failed to create SQL user file in $main::userdsn" unless $r;
@@ -298,7 +300,7 @@ sub del_file
 #
 sub process
 {
-	if ($main::systime > $lasttime + 5) {
+	if ($main::systime > $lasttime +$sync_interval) {
 		sync();
 		$lasttime = $main::systime;
 	}
@@ -380,7 +382,7 @@ sub get
 		return $ref;
 	} else {
 		if ($@) {
-			LogDbg('err', "DXUser::get decode error on $call '$@'");
+			LogDbg('dxuser', "DXUser::get decode error on $call: '$@'");
 		} else {
 			dbg("DXUser::get: no reference returned from decode of $call $!");
 		}
@@ -434,7 +436,7 @@ sub put
 	my $call = $self->{call};
 	
 	unless ($call) {
-		LogDbg("DXUser::put undefined/zero callsign");
+		LogDbg('dxuser', "DXUser::put undefined/zero callsign");
 		return;
 	}
 
@@ -544,32 +546,29 @@ sub sync
 		
 		$t = $dbh->sqlite_txn_state();
 		if ($t ) {
-			eval {$r = $dbh->commit};
-			dbg("SQL commit - \$in_transaction: $in_transaction, sql transaction state: $t, \$r: $r ") if isdbg('sql');
-			LogDbg("SQL commit - transaction: $in_transaction, t: $t,  r:$r, \@: $@") if $@;
+			eval {$r = $dbh->commit };
+			LogDbg('dxuser',"SQL commit - transaction: $in_transaction, t: $t,  r:$r, \@: $@") if $@;
 			if ($r == 1) {
 				$in_transaction = 0 ;
 			} else {
-				LogDbg("SQL ERROR commit: \$r = $r");
+				LogDbg('dxuser',"SQL ERROR commit: \$r = $r");
 			}
-		} else {
-			LogDbg("SQL ERROR not in transaction - \$in_transaction: $in_transaction, sql transaction state: $t ") unless $main::ending;
-		}
+		} 
 		unless ($main::ending) {
 			$t = $dbh->sqlite_txn_state();
-			unless ($t) {
+			if ($t) {
+				LogDbg('dxuser', "SQL ERROR begin_work - \$in_transaction: $in_transaction, sql transaction state: $t" );
+			}
+			else {
 				eval {$r = $dbh->begin_work; };
-				LogDbg("SQL begin_work - transaction: $in_transaction, t: $t,  r:$r, \@: $@") if $@;
+				LogDbg('dxuser',"SQL begin_work - transaction: $in_transaction, t: $t,  r:$r, \@: $@") if $@;
 				if ($r == 1) {
 					dbg("SQL begin_work - \$in_transaction: $in_transaction, sql transaction state: $t, \$r: $r "  ) if isdbg('sql');
 					++$in_transaction; 
 				}
 				else {
-					LogDbg("SQL ERROR begin work failed \$r = $r");
+					LogDbg('dxuser',"SQL ERROR begin work failed \$r = $r");
 				}
-			}
-			else {
-				LogDbg("SQL ERROR begin_work NOT STARTED - \$in_transaction: $in_transaction, sql transaction state: $t" );
 			}
 		}
 	} else {
@@ -578,28 +577,38 @@ sub sync
 }
 
 sub _import_from_v3j {
-    LogDbg("command", "[DXUser] Importing users from users.v3j...\n");
 
-	my $secs = time;
-    my $file = "$main::root/local_data/users.v3j";
-    return unless -e $file;
+	if ($dbh) {
+		my $secs = time;
+		my $file = "$main::root/local_data/users.v3j";
+		return unless -e $file;
 
-    my %u;
-    tie %u, 'DB_File', $file, O_RDONLY, 0644, $DB_BTREE or return;
+		LogDbg("dxuser", "[DXUser] Importing users from users.v3j...");
 
-	$dbh->do('begin;') if $dbh;
-	
-    foreach my $call (keys %u) {
-        my $data = eval { $json->decode($u{$call}) };
-        next unless $data && ref $data eq 'HASH';
-        my $u = bless $data, 'DXUser';
-        put($u);
-    }
+		my %u;
+		tie %u, 'DB_File', $file, O_RDONLY, 0644, $DB_BTREE or return;
 
-	$dbh->do('commit;') if $dbh;
-    LogDbg("command", sprintf("[DXUser] Import finished in %d secs", time - $secs));
+		my $count = 0;
+		my ($mod, $last);
+		$dbh->begin_work unless  $dbh->sqlite_txn_state();
+		foreach my $call (keys %u) {
+			my $data = eval { $json->decode($u{$call}) };
+			next unless $data && ref $data eq 'HASH';
+			my $u = bless $data, 'DXUser';
+			put($u);
+			++$count;
+			$mod = int $count % 10000;
+			if ($mod == 0) {
+				dbg("Imported $count user records");
+			}
+		}
+		$dbh->commit;
+		LogDbg("dxuser", sprintf("[DXUser] Import $count users finished in %d secs", time - $secs));
+		untie %u;
 
-    untie %u;
+		# start normal work 
+		$dbh->begin_work;
+	}
 }
 
 
@@ -1280,7 +1289,7 @@ sub finish
 		if ($t ) {
 			my $r = $dbh->commit;
 			unless ($r == 1) {
-				LogDbg("SQL ERROR commit: \$r = $r");
+				LogDbg("SQL ERROR commit: \$r = $r, error'");
 			}
 		}
 		undef $putsth;
