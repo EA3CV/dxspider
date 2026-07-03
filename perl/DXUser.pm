@@ -327,6 +327,7 @@ sub new
 	my $pkg = shift;
 	my $call = shift;
 	#  $call =~ s/-\d+$//o;
+	$call = "$call" if is_digits($call);
   
 #	confess "can't create existing call $call in User\n!" if $u{$call};
 
@@ -348,6 +349,8 @@ sub get
 	my $data;
 	
 	# is it in the LRU cache?
+	$call = "$call" if is_digits($call);
+	
 	my $ref = $lru->get($call);
 	if ($ref && ref $ref eq 'DXUser') {
 		return $ref;
@@ -439,6 +442,7 @@ sub put
 		LogDbg('dxuser', "DXUser::put undefined/zero callsign");
 		return;
 	}
+	$call = "$call" if is_digits($call);
 
 	$self->{lastseen} = $main::systime;
 	my $js = $self->encode;
@@ -484,7 +488,7 @@ sub interate
 # thaw the user
 sub decode
 {
-	return $json->decode(shift, __PACKAGE__);
+	return eval {$json->decode(shift, __PACKAGE__)};
 }
 
 # freeze the user
@@ -502,7 +506,8 @@ sub del
 {
 	my $self = shift;
 	my $call = $self->{call};
-	$lru->remove($call);
+	my $scall = "$call" if $call =~ /^\d+$/;
+	$lru->remove($scall);
 	if ($dbh) {
 		my $sql = "DELETE FROM users WHERE call = ?";
 		my $sth = $dbh->prepare($sql);
@@ -544,26 +549,28 @@ sub sync
 		my $t;
 		my $r;
 		
-		$t = $dbh->sqlite_txn_state();
-		if ($t ) {
+		my $bt = $dbh->{AutoCommit} || 0;
+		unless ($bt) {
 			eval {$r = $dbh->commit };
-			LogDbg('dxuser',"SQL commit - transaction: $in_transaction, t: $t,  r:$r, \@: $@") if $@;
+			$t = $dbh->{AutoCommit} || 0;
+			LogDbg('dxuser',"SQL commit - transaction: $in_transaction, t: $bt->$t,  r:$r, \@: $@") if $@;
+			$in_transaction = 0;
 			if ($r == 1) {
-				$in_transaction = 0 ;
-			} else {
-				LogDbg('dxuser',"SQL ERROR commit: \$r = $r");
-			}
-		} 
-		unless ($main::ending) {
-			$t = $dbh->sqlite_txn_state();
-			if ($t) {
-				LogDbg('dxuser', "SQL ERROR begin_work - \$in_transaction: $in_transaction, sql transaction state: $t" );
+				dbg("SQL commit - \$in_transaction: $in_transaction, sql transaction state: $bt->$t, \$r: $r "  ) if isdbg('sql');
+				++$in_transaction; 
 			}
 			else {
-				eval {$r = $dbh->begin_work; };
-				LogDbg('dxuser',"SQL begin_work - transaction: $in_transaction, t: $t,  r:$r, \@: $@") if $@;
+				LogDbg('dxuser',"SQL ERROR commit failed \$r = $r");
+			}
+		}
+		$bt = $dbh->{AutoCommit} || 0;
+		if ($bt && !$main::ending) {
+			eval {$r = $dbh->begin_work };
+			if ($r == 1 && !$main::ending) {
+				$t = $dbh->{AutoCommit} || 0;
+				LogDbg('dxuser',"SQL begin_work - transaction: $in_transaction, t: $bt ->$t,  r:$r, \@: $@") if $@;
 				if ($r == 1) {
-					dbg("SQL begin_work - \$in_transaction: $in_transaction, sql transaction state: $t, \$r: $r "  ) if isdbg('sql');
+					dbg("SQL begin_work - \$in_transaction: $in_transaction, sql transaction state: $bt->$t, \$r: $r "  ) if isdbg('sql');
 					++$in_transaction; 
 				}
 				else {
@@ -571,7 +578,11 @@ sub sync
 				}
 			}
 		}
-	} else {
+		else {
+			LogDbg('dxuser',"SQL ERROR commit: \$r = $r");
+		}
+	}
+	else {
 		$dbm->sync;
 	}
 }
@@ -1001,10 +1012,9 @@ sub export
 		print $fh export_preamble();
 
 		if ($dbh) {
-			$dbh->commit if $in_transaction;
+			sync();
 			$exsth = $dbh->prepare("select * from users");
 			$exsth->execute;
-			$in_transaction = 0;
 		}  else {
 			$action = R_FIRST;
 		}
@@ -1020,21 +1030,23 @@ sub export
 				last if $r;
 				$action = R_NEXT;
 			}
-			
-			if (!is_callsign($key) || $key =~ /^\d+$/) {
-				my $eval = $val;
-				my $ekey = $key;
-				$eval =~ s/([\%\x00-\x1f\x7f-\xff])/sprintf("%%%02X", ord($1))/eg; 
-				$ekey =~ s/([\%\x00-\x1f\x7f-\xff])/sprintf("%%%02X", ord($1))/eg;
-				LogDbg('DXCommand', "Export Error1: invalid call '$key' => '$val'");
 
-				$del{$key} = $val;
-				++$err;
-				next;
-			}
 			my $ref;
 			eval {$ref = decode($val); };
+			
 			if ($ref) {
+				if (!is_callsign($key) || $key =~ /^\d+$/) {
+					my $eval = $val;
+					my $ekey = $key;
+					$eval =~ s/([\%\x00-\x1f\x7f-\xff])/sprintf("%%%02X", ord($1))/eg; 
+					$ekey =~ s/([\%\x00-\x1f\x7f-\xff])/sprintf("%%%02X", ord($1))/eg;
+					LogDbg('dxuser', "Export Error1: invalid call '$key' => '$val'");
+					
+					$del{$key} = $ref;
+					++$err;
+					next;
+				}
+				
 				my $t = $ref->{lastseen} if exists $ref->{lastseen};
 				$t = $ref->{lastin} if exists $ref->{lastin} && $ref->{lastin} > $t;
 				$t = $ref->{lastoper} if exists $ref->{lastoper} && $ref->{lastoper} > $t;
@@ -1045,36 +1057,36 @@ sub export
 
 						# ephmerals
 						if ($main::systime > $t + $ephold &&  !$ref->{qth} && !$ref->{name}) {
-							LogDbg('DXCommand', sprintf("Ephmeral $ref->{call} deleted at %s", difft($t, ' ')));
+							LogDbg('dxuser', sprintf("Ephmeral $ref->{call} deleted at %s", difft($t, ' ')));
 							++$del;
 							++$old;
-							$del{$key} = $val;
+							$del{$key} = $ref;
 							next;
 						}
 
 						unless ( $ref->{homenode} && $main::systime < $t + $tooold) {
-							LogDbg('DXCommand', sprintf("Stale $ref->{call} deleted at %s", difft($t, ' ')));
+							LogDbg('dxuser', sprintf("Stale $ref->{call} deleted at %s", difft($t, ' ')));
 							++$del;
 							++$eph;
-							$del{$key} = $val;
+							$del{$key} = $ref;
 							next;
 						}
 					}
 					if ($main::systime > $t + $veryold) {
-						LogDbg('DXCommand', sprintf("$ref->{call} deleted, POSITIVELY ANCIENT at %s", difft($t, ' ')));
+						LogDbg('dxuser', sprintf("$ref->{call} deleted, POSITIVELY ANCIENT at %s", difft($t, ' ')));
 						++$del;
 						++$ancient;
-						$del{$key} = $val;
+						$del{$key} = $ref;
 						next;
 					}
 					if (exists $ref->{lockout} && $ref->{lockout} == 1 && exists $ref->{priv} && $ref->{priv} == 1) {
-						LogDbg('DXCommand', "$ref->{call} depriv'd and unlocked");
+						LogDbg('dxuser', "$ref->{call} depriv'd and unlocked");
 						$ref->{lockout} = $ref->{priv} = 0;
 						$ref->put;
 						++$unlocked;
 					}
 					if ($ref->is_node && $main::systime > $t + $veryold) {
-						LogDbg('DXCommand', sprintf("NODE $ref->{call} deleted (%s) old", difft($t, ' ')));
+						LogDbg('dxuser', sprintf("NODE $ref->{call} deleted (%s) old", difft($t, ' ')));
 						++$del;
 						++$nodes;
 						$del{$key} = undef;
@@ -1088,19 +1100,19 @@ sub export
 						unless ($nref) {
 							$ref->{call} = $normcall;
 							$ref->put;
-							LogDbg('DXCommand', "DXProt: spurious call $key normalises to $normcall renaming $key -> $normcall");
+							LogDbg('dxuser', "DXProt: spurious call $key normalises to $normcall renaming $key -> $normcall");
 							++$renamed;
 						} 
-						LogDbg('DXCommand', "DXProt: spurious call $key (should be $normcall), removing");
-						$del{$key} = $val;
+						LogDbg('dxuser', "DXProt: spurious call $key (should be $normcall), removing");
+						$del{$key} = $ref;
 						++$spurious;
 						++$del;
 						next;
 					}
 				}
 			} else {
-				LogDbg('DXCommand', "Export Error3: '$key'\t" . carp($val) ."\n$@");
-				$del{$key} = $val;
+				LogDbg('dxuser', "Export Error3: '$key' decode error: $@");
+#				$del{$key} = $ref;
 				++$err;
 				next;
 			}
@@ -1112,26 +1124,23 @@ sub export
 	} 
 	$fh->close;
 
-	if ($dbh) {
-		$dbh->begin_work;
-	}
-				
 	while (my ($k, $v) = each %del) {
 		if ($dbh) {
-			del($k);
+			del($v);
 		} else {
 			eval {$dbm->del($k)};
 			$v = "undef" unless $v;
 		}
-		LogDbg('DXCommand', "Error deleting key: $k value: $v error: $@") if $@;
+		LogDbg('dxuser', "Error deleting key: $k value: $v error: $@") if $@;
+		undef $@;
 	}
 	if ($dbh) {
 		undef $exsth if $exsth;
-		$dbh->commit;
+		sync();
 	}
 	my $diff = _diffms($ta);
 	my $s = qq{Exported users to $fn - $count Users,  $del Deleted ($eph ephmeral, $old empty \& too old, $ancient ancient, $nodes nodes, $spurious spurious), $renamed renamed, $unlocked Unlocked, $err Errors in $diff mS ('sh/log Export' for details)};
-	LogDbg('command', $s);
+	LogDbg('dxuser', $s);
 	return ($s);
 }
 
@@ -1273,7 +1282,7 @@ sub recover
 
 	my $diff = _diffms($ta);
 	my $s = qq{Recovered users to $fn - $count Users, $errs errors $total possible records read in $diff mS ('sh/log recover' for details)};
-	LogDbg('command', $s);
+	LogDbg('dxuser', $s);
 	return ($s);
 }
 
@@ -1285,8 +1294,7 @@ sub finish
 		undef $dbm;
 	}
 	if ($dbh) {
-		my $t = $dbh->sqlite_txn_state();
-		if ($t ) {
+		unless ($dbh->{AutoCommit}) {
 			my $r = $dbh->commit;
 			unless ($r == 1) {
 				LogDbg("SQL ERROR commit: \$r = $r, error'");

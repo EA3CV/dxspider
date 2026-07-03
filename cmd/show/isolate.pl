@@ -28,35 +28,42 @@ sub handle
 sub generate
 {
 	my $self = shift;
+	my $line = uc shift;
+	
 	my @out;
 	my @val;
-							
 	my ($action, $count, $key, $data) = (0,0,0,0);
-	if (DXUser::using_database()) {
-		my $sth = $DXUser::dbh->prepare(q{select * from users where data not like '%"isolate":"%'});
-		my $r;
-		$r = $sth->execute;
-		while ($r =$sth->fetch) {
-			my ($k, $d) =@$r;
-			if ($d =~ m{"isolate":}) {
-				push @val, $k;	# possible candidate
-				++$count;
+
+	push @val, split /\s+/, $line;
+
+	if (!@val || $val[0] eq 'ALL') {
+		shift @val;
+		
+		if (DXUser::using_database()) {
+			my $sth = $DXUser::dbh->prepare(q{select * from users where data not like '%"isolate":"%'});
+			my $r;
+			$r = $sth->execute;
+			while ($r =$sth->fetch) {
+				my ($k, $d) =@$r;
+				if ($d =~ m{"isolate":}) {
+					push @val, $k; # possible candidate
+					++$count;
+				}
 			}
 		}
-	}
-	else {
-		for ($action = DXUser::R_FIRST, $count=0; !$DXUser::dbm->seq($key, $data, $action); $action = DXUser::R_NEXT) {
-			if ($data =~ m{isolate}) {
-				my $u = DXUser::get_current($key);
-				if ($u && $u->isolate) {
-					push @val, $key;
-					++$count;
+		else {
+			for ($action = DXUser::R_FIRST, $count=0; !$DXUser::dbm->seq($key, $data, $action); $action = DXUser::R_NEXT) {
+				if ($data =~ m{isolate}) {
+					my $u = DXUser::get_current($key);
+					if ($u && $u->isolate) {
+						push @val, $key;
+						++$count;
+					} 
 				}
 			}
 		}
 	}
 	
-
 	my @l;
 	foreach my $call (@val) {
 		if (@l >= 5) {

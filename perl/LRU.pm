@@ -22,6 +22,8 @@ use strict;
 use Chain;
 use DXVars;
 use DXDebug;
+use DXUtil;
+use DXLog;
 
 use vars qw(@ISA);
 @ISA = qw(Chain);
@@ -45,6 +47,8 @@ sub newbase
 sub get
 {
 	my ($self, $call) = @_;
+	$call = "$call" if is_digits($call);
+	
 	if (my $p = $self->obj->{$call}) {
 		dbg("LRU $self->[NAME] cache hit $call") if isdbg('lru');
 		$self->rechain($p);
@@ -57,6 +61,7 @@ sub put
 {
 	my ($self, $call, $ref) = @_;
 	confess("need a call and a reference") unless defined $call && $ref;
+	$call = "$call" if is_digits($call);
 	my $p = $self->obj->{$call};
 	if ($p) {
 		# update the reference and rechain it
@@ -84,14 +89,18 @@ sub put
 sub remove
 {
 	my ($self, $call) = @_;
+	$call = "$call" if is_digits($call);
 	my $p = $self->obj->{$call};
-	confess("$call is already removed") unless $p;
-	dbg("LRU $self->[NAME] cache remove $call now $self->[INUSE]/$self->[MAX]") if isdbg('lru');
-	&{$self->[CALLBACK]}($p->obj) if $self->[CALLBACK];        # call back if required
-	$p->obj(1);
-	$p->SUPER::del;
-	delete $self->obj->{$call};
-	$self->[INUSE]--;
+	if ($p) {
+		dbg("LRU $self->[NAME] cache remove $call now $self->[INUSE]/$self->[MAX]") if isdbg('lru');
+		&{$self->[CALLBACK]}($p->obj) if $self->[CALLBACK];        # call back if required
+		$p->obj(1);
+		$p->SUPER::del;
+		delete $self->obj->{$call} ;
+		$self->[INUSE]--;
+	} else {
+		LogDbg("lru","LRU $call is already removed")
+	}
 }
 
 sub count

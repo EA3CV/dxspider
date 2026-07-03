@@ -432,6 +432,7 @@ sub unpad
 # check that a field only has callsign characters in it
 sub is_callsign
 {
+	return undef if $_[0] =~ /^\d+$/;
 	return $_[0] =~ m!^
 					  (?:\d?[A-Z]{1,2}\d{0,2}/)?    # out of area prefix /  
 					  (?:\d?[A-Z]{1,2}\d{1,5})      # main prefix one (required) - lengthened for special calls 

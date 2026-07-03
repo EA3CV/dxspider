@@ -853,8 +853,8 @@ sub idle_loop
 			$main::me->disconnect;
 		}
 
-		DXUser::sync();
-		
+		DXUser::finish();
+				
 		Mojo::IOLoop->stop_gracefully if --$ending <= 0;
 	}
 }

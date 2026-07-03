@@ -1,5 +1,13 @@
 03Jul26======================================================================
-1. Fix begin_work error during conversion from users.v3j to database.
+1. Fix DBI begin_work error during conversion from users.v3j to database.
+2. Try to prevent callsigns consisting solely of digits in PC protocol from
+   being processed and (in particular) stored. 
+3. Check more rigourously for that arguments to functions that require 
+   callsigns are, indeed, getting them.
+4. Modernise show/isolate and show/lookout (the latter needs a bit more work
+   but is usable).
+5. Change the method of detecting when we are in a transaction, as suggested
+   by Kin EA3CV.
 02Jul26======================================================================
 1. Remove DBI::SQLite::Constants, no longer used
 2. Modernise set/external_ip command.
