@@ -229,6 +229,7 @@ our $localhost_alias_ipv6;		# for things (PC92, PC61 etc) that expose IP address
 
 our $save_route_cache;			# save and restore route cache on restart. Probably only useful for G1TLH testing
 our $local_ipaddr;
+our $io_disconnected;
 
 
 use vars qw($version $subversion $build $gitversion $gitbranch);
@@ -455,7 +456,22 @@ sub cease
 		$SIG{'INT'} = 'IGNORE';
 	}
 
+	dbg("DXSpider Ending $ending");
 
+	unless ($io_disconnected++) {
+
+		# disconnect users
+		foreach $dxchan (DXChannel::get_all_users) {
+			$dxchan->disconnect;
+		}
+
+		# disconnect nodes
+		foreach $dxchan (DXChannel::get_all_nodes) {
+			next if $dxchan == $main::me;
+			$dxchan->disconnect(2);
+		}
+		$main::me->disconnect;
+	}
 	if (defined &Local::finish) {
 		eval {
 			Local::finish();   # end local processing
@@ -487,6 +503,8 @@ sub cease
 		$l->close_server;
 	}
 
+	Mojo::IOLoop->stop_gracefully if --$ending <= 0;
+
 	DXUser::finish();
 
 	LogDbg('cluster', "DXSpider v$version build $build (git: $gitbranch/$gitversion) using perl $^V on $^O ended");
@@ -495,6 +513,7 @@ sub cease
 	Logclose();
 
 	unlink $lockfn;
+	exit 0;
 }
 
 # the reaper of children
@@ -627,7 +646,7 @@ sub setup_start
 
 	# prime some signals
 	unless ($DB::VERSION) {
-		$SIG{INT} = $SIG{TERM} = sub { $ending = 10; };
+		$SIG{INT} = $SIG{TERM} = sub { $ending = 3; };
 	}
 
 
@@ -818,8 +837,6 @@ sub setup_start
 	#open(DB::OUT, "|tee /tmp/aa");
 }
 
-our $io_disconnected;
-
 sub idle_loop
 {
 	BPQMsg::process();
@@ -833,36 +850,15 @@ sub idle_loop
 		dbg("Local::process error $@") if $@;
 	}
 
-	while ($ending) {
-		my $dxchan;
-
-		dbg("DXSpider Ending $ending");
-
-		unless ($io_disconnected++) {
-
-			# disconnect users
-			foreach $dxchan (DXChannel::get_all_users) {
-				$dxchan->disconnect;
-			}
-
-			# disconnect nodes
-			foreach $dxchan (DXChannel::get_all_nodes) {
-				next if $dxchan == $main::me;
-				$dxchan->disconnect(2);
-			}
-			$main::me->disconnect;
-		}
-
-		DXUser::finish();
-				
-		Mojo::IOLoop->stop_gracefully if --$ending <= 0;
-	}
 }
+
 
 sub per_sec
 {
 	my $timenow = time;
-	
+
+	cease(0) if $ending; 
+
 	reap() if $zombies;
 	$systime = $timenow;
 	my $days = int ($systime / 86400);
@@ -887,6 +883,7 @@ sub per_sec
 
 	DXTimer::handler();
 	DXLog::flushall();
+
 }
 
 sub per_5_sec
@@ -952,8 +949,6 @@ my $perday =  Mojo::IOLoop->recurring(86400 => \&per_day);
 start_node();
 
 cease(0);
-
-exit(0);
 
 sub END
 {
