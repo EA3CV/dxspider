@@ -1,0 +1,10 @@
+#* * * * * start_connect('gb7qqq') unless connected('gb7qqq')
+
+MM * * * * run_cmd('set/external_ip')
+
+# AutoUpdate CTY & WPXLOC
+MM HH * * * run_cmd('download http://www.country-files.com/cty/cty.dat')
+MM+2 HH * * * run_cmd('download http://www.country-files.com/cty/wpxloc.raw')
+MM+4 HH * * * spawn("/spider/perl/create_prefix.pl")
+MM+6 HH * * * run_cmd("load/prefix")
+

@@ -1,6 +1,8 @@
 05Jul26======================================================================
 1. Change the way that DXSpider stops. Hopefully this will help those sysops
    that are having trouble stopping their nodes. 
+2. Move prefix source data to initial_data, add all the standard bad* files
+   to initial data
 03Jul26======================================================================
 1. Fix DBI begin_work error during conversion from users.v3j to database.
 2. Try to prevent callsigns consisting solely of digits in PC protocol from
