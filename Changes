@@ -1,3 +1,5 @@
+30Jul26======================================================================
+1. Update wpxloc.raw and cty.dat in /spider/initial_data.
 05Jul26======================================================================
 1. Change the way that DXSpider stops. Hopefully this will help those sysops
    that are having trouble stopping their nodes. 
