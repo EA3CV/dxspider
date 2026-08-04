@@ -1053,7 +1053,7 @@ sub export
 				$t //= 0;
 				
 				if ($ref->is_user) {
-					if ($ref->{homenode} != $main::mycall && !$ref->{priv} ) {
+					if ($ref->{homenode} ne $main::mycall && !$ref->{priv} ) {
 
 						# ephmerals
 						if ($main::systime > $t + $ephold &&  !$ref->{qth} && !$ref->{name}) {
