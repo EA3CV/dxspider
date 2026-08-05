@@ -1,9 +1,8 @@
 #
-# set user type to 'S' for Spider node
+# set user type to 'N' for an outgoing RBN connection
 #
-# Please note that this is only effective if the user is not on-line
 #
-# Copyright (c) 1998 - Dirk Koopman
+# Copyright (c) 2022 - Dirk Koopman G1TLH
 #
 #
 #
