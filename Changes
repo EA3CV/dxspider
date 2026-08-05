@@ -1,5 +1,8 @@
+05Aug26======================================================================
+1. Extensively improve export_users so that users/nodes that should be kept
+   are and older stuff is removed and correctly counted.
 04Aug26======================================================================
-1. Fix != bug in DXUser.pm
+1. Fix != error in DXUser.pm 
 30Jul26======================================================================
 1. Update wpxloc.raw and cty.dat in /spider/initial_data.
 05Jul26======================================================================
