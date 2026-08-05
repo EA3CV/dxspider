@@ -35,9 +35,9 @@ $lastoperinterval = 60*24*60*60;
 $lasttime = 0;
 $lrusize = 5000;
 my $day = 86400;
-$ephold = $day * 35;			    # bare callsigns with no extra info that come in via protocol
-$tooold = $day * 365 * 2;		# this marks an old user who hasn't given enough info to be useful
-$veryold = $tooold * 3;	        # Ancient default 6 years
+$ephold = $day * 90;		    # bare callsigns with no extra info that come in via protocol
+$tooold = $day * 365 * 3;		# this marks an old user who hasn't given enough info to be useful
+$veryold = $tooold * 3;	        # Ancient default 9 years
 $v3 = 0;
 our $maxconnlist = 3;			# remember this many connection time (duration) [start, end] pairs
 our $sync_interval = 5;	    # no of secs between commit / begin_work syncs
@@ -179,9 +179,9 @@ sub init
 			my $table_exists = _table_exists();
 
 			unless ($table_exists) {
-				print "[DXUser_SQL] Creating SQLite table and importing from users.v3j...\n";
+				print "[DXUser] Creating SQLite table and importing from users.v3j...\n";
 				_create_table();
-				_import_from_v3j();
+				_import_from_v3j() unless $mode == 3;
 			}
 
 		} elsif ($main::userdsn) {
@@ -190,7 +190,7 @@ sub init
 			my $db_exists = $dbh_tmp->selectrow_array("SHOW DATABASES LIKE ?", undef, $main::userdsn);
 			
 			unless ($db_exists) {
-				print "[DXUser_SQL] Creating MySQL database $main::userdsn...\n";
+				print "[DXUser] Creating MySQL database $main::userdsn...\n";
 				$dbh_tmp->do("CREATE DATABASE `$main::userdsn` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
 			}
 			
@@ -200,9 +200,9 @@ sub init
 			
 			my $table_exists = $dbh->selectrow_array("SHOW TABLES LIKE 'users'");
 			unless ($table_exists) {
-				print "[DXUser_SQL] Creating MySQL table and importing from users.v3j...\n";
+				print "[DXUser] Creating MySQL table and importing from users.v3j...\n";
 				_create_table();
-				_import_from_v3j();
+				_import_from_v3j() unless $mode == 3;
 			}
 		}
 		
@@ -293,6 +293,7 @@ sub del_file
 	# with extreme prejudice
 	unlink "$main::data/users.v3j";
 	unlink "$main::local_data/users.v3j";
+	unlink "$main::local_data/dxusers.db";
 }
 
 #
@@ -423,7 +424,12 @@ sub get_current
 
 sub get_all_calls
 {
-	return (sort keys %u);
+	if ($dbh) {
+		return $dbh->do("select call from users");
+		sync();
+	} else {
+		return (sort keys %u);
+	}
 }
 
 #
@@ -505,6 +511,11 @@ sub encode
 sub del
 {
 	my $self = shift;
+	unless (ref $self) {
+		$self = $lru->get($self);
+		return 0 unless $self;	   
+	}
+	
 	my $call = $self->{call};
 	my $scall = "$call" if $call =~ /^\d+$/;
 	$lru->remove($scall);
@@ -996,6 +1007,7 @@ sub export
 	my $nodes = 0;
 	my $renamed = 0;
 	my $eph =  0;
+	my $phantom = 0;
 
 	my %del;
 	
@@ -1046,32 +1058,25 @@ sub export
 					++$err;
 					next;
 				}
+
+				# is this a misprint?
+				# Some software is adding a digit onto the front of an existing callsign in PC92 sentences
+				# We try to remove them here
+#				my ($p, $c) = ($key =~ /(\d)(\w+)/);
+#				if (is_callsign($c) && get_current($c)) {
+#					LogDbg('dxuser', "$ref->{call} deleted, PC92 PHANTOM call of $c");
+#					++$del;
+#					++$phantom;
+#					$del{$key} = $ref;
+#					next;
+#				}
 				
-				my $t = $ref->{lastseen} if exists $ref->{lastseen};
+				my $t = 0;
+				$t = $ref->{lastseen} if exists $ref->{lastseen};
 				$t = $ref->{lastin} if exists $ref->{lastin} && $ref->{lastin} > $t;
 				$t = $ref->{lastoper} if exists $ref->{lastoper} && $ref->{lastoper} > $t;
-				$t //= 0;
 				
-				if ($ref->is_user) {
-					if ($ref->{homenode} ne $main::mycall && !$ref->{priv} ) {
-
-						# ephmerals
-						if ($main::systime > $t + $ephold &&  !$ref->{qth} && !$ref->{name}) {
-							LogDbg('dxuser', sprintf("Ephmeral $ref->{call} deleted at %s", difft($t, ' ')));
-							++$del;
-							++$old;
-							$del{$key} = $ref;
-							next;
-						}
-
-						unless ( $ref->{homenode} && $main::systime < $t + $tooold) {
-							LogDbg('dxuser', sprintf("Stale $ref->{call} deleted at %s", difft($t, ' ')));
-							++$del;
-							++$eph;
-							$del{$key} = $ref;
-							next;
-						}
-					}
+				if ($ref->is_user && $ref->{call} ne $main::myalias) {
 					if ($main::systime > $t + $veryold) {
 						LogDbg('dxuser', sprintf("$ref->{call} deleted, POSITIVELY ANCIENT at %s", difft($t, ' ')));
 						++$del;
@@ -1079,19 +1084,40 @@ sub export
 						$del{$key} = $ref;
 						next;
 					}
-					if (exists $ref->{lockout} && $ref->{lockout} == 1 && exists $ref->{priv} && $ref->{priv} == 1) {
-						LogDbg('dxuser', "$ref->{call} depriv'd and unlocked");
-						$ref->{lockout} = $ref->{priv} = 0;
-						$ref->put;
-						++$unlocked;
+
+					next if $ref->{registered};
+					next if $ref->{priv};
+					next if $ref->{homenode} eq $main::maincall;
+					next if $ref->{lockout};
+
+					if ($main::systime > $t + $tooold) {
+						unless ($ref->{homenode} || $ref->{name} || $ref->{qra} || $ref->{qth} || exists $ref->{lat} || exists $ref->{long}) {
+							LogDbg('dxuser', sprintf("Stale $ref->{call} deleted at %s", difft($t, ' ')));
+							++$del;
+							++$old;
+							$del{$key} = $ref;
+							next;
+						}
 					}
-					if ($ref->is_node && $main::systime > $t + $veryold) {
-						LogDbg('dxuser', sprintf("NODE $ref->{call} deleted (%s) old", difft($t, ' ')));
-						++$del;
-						++$nodes;
-						$del{$key} = undef;
-						next;
+
+					# ephmerals
+					if ($main::systime > $t + $ephold) {
+						unless ($ref->{homenode} || $ref->{name} || $ref->{qra} || $ref->{qth} || exists $ref->{lat} || exists $ref->{long}) {
+							LogDbg('dxuser', sprintf("Ephmeral $ref->{call} deleted at %s", difft($t, ' ')));
+							++$del;
+							++$eph;
+							$del{$key} = $ref;
+							next;
+						}
+						
 					}
+
+#					if (exists $ref->{lockout} && $ref->{lockout} == 1 && exists $ref->{priv} && $ref->{priv} == 1) {
+#						LogDbg('dxuser', "$ref->{call} depriv'd and unlocked");
+#						$ref->{lockout} = $ref->{priv} = 0;
+#						$ref->put;
+#						++$unlocked;
+#					}
 					
 					my $normcall = normalise_call($key);
 					if ($normcall ne $key) {
@@ -1100,13 +1126,21 @@ sub export
 						unless ($nref) {
 							$ref->{call} = $normcall;
 							$ref->put;
-							LogDbg('dxuser', "DXProt: spurious call $key normalises to $normcall renaming $key -> $normcall");
+							LogDbg('dxuser', "DXProt: modified call $key normalises to missing $normcall, renaming $key -> $normcall");
 							++$renamed;
 						} 
-						LogDbg('dxuser', "DXProt: spurious call $key (should be $normcall), removing");
+						LogDbg('dxuser', "DXProt: spurious call $key (present as $normcall), removing");
 						$del{$key} = $ref;
 						++$spurious;
 						++$del;
+						next;
+					}
+				} elsif ($ref->is_node && $ref->{call} ne $main::mycall) {
+					if ($main::systime > $t + $veryold) {
+						LogDbg('dxuser', sprintf("NODE $ref->{call} deleted (%s) POSITIVELY ANCIENT at %s", difft($t, ' ')));
+						++$del;
+						++$nodes;
+						$del{$key} = undef;
 						next;
 					}
 				}
@@ -1126,7 +1160,7 @@ sub export
 
 	while (my ($k, $v) = each %del) {
 		if ($dbh) {
-			del($v);
+			del($k);
 		} else {
 			eval {$dbm->del($k)};
 			$v = "undef" unless $v;
@@ -1139,7 +1173,7 @@ sub export
 		sync();
 	}
 	my $diff = _diffms($ta);
-	my $s = qq{Exported users to $fn - $count Users,  $del Deleted ($eph ephmeral, $old empty \& too old, $ancient ancient, $nodes nodes, $spurious spurious), $renamed renamed, $unlocked Unlocked, $err Errors in $diff mS ('sh/log Export' for details)};
+	my $s = qq{Exported users to $fn - $count Users,  $del Deleted ($eph ephmeral, $old empty \& too old, $ancient ancient, $nodes ancient nodes, $spurious spurious), $renamed renamed, $unlocked Unlocked, $err Errors in $diff mS ('sh/log Export' for details)};
 	LogDbg('dxuser', $s);
 	return ($s);
 }
@@ -1195,11 +1229,12 @@ my $exists = -e $filename ? "OVERWRITING" : "CREATING";
 print "perl user_json $exists $filename\n";
 
 del_file();
-init(2);
+init(3);
 %u = ();
 my $count = 0;
 my $err = 0;
 
+DXUser::sync();
 while (<DATA>) {
 	chomp;
 	my @f = split /\t/;
@@ -1207,6 +1242,11 @@ while (<DATA>) {
 	if ($ref) {
 		$ref->put();
 		$count++;
+        if ($count % 500 == 0) {
+            print "\rCount: $count";
+            STDOUT->flush;
+            DXUser::sync();
+        }
 	} else {
 		print "# Error: $f[0]\t$f[1]\n";
 		$err++
@@ -1289,10 +1329,6 @@ sub recover
 sub finish
 {
 	dbg('DXUser finished') unless $readonly;
-	if ($dbm) {
-		$dbm->sync;
-		undef $dbm;
-	}
 	if ($dbh) {
 		unless ($dbh->{AutoCommit}) {
 			my $r = $dbh->commit;
@@ -1304,8 +1340,11 @@ sub finish
 		undef $getsth;
 		$dbh->disconnect;
 		undef $dbh;
+	} elsif ($dbm) {
+		$dbm->sync;
+		undef $dbm;
+		untie %u;
 	}
-	untie %u;
 }
 
 

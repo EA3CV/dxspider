@@ -99,7 +99,7 @@ sub remove
 		delete $self->obj->{$call} ;
 		$self->[INUSE]--;
 	} else {
-		LogDbg("lru","LRU $call is already removed")
+		LogDbg("lru","LRU $call is already removed") if $call;
 	}
 }
 

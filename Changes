@@ -1,6 +1,7 @@
 05Aug26======================================================================
 1. Extensively improve export_users so that users/nodes that should be kept
    are and older stuff is removed and correctly counted.
+2. Fix infinite loop in update_sysop.pl on systems running DXUser databases.
 04Aug26======================================================================
 1. Fix != error in DXUser.pm 
 30Jul26======================================================================

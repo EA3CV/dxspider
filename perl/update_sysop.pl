@@ -32,7 +32,7 @@ sub create_it
 {
 	my $ref;
 	
-	while ($ref = DXUser::get(uc $mycall)) {
+	if ($ref = DXUser::get(uc $mycall)) {
 		print "old call $mycall deleted\n";
 		$ref->del();
 	}
@@ -49,7 +49,7 @@ sub create_it
 	$self->{homenode} = uc $mycall;
 	$self->{sort} = 'S';		# C - Console user, S - Spider cluster, A - AK1A, U - User, B - BBS
 	$self->{priv} = 9;			# 0 - 9 - with 9 being the highest
-	$self->{lastin} = 0;
+	$self->{lastin} = time;
 	$self->{dxok} = 1;
 	$self->{annok} = 1;
 
@@ -58,7 +58,7 @@ sub create_it
 	print "new call $mycall added\n";
 
 	# now do one for the alias
-	while ($ref = DXUser::get($myalias)) {
+	if ($ref = DXUser::get($myalias)) {
 		print "old call $myalias deleted\n";
 		$ref->del();
 	}
@@ -74,7 +74,7 @@ sub create_it
 	$self->{homenode} = uc $mycall;
 	$self->{sort} = 'U';		# C - Console user, S - Spider cluster, A - AK1A, U - User, B - BBS
 	$self->{priv} = 9;			# 0 - 9 - with 9 being the highest
-	$self->{lastin} = 0;
+	$self->{lastin} = time;
 	$self->{dxok} = 1;
 	$self->{annok} = 1;
 	$self->{lang} = 'en';
@@ -97,7 +97,7 @@ if (-e $lockfn) {
 	close CLLOCK;
 }
 
-DXUser::init(1);
+DXUser::init();
 create_it();
 DXUser::finish();
 print "Update of $myalias on cluster $mycall successful\n";
