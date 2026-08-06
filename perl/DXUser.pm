@@ -1025,7 +1025,7 @@ sub export
 
 		if ($dbh) {
 			sync();
-			$exsth = $dbh->prepare("select * from users");
+			$exsth = $dbh->prepare("select * from users order by call");
 			$exsth->execute;
 		}  else {
 			$action = R_FIRST;
@@ -1072,9 +1072,20 @@ sub export
 #				}
 				
 				my $t = 0;
-				$t = $ref->{lastseen} if exists $ref->{lastseen};
-				$t = $ref->{lastin} if exists $ref->{lastin} && $ref->{lastin} > $t;
-				$t = $ref->{lastoper} if exists $ref->{lastoper} && $ref->{lastoper} > $t;
+				my $flag ;
+				if (exists $ref->{lastseen}) {
+					$flag = 'lastseen';
+					$t = $ref->{lastseen};
+				}
+				if (exists $ref->{lastin} && $ref->{lastin} > $t) {
+					$flag = 'lastin';
+					$t = $ref->{lastin};
+				}
+				if (exists $ref->{lastoper} && $ref->{lastoper} > $t) {
+					$flag = 'lastoper';
+					$t = $ref->{lastoper};
+				}
+				dbg(sprintf ("EXPORT:  call=$ref->{call} time=$t  flag: $flag diff=%d", $main::systime-$t) ) if isdbg('export');
 				
 				if ($ref->is_user && $ref->{call} ne $main::myalias) {
 					if ($main::systime > $t + $veryold) {
