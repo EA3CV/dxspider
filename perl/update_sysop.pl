@@ -27,13 +27,14 @@ use DXVars;
 use SysVar;
 use DXUser;
 use DXUtil;
+use DXDebug;
 
 sub create_it
 {
 	my $ref;
 	
 	if ($ref = DXUser::get(uc $mycall)) {
-		print "old call $mycall deleted\n";
+		dbg"old call $mycall deleted";
 		$ref->del();
 	}
 	
@@ -55,11 +56,11 @@ sub create_it
 
 	# write it away
 	$self->close();
-	print "new call $mycall added\n";
+	dbg   "new call $mycall added";
 
 	# now do one for the alias
 	if ($ref = DXUser::get($myalias)) {
-		print "old call $myalias deleted\n";
+		dbg "old call $myalias deleted";
 		$ref->del();
 	}
 
@@ -82,7 +83,7 @@ sub create_it
   
 	# write it away
 	$self->close();
-	print "new call $myalias added\n";
+	dbg "new call $myalias added";
 
 }
 
@@ -97,9 +98,12 @@ if (-e $lockfn) {
 	close CLLOCK;
 }
 
+dbg "Start update sysop with $myalias on $main::mycall";
+dbginit();
 DXUser::init();
 create_it();
 DXUser::finish();
-print "Update of $myalias on cluster $mycall successful\n";
+dbg "Update of $myalias on cluster $mycall successful";
+dbgclose();
 exit(0);
 

@@ -1,3 +1,6 @@
+07Aug26======================================================================
+1. Make sure that runs of update_sysop.pl leave evidence in the standard
+   debug system. Thanks to an idea and sample code from Kin EA3CV.
 05Aug26======================================================================
 1. Extensively improve export_users so that users/nodes that should be kept
    are and older stuff is removed and correctly counted.
