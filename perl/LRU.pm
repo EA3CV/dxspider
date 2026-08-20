@@ -47,7 +47,7 @@ sub newbase
 sub get
 {
 	my ($self, $call) = @_;
-	$call = "$call" if is_digits($call);
+	$call = "$call" ;
 	
 	if (my $p = $self->obj->{$call}) {
 		dbg("LRU $self->[NAME] cache hit $call") if isdbg('lru');
@@ -59,9 +59,10 @@ sub get
 
 sub put
 {
-	my ($self, $call, $ref) = @_;
+	my ($self, $call,$ref) = @_;
 	confess("need a call and a reference") unless defined $call && $ref;
-	$call = "$call" if is_digits($call);
+	$call = "$call" ;
+	
 	my $p = $self->obj->{$call};
 	if ($p) {
 		# update the reference and rechain it
@@ -89,7 +90,8 @@ sub put
 sub remove
 {
 	my ($self, $call) = @_;
-	$call = "$call" if is_digits($call);
+	$call = "$call";
+	
 	my $p = $self->obj->{$call};
 	if ($p) {
 		dbg("LRU $self->[NAME] cache remove $call now $self->[INUSE]/$self->[MAX]") if isdbg('lru');

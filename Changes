@@ -1,3 +1,10 @@
+20Aug26======================================================================
+1. Fix / regularise callsign handling in LRU.pm and DXUser.pm.
+
+   THIS IS THE POINT WHERE <call> and <call>-<ssid> finally are regularised
+   so that each full callsign is different any other call. Meaning G1TLH-1
+   is not related, in any way, to G1TLH. They are different users that 
+   merely as though they are related. 
 07Aug26======================================================================
 1. Make sure that runs of update_sysop.pl leave evidence in the standard
    debug system. Thanks to an idea and sample code from Kin EA3CV.

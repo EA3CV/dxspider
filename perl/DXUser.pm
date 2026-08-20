@@ -319,18 +319,19 @@ sub alloc
 {
 	my $pkg = shift;
 	my $call = uc shift;
-	my $self = bless {call => $call, 'sort'=>'U'}, $pkg;
+	$call = "$call";
+	my $self = bless {call => "$call", 'sort'=>'U'}, $pkg;
 	return $self;
 }
 
 sub new
 {
 	my $pkg = shift;
-	my $call = shift;
+	my $call = uc shift;
+	$call = "$call";
 	#  $call =~ s/-\d+$//o;
-	$call = "$call" if is_digits($call);
-  
-#	confess "can't create existing call $call in User\n!" if $u{$call};
+
+	#	confess "can't create existing call $call in User\n!" if $u{$call};
 
 	my $self = $pkg->alloc($call);
 	$self->put;
@@ -347,11 +348,10 @@ my $getsth;
 sub get
 {
 	my $call = uc shift;
+	$call = "$call";
 	my $data;
-	
+
 	# is it in the LRU cache?
-	$call = "$call" if is_digits($call);
-	
 	my $ref = $lru->get($call);
 	if ($ref && ref $ref eq 'DXUser') {
 		return $ref;
@@ -407,7 +407,8 @@ sub get
 sub get_current
 {
 	my $call = uc shift;
-  
+	$call = "$call";
+	  
 	my $dxchan = DXChannel::get($call);
 	if ($dxchan) {
 		my $ref = $dxchan->user;
@@ -448,7 +449,6 @@ sub put
 		LogDbg('dxuser', "DXUser::put undefined/zero callsign");
 		return;
 	}
-	$call = "$call" if is_digits($call);
 
 	$self->{lastseen} = $main::systime;
 	my $js = $self->encode;
@@ -512,13 +512,12 @@ sub del
 {
 	my $self = shift;
 	unless (ref $self) {
-		$self = $lru->get($self);
+		$self = $lru->get(uc "$self"); 
 		return 0 unless $self;	   
 	}
 	
 	my $call = $self->{call};
-	my $scall = "$call" if $call =~ /^\d+$/;
-	$lru->remove($scall);
+	$lru->remove($call);
 	if ($dbh) {
 		my $sql = "DELETE FROM users WHERE call = ?";
 		my $sth = $dbh->prepare($sql);
@@ -944,6 +943,7 @@ sub set_believe
 {
 	my $self = shift;
 	my $call = uc shift;
+	$call = "$call";
 	$self->{believe} ||= [];
 	push @{$self->{believe}}, $call unless grep $_ eq $call, @{$self->{believe}};
 }
@@ -952,6 +952,7 @@ sub unset_believe
 {
 	my $self = shift;
 	my $call = uc shift;
+	$call = "$call";
 	if (exists $self->{believe}) {
 		$self->{believe} = [grep {$_ ne $call} @{$self->{believe}}];
 		delete $self->{believe} unless @{$self->{believe}};
@@ -967,7 +968,8 @@ sub believe
 sub lastping
 {
 	my $self = shift;
-	my $call = shift;
+	my $call = uc shift;
+	$call = "$call";
 	$self->{lastping} ||= {};
 	$self->{lastping} = {} unless ref $self->{lastping};
 	my $b = $self->{lastping};
