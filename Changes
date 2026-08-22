@@ -1,3 +1,9 @@
+22Aug26======================================================================
+1. After a report from Joe N9JR, and some help from Kin EA3CV, SH/SUN and 
+   SH/MOON now show the information for the correct day specified. Previously
+   it could report data for a day earlier. You can also request the result in 
+   localtime (not with daylight saving) by adding the keyword LOCAL somewhere
+   in the callsign list. Type 'help sh/sun' for more info.  
 20Aug26======================================================================
 1. Fix / regularise callsign handling in LRU.pm and DXUser.pm.
 

@@ -2627,7 +2627,7 @@ This command outputs a short section of the system log.  On its own
 it will output a general logfile.  With the optional callsign it will
 show output from the log associated with that callsign.
 
-=== 0^SHOW/MOON [ndays] [<prefix>|<callsign>]^Show Moon rise and set times
+=== 0^SHOW/MOON [ndays] [<prefix>|<callsign> | local] ^Show Moon rise and set times
 Show the Moon rise and set times for a (list of) prefixes or callsigns, 
 together with the azimuth and elevation of the sun currently at those
 locations.
@@ -2657,8 +2657,12 @@ or in three days time:-
 
 Upto 366 days can be checked both in the past and in the future.
 
-Please note that the rise and set times are given as the UT times of rise and 
-set on the requested UT day.
+Please note that the rise and set times are given as the UTC times of rise and 
+set on the requested UTC day UNLESS you add the keyword 'local' (without quotes)
+to the list of callsigns e.g:
+
+  SH/MOON G1TLH W5UN local
+  SH/MOON LOCAL G1TLH W5UN
 
 === 0^SHOW/MOTD^Show your MOTD (the Message of the Day)
 The Message of the Day is normally printed whenever one logs on. However
@@ -2924,8 +2928,12 @@ or in three days time:-
 
 Upto 366 days can be checked both in the past and in the future.
 
-Please note that the rise and set times are given as the UT times of rise 
-and set on the requested UT day.
+Please note that the rise and set times are given as the UTC times of rise and 
+set on the requested UTC day UNLESS you add the keyword 'local' (without quotes)
+to the list of callsigns e.g:
+
+  SH/SUN G1TLH W5UN local
+  SH/SUN  LOCAL G1TLH W5UN
 
 === 0^SHOW/TIME [<prefix>|<callsign>]^Show the local time 
 If no prefixes or callsigns are given then this command returns the local
