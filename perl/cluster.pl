@@ -104,7 +104,9 @@ BEGIN {
 
 	$is_win = ($^O =~ /^MS/ || $^O =~ /^OS-2/) ? 1 : 0; # is it Windows?
 	$systime = time;
-	
+
+	# copy across initial data files to data in "update mode" preserving mod times
+	system('cp -up /spider/initial_data/* /spider/data') unless $is_win;
 }
 
 

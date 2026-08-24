@@ -1,3 +1,9 @@
+24Aug26======================================================================
+1. Initial cut of creating all data files from /spider/initial_data (which
+   is under git control). The directory /spider/data is now empty (and not 
+   under git control). On node startup /spider/data will be filled from 
+   /spider/initial_data with files that are missing or newer. 
+   NOTE: the precise mechanism how this is done will change...
 22Aug26======================================================================
 1. After a report from Joe N9JR, and some help from Kin EA3CV, SH/SUN and 
    SH/MOON now show the information for the correct day specified. Previously
