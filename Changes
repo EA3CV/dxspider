@@ -1,3 +1,9 @@
+31Aug26======================================================================
+1. Improve the (un)set/lock and the show/lock commands. This means that a
+   set/lock G1TLH will lock G1TLH and any G1TLH-xx records that exists. 
+   Unset/lock G1TLH will unlock all the records locked in this manner. A
+   set/lock G1TLH(-xx)record that does not exist will create this exact 
+   record. A (un)set/lock G1TLH-2 will (un)lock just that record.
 24Aug26======================================================================
 1. Initial cut of creating all data files from /spider/initial_data (which
    is under git control). The directory /spider/data is now empty (and not 

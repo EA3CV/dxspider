@@ -1933,6 +1933,13 @@ then this command will set your QRA locator for you. For example:-
 === 9^SET/LOCKOUT <call>^Stop a callsign connecting to the cluster
 === 9^UNSET/LOCKOUT <call>^Allow a callsign to connect to the cluster
 
+If <call> is a bare callsign with no SSID, then the command will scan all the
+callsigns in the User database that both that AND callsigns-xx and will
+(un)lock those records. If a specific callsign-xx is used then only that callsign
+will (un)locked.
+
+If you only want to (un)lock a bare callsign then add '-0' e.g G1TLH-0.
+
 === 8^SET/MAXCONNECT <value> [<call> ..]^Set max incoming connections for user/node
 Set the maximum no of connections (parents) an incoming user or node is
 allowed to have. If this incoming connection takes it over the separate
