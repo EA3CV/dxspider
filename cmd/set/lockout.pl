@@ -64,7 +64,7 @@ sub handle
 						push @out, mod_existing($self, $ref)  if $ref;
 					}
 				} else {
-					push @out, add_new($call);
+					push @out, add_new($self, $call);
 				}
 			}
 			Log('DXCommand', $self->call . " locked out $call");

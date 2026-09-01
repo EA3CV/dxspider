@@ -41,17 +41,17 @@ sub generate
 			while ($r =$sth->fetch) {
 				my ($k, $d) =@$r;
 				if ($d =~ m{"lockout":(\d)}) {
-					$1 ||= '0';
-					push @ans, "$k($1)";
+					my $v = $1 || '0';
+					push @ans, "$k($v)";
 					++$count;
 				}
 			}
 		}
 		else {
 			for ($action = DXUser::R_FIRST, $count=0; !$DXUser::dbm->seq($key, $data, $action); $action = DXUser::R_NEXT) {
-				if ($data =~ m{"lockout:(\d)"}) {
-					$1 ||= '0';
-					push @ans, "$key($1)";
+				if ($data =~ m{"lockout":(\d)}) {
+					my $v = $1 || '0';
+					push @ans, "$key($v)";
 				}
 			}
 		}
@@ -59,14 +59,14 @@ sub generate
 		foreach my $call (@val) {
 			my $ref = DXUser::get_current($call);
 			if ($ref) {
-				my $v = $ref->lockout;
+				my $v = $ref->lockout || '0';
 				push @ans, "$call($v)";
 				++$count;
 			}
 			foreach my $ssid (1..99) {
 				$ref = DXUser::get_current("$call-$ssid");
 				if ($ref) {
-					my $v = $ref->lockout;
+					my $v = $ref->lockout || '0';
 					push @ans, "$call-$ssid($v)";
 					++$count;
 				}
