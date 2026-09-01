@@ -63,12 +63,14 @@ sub generate
 				push @ans, "$call($v)";
 				++$count;
 			}
-			foreach my $ssid (1..99) {
-				$ref = DXUser::get_current("$call-$ssid");
-				if ($ref) {
-					my $v = $ref->lockout || '0';
-					push @ans, "$call-$ssid($v)";
-					++$count;
+			unless ($call =~ /-\d{1,2}$/) {
+				foreach my $ssid (1..99) {
+					$ref = DXUser::get_current("$call-$ssid");
+					if ($ref) {
+						my $v = $ref->lockout || '0';
+						push @ans, "$call-$ssid($v)";
+						++$count;
+					}
 				}
 			}
 		}
