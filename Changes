@@ -1,5 +1,9 @@
+01Sep26======================================================================
+1. Improved show/lockout in roughly the same way as the (un)set/lock commands
+   with the command interface. 
+2. Made some small mods to enable the Web interface.
 31Aug26======================================================================
-1. Improve the (un)set/lock and the show/lock commands. This means that a
+1. Improve the (un)set/lockout and the show/lockout cmds. This means that a
    set/lock G1TLH will lock G1TLH and any G1TLH-xx records that exists. 
    Unset/lock G1TLH will unlock all the records locked in this manner. A
    set/lock G1TLH(-xx)record that does not exist will create this exact 

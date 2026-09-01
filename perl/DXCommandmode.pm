@@ -558,6 +558,22 @@ sub run_cmd
 				dbg("cmd: package $package") if isdbg('command');
 #				Log('cmd', "$self->{dcall} on $self->{hostname} : '$cmd $args'");
 				my $t0 = [gettimeofday];
+#                eval { @ans = &{"${package}::handle"}($self, $args) };
+
+                # DXCSS CRCMD hook v1
+                my $dxc_handled = 0;
+                if (defined &DXCluster::command) {
+                    my @dxc = DXCluster::command($self, $fcmd, $args);
+                    if (@dxc && $dxc[0]) {
+                        $dxc_handled = 1;
+                        shift @dxc;
+                        @ans = @dxc;
+                    }
+               }
+
+                unless ($dxc_handled) {
+                    eval { @ans = &{"${package}::handle"}($self, $args) };
+                }
 				eval { @ans = &{"${package}::handle"}($self, $args) };
 				if ($@) {
 					DXDebug::dbgprintring(25);

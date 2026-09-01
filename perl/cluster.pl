@@ -169,16 +169,18 @@ use DXXml;
 use DXSql;
 use IsoTime;
 use BPQMsg;
-use RBN;
+
 use DXCIDR;
 use DXDebug;
+
+use Web;
+use RBN;
 
 use Data::Dumper;
 use IO::File;
 use Sys::Hostname;
 use Fcntl ':flock';
 use POSIX ":sys_wait_h";
-use Web;
 
 use strict;
 
@@ -265,8 +267,10 @@ sub new_channel
 			already_conn($conn, $call, "Maximum no of web connected connects ($Web::maxssid) exceeded");
 			return;
 		}
-		$call = base_call($newcall);
-		
+
+		#		$call = base_call($newcall);
+		$call = $newcall;
+				
 		$user = DXUser::get_current($call);
 		unless ($user) {
 			$user = DXUser->new($call);
