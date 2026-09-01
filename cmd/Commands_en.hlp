@@ -2628,6 +2628,11 @@ Instructions are available in local/Internet.pm
 === 1^SHOW/ISOLATE^Show list of ISOLATED nodes
 
 === 9^SHOW/LOCKOUT <prefix>|ALL^Show the list of locked out or excluded callsigns
+This command works in the same general way as SET/LOCKOUT, in that using a bare
+callsign without ssid will show all the callsign + ssid users as well as the bare callsign. In
+order to just see the base callsign's lock status, use the ssid '-0'. E.g. G1TLH-0.
+
+The ALL keyword will search through the user database for callsigns that are locked.
 
 === 8^SHOW/LOG [<callsign>]^Show excerpts from the system log
 This command outputs a short section of the system log.  On its own
