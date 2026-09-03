@@ -1,0 +1,40 @@
+# ============================================================
+# DXSpider Registration
+# ============================================================
+
+# Enabling registration forces:
+#   $reqreg    = 1;
+#   $passwdreq = 0;
+#
+# When disabled, DXReg does not alter the traditional DXSpider
+# reqreg/passwdreq configuration.
+$reg_enable = 1;
+
+# Length used only for automatically generated passwords.
+# It does not impose a password length policy on user-selected passwords.
+$reg_password_length = 10;
+
+# Templates
+$reg_template_dir = "$local_data/reg_templates";
+
+# ------------------------------------------------------------
+# Email
+# Administrative request notifications and user accept/reject replies.
+# ------------------------------------------------------------
+$reg_email_enable = 0;
+
+$reg_email_smtp   = 'smtp.example.net';
+$reg_email_port   = 465;
+$reg_email_user   = 'sysop@example.net';
+$reg_email_pass   = '...';
+$reg_email_from   = 'sysop@example.net';
+$reg_email_admin  = 'sysop@example.net';
+
+# ------------------------------------------------------------
+# Telegram
+# Administrative notifications only.
+# ------------------------------------------------------------
+$reg_telegram_enable = 0;
+
+$reg_telegram_token  = '...';
+$reg_telegram_chatid = '...';

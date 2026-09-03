@@ -1,0 +1,709 @@
+WEBCLUSTER <-> DXSPIDER PROTOCOL
+IMPLEMENTATION SPECIFICATION
+Version: 1
+
+======================================================================
+1. PURPOSE
+======================================================================
+
+WebCluster (WC) maintains a single technical TCP connection to DXSpider
+(DXS). Web users do not create an individual TCP connection or DXChannel
+per user.
+
+All WC users are multiplexed over a single technical #WEB-n connection.
+
+Server:        docker-3
+Host:          127.0.0.1
+Port:          27754/TCP
+Technical channel: #WEB-n
+Version:       1
+
+General scheme:
+
+WC    --->    DXS     Technical connection request
+WC    <---    DXS     #WEB-n assignment
+
+WC    --->    DXS     JSON requests
+WC    <---    DXS     JSON responses
+
+WC    <---    DXS     HUMAN feed
+WC    <---    DXS     RBN feed
+WC    <---    DXS     ANN feed
+
+
+======================================================================
+2. PROTOCOL LAYERS
+======================================================================
+
+The connection uses two layers:
+
+1. DXSpider / IntMsg transport
+2. WebCluster protocol in JSON
+
+The A, C, I, D, X, R and N prefixes belong to the DXSpider
+IntMsg/Web transport layer.
+
+The content located after the "|" character belongs to the WebCluster
+protocol.
+
+Example:
+
+I#WEB-1|{"type":"user_add",...}
+^^^^^^^^ ^
+IntMsg   WebCluster JSON
+
+Meaning used by this integration:
+
+A
+    WC    --->    DXS
+    Initial request for a technical Web connection.
+
+C
+    WC    <---    DXS
+    Assignment of the #WEB-n identifier.
+
+I
+    WC    --->    DXS
+    Input/request sent to the #WEB-n channel.
+
+D
+    WC    <---    DXS
+    Normal channel output:
+    - startup text before HELLO
+    - JSON responses after HELLO
+
+X
+    WC    <---    DXS
+    HUMAN spot feed.
+
+R
+    WC    <---    DXS
+    RBN feed.
+
+N
+    WC    <---    DXS
+    ANN feed.
+
+
+======================================================================
+3. CONNECTION ESTABLISHMENT
+======================================================================
+
+The connection does NOT start by sending JSON.
+
+WC    --->    DXS
+TCP connect to 127.0.0.1:27754
+
+WC    --->    DXS
+A#WEB|webcluster enhanced
+
+WC    <---    DXS
+C#WEB-n
+
+Example:
+C#WEB-1
+
+DXSpider may then send normal startup text:
+
+WC    <---    DXS
+D#WEB-n|<startup text>
+
+WC must wait until the final DXSpider prompt is received, for example:
+
+WC    <---    DXS
+D#WEB-n|... dxspider >
+
+Only then does WC send HELLO.
+
+
+======================================================================
+4. WC ---> DXS    hello
+======================================================================
+
+Format:
+
+I#WEB-n|{"type":"hello","role":"webcluster","version":1}
+
+Fields:
+
+type
+    Value: "hello"
+
+role
+    Value: "webcluster"
+
+version
+    WebCluster protocol version.
+    Current value: 1
+
+
+WC    <---    DXS    Response
+
+OK response:
+
+D#WEB-n|{"type":"hello","role":"webcluster","version":1,"status":"ok"}
+
+Known error response:
+
+D#WEB-n|{"type":"hello","role":"webcluster","status":"error","error":"unsupported_version","supported":[1]}
+
+Known errors:
+
+unsupported_version
+
+WC must only consider the connection to be in READY state when it
+receives:
+
+type   = hello
+role   = webcluster
+status = ok
+
+
+======================================================================
+5. READY STATE
+======================================================================
+
+After a successful HELLO, the following requests may be sent:
+
+I#WEB-n|{"type":"user_add",...}
+I#WEB-n|{"type":"user_del",...}
+I#WEB-n|{"type":"spot",...}
+I#WEB-n|{"type":"ann",...}
+I#WEB-n|{"type":"feed",...}
+
+Responses:
+
+D#WEB-n|{"type":"response",...}
+
+Common response field:
+
+action
+    Action to which the response belongs:
+    user_add | user_del | spot | ann | feed
+
+Received feeds:
+
+X#WEB-n|{"type":"spot","payload":"<payload>"}
+R#WEB-n|{"type":"rbn","payload":"<payload>"}
+N#WEB-n|{"type":"ann","payload":"<payload>"}
+
+The exact payload definition for spot, rbn and ann will be documented
+separately.
+
+The goal is that, after the "|" character, every WebCluster protocol
+message is valid JSON.
+
+
+======================================================================
+6. WC ---> DXS    user_add
+======================================================================
+
+Format:
+
+I#WEB-n|{"type":"user_add","id":<id>,"call":"<user_call>","ip":"<user_ip>","authenticated":<true|false>}
+
+Fields:
+
+type
+    Value: "user_add"
+
+id
+    Request identifier.
+
+call
+    Effective user callsign.
+    It may include an SSID.
+
+ip
+    Real IP address of the user connected to WebCluster.
+
+authenticated
+    true
+        The user has been authenticated by WebCluster.
+
+    false
+        The user is a guest/not authenticated.
+
+IMPORTANT:
+
+authenticated does NOT modify:
+
+    DXUser.registered
+    password
+    privilege level
+
+
+WC    <---    DXS    Response
+
+OK response:
+
+D#WEB-n|{"type":"response","id":<id>,"status":"ok","action":"user_add","call":"<user_call>","ip":"<user_ip>","authenticated":<0|1>}
+
+Generic error response:
+
+D#WEB-n|{"type":"response","id":<id>,"status":"error","action":"user_add","call":"<user_call>","error":"<error>"}
+
+Known errors:
+
+invalid_call
+invalid_ip
+bad_ip
+already_owned
+already_connected
+locked_out
+not_user
+too_many_connections
+route_add_failed
+
+Meaning of important errors:
+
+already_owned
+    The CALL already belongs to this same #WEB-n connection.
+
+    To change authenticated:
+        USER_DEL
+        USER_ADD
+
+already_connected
+    The CALL is already connected or present directly in DXSpider.
+
+    WC MUST NOT replace or disconnect that session.
+
+    Recommended policy:
+        try an available SSID between -90 and -99
+
+
+======================================================================
+7. WC ---> DXS    user_del
+======================================================================
+
+Format:
+
+I#WEB-n|{"type":"user_del","id":<id>,"call":"<user_call>"}
+
+Fields:
+
+type
+    Value: "user_del"
+
+id
+    Request identifier.
+
+call
+    User previously associated with this #WEB-n.
+
+
+WC    <---    DXS    Response
+
+OK response:
+
+D#WEB-n|{"type":"response","id":<id>,"status":"ok","action":"user_del","call":"<user_call>"}
+
+Generic error response:
+
+D#WEB-n|{"type":"response","id":<id>,"status":"error","action":"user_del","call":"<user_call>","error":"<error>"}
+
+Known errors:
+
+invalid_call
+not_owned
+
+not_owned
+    The CALL does not currently belong to this #WEB-n connection.
+
+NOTE:
+
+If the WebCluster TCP connection is lost abruptly, DXSpider
+automatically removes the presences owned by that #WEB-n.
+
+
+======================================================================
+8. WC ---> DXS    spot
+======================================================================
+
+Format:
+
+I#WEB-n|{"type":"spot","id":<id>,"call":"<user_call>","freq":"<frequency>","dxcall":"<dx_call>","comment":"<comment>"}
+
+Fields:
+
+type
+    Value: "spot"
+
+id
+    Request identifier.
+
+call
+    WC user originating the spot.
+
+freq
+    Spot frequency.
+
+dxcall
+    Announced DX callsign.
+
+comment
+    Spot comment.
+
+
+WC    <---    DXS    Response
+
+OK response:
+
+D#WEB-n|{"type":"response","id":<id>,"status":"ok","action":"spot","call":"<user_call>","result":"processed"}
+
+Generic error response:
+
+D#WEB-n|{"type":"response","id":<id>,"status":"error","action":"spot","call":"<user_call>","error":"<error>"}
+
+Known errors:
+
+invalid_call
+not_owned
+not_authenticated
+not_present
+user_not_found
+not_user
+invalid_ip
+bad_arguments
+internal_error
+
+A rejection from the standard handler may also be returned:
+
+D#WEB-n|{"type":"response","id":<id>,"status":"rejected","action":"spot","call":"<user_call>","messages":[<messages>]}
+
+
+======================================================================
+9. WC ---> DXS    ann
+======================================================================
+
+Format:
+
+I#WEB-n|{"type":"ann","id":<id>,"call":"<user_call>","scope":"<scope>","text":"<text>"}
+
+Fields:
+
+type
+    Value: "ann"
+
+id
+    Request identifier.
+
+call
+    WC user originating the announcement.
+
+scope
+    Announcement scope.
+
+    Values:
+        local
+        full
+        sysop
+
+    If omitted:
+        local
+
+text
+    Announcement text.
+
+
+WC    <---    DXS    Response
+
+OK response:
+
+D#WEB-n|{"type":"response","id":<id>,"status":"ok","action":"ann","call":"<user_call>","scope":"<scope>","result":"processed"}
+
+Generic error response:
+
+D#WEB-n|{"type":"response","id":<id>,"status":"error","action":"ann","call":"<user_call>","error":"<error>"}
+
+Known errors:
+
+invalid_call
+not_owned
+not_authenticated
+not_present
+user_not_found
+not_user
+invalid_ip
+bad_arguments
+internal_error
+
+A rejection from the standard handler may also be returned:
+
+D#WEB-n|{"type":"response","id":<id>,"status":"rejected","action":"ann","call":"<user_call>","scope":"<scope>","messages":[<messages>]}
+
+
+======================================================================
+10. WC ---> DXS    feed
+======================================================================
+
+Format:
+
+I#WEB-n|{"type":"feed","id":<id>,"human":<true|false>,"rbn":<true|false>,"ann":<true|false>}
+
+Fields:
+
+type
+    Value: "feed"
+
+id
+    Request identifier.
+
+human
+    true  = enable HUMAN feed
+    false = disable HUMAN feed
+
+rbn
+    true  = enable RBN feed
+    false = disable RBN feed
+
+ann
+    true  = enable ANN feed
+    false = disable ANN feed
+
+human, rbn and ann are independent and optional.
+
+Status query:
+
+I#WEB-n|{"type":"feed","id":<id>}
+
+
+WC    <---    DXS    Response
+
+OK response:
+
+D#WEB-n|{"type":"response","id":<id>,"status":"ok","action":"feed","human":<0|1>,"rbn":<0|1>,"ann":<0|1>}
+
+Generic error response:
+
+D#WEB-n|{"type":"response","id":<id>,"status":"error","action":"feed","error":"<error>"}
+
+Known errors:
+
+user_not_found
+bad_arguments
+
+
+======================================================================
+11. GENERAL PROTOCOL ERRORS
+======================================================================
+
+Known errors:
+
+invalid_json
+missing_id
+unknown_type
+unsupported_version
+
+General format when an id is available:
+
+D#WEB-n|{"type":"response","id":<id>,"status":"error","action":"<operation>","error":"<error>"}
+
+When an id cannot be obtained:
+
+D#WEB-n|{"type":"response","status":"error","error":"invalid_json"}
+
+
+======================================================================
+12. DXS ---> WC    FEEDS
+======================================================================
+
+For now, only the outer structure is defined.
+The exact payload content is not yet defined.
+
+WC    <---    DXS    HUMAN SPOT
+
+X#WEB-n|{"type":"spot","payload":"<payload>"}
+
+WC    <---    DXS    RBN
+
+R#WEB-n|{"type":"rbn","payload":"<payload>"}
+
+WC    <---    DXS    ANN
+
+N#WEB-n|{"type":"ann","payload":"<payload>"}
+
+
+======================================================================
+13. ASYNCHRONOUS RESPONSES
+======================================================================
+
+Responses must not be correlated by receive order.
+
+While WC is waiting for a D#WEB-n|JSON response, it may receive:
+
+X#WEB-n|...
+R#WEB-n|...
+N#WEB-n|...
+
+WC must correlate responses using id.
+
+
+======================================================================
+14. RECOMMENDED STATE MACHINE
+======================================================================
+
+DISCONNECTED
+    |
+    | TCP connect
+    v
+
+TCP_CONNECTED
+    |
+    | A#WEB|webcluster enhanced
+    v
+
+WAIT_ASSIGNMENT
+    |
+    | C#WEB-n
+    v
+
+WAIT_STARTUP_PROMPT
+    |
+    | D#WEB-n|... dxspider >
+    v
+
+SEND_HELLO
+    |
+    | I#WEB-n|{"type":"hello",...}
+    v
+
+WAIT_HELLO_OK
+    |
+    | D#WEB-n|{"type":"hello",...,"status":"ok"}
+    v
+
+READY
+    |
+    +-- USER_ADD
+    +-- USER_DEL
+    +-- SPOT
+    +-- ANN
+    +-- FEED
+    |
+    +-- receives asynchronous SPOT/RBN/ANN feeds
+    |
+    X TCP connection lost
+    v
+
+DISCONNECTED
+
+
+======================================================================
+15. TEST UTILITY
+======================================================================
+
+Utility:
+    wc-test.pl
+
+Server:
+    docker-3
+
+It must be executed from inside the DXSpider container.
+
+Default values:
+    DXSPIDER_CLUSTER_ADDR = 127.0.0.1
+    DXSPIDER_CLUSTER_PORT = 27754
+
+Example:
+    cd /spider/local
+    ./wc-test.pl
+
+IMPORTANT:
+
+The "raw" command in wc-test.pl is NOT part of the protocol.
+
+Example entered by the operator:
+    raw {"type":"feed","id":<id>}
+
+What wc-test.pl actually transmits:
+    I#WEB-n|{"type":"feed","id":<id>}
+
+
+======================================================================
+16. RULES FOR THE WC DEVELOPER
+======================================================================
+
+1. Connect to 127.0.0.1:27754/TCP.
+
+2. After the TCP connection is established, send:
+       A#WEB|webcluster enhanced
+
+3. Wait for:
+       C#WEB-n
+
+4. Store #WEB-n as the identifier of the current technical connection.
+
+5. Wait until channel startup is complete and the following prompt
+   appears:
+       dxspider >
+
+6. Send HELLO.
+
+7. Do not consider the connection READY until HELLO status=ok is
+   received.
+
+8. Once READY, send JSON requests using:
+       I#WEB-n|
+
+9. Correlate responses using id.
+
+10. Process X/R/N feeds asynchronously.
+
+11. USER_ADD must contain the user's real IP address.
+
+12. authenticated comes exclusively from the WC authentication system.
+
+13. Do not synchronize:
+       password
+       registered
+       privilege level
+
+14. On already_owned:
+       USER_DEL
+       USER_ADD
+    if authenticated must be changed.
+
+15. On already_connected:
+       do not modify the existing DXS session
+       preferably try an SSID from -90 to -99
+
+16. After TCP connection loss:
+       discard all local ownership associated with that #WEB-n
+       rebuild it after establishing a new connection.
+
+
+======================================================================
+17. STATUS
+======================================================================
+
+This protocol specification describes the implemented or validated
+behaviour.
+
+The exact payload definition for:
+    X / spot
+    R / rbn
+    N / ann
+
+remains to be finalized.
+
+======================================================================
+18. WIRE-FORMAT FIELD ORDER
+======================================================================
+
+The JSON formats shown in this specification are the normative v1 wire
+format. Field order must be preserved.
+
+In particular:
+
+X#WEB-n|{"type":"spot","payload":"<payload>"}
+R#WEB-n|{"type":"rbn","payload":"<payload>"}
+N#WEB-n|{"type":"ann","payload":"<payload>"}
+
+Responses use:
+
+{"type":"response","id":<id>,"status":"<status>","action":"<action>",...}
+
+Protocol v1 uses only "ann" on the WC interface. "announce" may only
+appear internally as the native DXSpider command name.
