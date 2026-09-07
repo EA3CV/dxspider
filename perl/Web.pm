@@ -137,6 +137,8 @@ our @ISA = qw(DXCommandmode Exporter);
 our @EXPORT = qw(is_webcall find_next_webcall);
 
 our $maxssid = 64;
+our $web_hwm = 64 * 1024;
+our $web_hwm_resume = 32 * 1024;
 
 my $json = DXJSON->new;
 
@@ -173,6 +175,86 @@ sub is_webcluster
 {
 	my $self = shift;
 	return ($self->{web_role} || '') eq 'webcluster';
+}
+
+# #WEB output safety. HUMAN/RBN/ANN are disposable; overload must never
+# grow the Mojo write buffer without bound or degrade the DXSpider node.
+sub _enable_webcluster_backpressure
+{
+	my $self = shift;
+	my $conn = $self->{conn};
+	my $sock = $conn && $conn->{sock};
+	return unless $sock;
+
+	$sock->high_water_mark($web_hwm) if $sock->can('high_water_mark');
+	$self->{web_feed_accepted} = 0;
+	$self->{web_feed_dropped} = 0;
+	$self->{web_feed_saturated} = 0;
+}
+
+sub _web_output_state
+{
+	my ($self, $bytes) = @_;
+	my $conn = $self->{conn};
+	my $sock = $conn && $conn->{sock};
+
+	return (0, 0) unless $sock;
+	return (0, 0) unless $sock->can('can_write') && $sock->can('bytes_waiting');
+
+	my $waiting = $sock->bytes_waiting;
+	my $can_write = $sock->can_write ? 1 : 0;
+	return ($can_write, $waiting);
+}
+
+sub _web_feed_can_write
+{
+	my ($self, $bytes) = @_;
+	$bytes ||= 0;
+
+	my ($can_write, $waiting) = $self->_web_output_state($bytes);
+	my $saturated = $self->{web_feed_saturated} ? 1 : 0;
+
+	if ($saturated) {
+		if (!$can_write || $waiting > $web_hwm_resume ||
+		    $waiting + $bytes > $web_hwm) {
+			++$self->{web_feed_dropped};
+			return 0;
+		}
+
+		$self->{web_feed_saturated} = 0;
+		LogDbg('DXCommand', sprintf(
+			'Web %s feed output recovered waiting=%d',
+			$self->{call}, $waiting
+		));
+	}
+	elsif (!$can_write || $waiting + $bytes > $web_hwm) {
+		$self->{web_feed_saturated} = 1;
+		++$self->{web_feed_dropped};
+		LogDbg('DXCommand', sprintf(
+			'Web %s feed output saturated waiting=%d hwm=%d; dropping web feed',
+			$self->{call}, $waiting, $web_hwm
+		));
+		return 0;
+	}
+
+	++$self->{web_feed_accepted};
+	return 1;
+}
+
+sub _web_control_can_write
+{
+	my ($self, $bytes) = @_;
+	return 1 unless $self->is_webcluster;
+
+	my ($can_write, $waiting) = $self->_web_output_state($bytes);
+	return 1 if $can_write && $waiting + ($bytes || 0) <= $web_hwm;
+
+	LogDbg('DXCommand', sprintf(
+		'Web %s control output saturated waiting=%d; disconnecting #WEB',
+		$self->{call}, $waiting
+	));
+	$self->disconnect unless $self->{disconnecting};
+	return 0;
 }
 
 # WebCluster needs an absolute ANN feed switch.  DXCommandmode::announce()
@@ -250,6 +332,10 @@ sub local_send
 				return;
 			}
 
+			# Conservatively include framing, call and line ending.
+			my $wire_bytes = length($payload) + length($self->{call} || '') + 4;
+			return unless $self->_web_feed_can_write($wire_bytes);
+
 			return $self->SUPER::local_send($let, $payload);
 		}
 	}
@@ -298,6 +384,9 @@ sub _send_json
 		LogDbg('err', "Web $self->{call}: cannot encode JSON");
 		return;
 	}
+
+	my $wire_bytes = length($s) + length($self->{call} || '') + 4;
+	return unless $self->_web_control_can_write($wire_bytes);
 
 	$self->send_now('D', $s);
 }
@@ -820,6 +909,7 @@ sub normal
 
 			$self->{web_role} = 'webcluster';
 			$self->{web_version} = $version;
+			$self->_enable_webcluster_backpressure;
 			$self->_enable_webcluster_feeds;
 
 			LogDbg('DXCommand', "Web $self->{call} switched to webcluster protocol v$version");

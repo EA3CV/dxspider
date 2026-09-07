@@ -1,11 +1,57 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Welcome to the Mojolicious real-time web framework!</title>
-  </head>
-  <body>
-    <h2>Welcome to the Mojolicious real-time web framework!</h2>
-    This is the static document "public/index.html",
-    <a href="/">click here</a> to get back to the start.
-  </body>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DXSpider RX</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand">
+      <div class="title-line">
+        <h1>DXSpider</h1>
+        <span class="copyright">© Dirk G1TLH</span>
+      </div>
+      <p>Read-only HUMAN/RBN</p>
+    </div>
+    <div id="status" class="badge">disconnected</div>
+  </header>
+
+  <section class="toolbar">
+    <label><input id="human" type="checkbox" checked> HUMAN</label>
+    <label><input id="rbn" type="checkbox" checked> RBN</label>
+    <button id="clear" type="button">Clear view</button>
+    <span id="count">0 displayed</span>
+  </section>
+
+  <section class="meta">
+    <span id="call">Channel: —</span>
+    <span id="counters">HUMAN: 0 · RBN: 0</span>
+  </section>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Feed</th>
+          <th>UTC</th>
+          <th>Freq</th>
+          <th>DX</th>
+          <th>Comment</th>
+          <th>Spotter</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <footer>
+    <span>DXSpider RX v1.3.0</span>
+    <span>Read-only HUMAN/RBN</span>
+  </footer>
+</main>
+<script src="/app.js"></script>
+</body>
 </html>
