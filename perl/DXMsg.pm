@@ -661,7 +661,7 @@ sub read_msg_header
 	}
 	chomp $line;
 	$size -= length $line;
-	if (! $line =~ /^===/o) {
+	if ($line !~ /^===/o) {
 		dbg("corrupt first line in $fn ($line)");
 		Log('err', "corrupt first line in $fn ($line)");
 		return undef;
