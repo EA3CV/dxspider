@@ -9,10 +9,14 @@ my ($name) = split /\s+/, $line;
 my @out;
 
 return (1, $self->msg('e5')) if $self->priv < 9;
-my $db = DXDb::getdesc($name);
+return(1, "usage: dbremove <database name>" ) unless $name;
 
-return (1, $self->msg('db3', $name)) unless $db;
-$db->delete;
-push @out, $self->msg('db9', $name);
+my $db = DXDb::getdesc($name);
+if ($db) {
+	$db->delete;
+	push @out, $self->msg('db9', $name);
+} else {
+	return (1, $self->msg('db3', $name)) unless $db;
+}
 
 return (1, @out);

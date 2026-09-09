@@ -13,34 +13,34 @@ my $call;
 my $seek;
 push @f, $self->call unless @f;
 
-if (@f <= 2 && uc $f[0] eq 'ALL') {
-	return (1, $self->msg('e6')) if @f == 1 && $self->priv < 6; 
-	return (1, $self->msg('e6')) if $self->priv < 5 || $f[1] eq '*'; 
-	shift @f;
-	my $exp = shellregex(uc shift @f) if @f; 
-	my @calls;
-	if ($exp) {
-		@calls = grep {m{$exp}} DXUser::get_all_calls();
-    } else {
-		@calls = DXUser::get_all_calls();
-	}
+# if (@f <= 2 && uc $f[0] eq 'ALL') {
+# 	return (1, $self->msg('e6')) if @f == 1 && $self->priv < 6; 
+# 	return (1, $self->msg('e6')) if $self->priv < 5 || $f[1] eq '*'; 
+# 	shift @f;
+# 	my $exp = shellregex(uc shift @f) if @f; 
+# 	my @calls;
+# 	if ($exp) {
+# 		@calls = grep {m{$exp}} DXUser::get_all_calls();
+#     } else {
+# 		@calls = DXUser::get_all_calls();
+# 	}
 	
-	foreach $call (@calls) {
-		my $ref = DXUser::get_current($call);
-		next if !$ref;
-		my $lat = $ref->lat;
-		my $long = $ref->long;
-		my $sort = $ref->sort || "";
-		my $name = $ref->name || "";
-		my $qth = $ref->qth || "";
-		my $homenode = $ref->homenode || "";
-		my $qra = $ref->qra || "";
-		my $latlong = DXBearing::lltos($lat, $long) if $lat && $long;
-		$latlong = "" unless $latlong;
+# 	foreach $call (@calls) {
+# 		my $ref = DXUser::get_current($call);
+# 		next if !$ref;
+# 		my $lat = $ref->lat;
+# 		my $long = $ref->long;
+# 		my $sort = $ref->sort || "";
+# 		my $name = $ref->name || "";
+# 		my $qth = $ref->qth || "";
+# 		my $homenode = $ref->homenode || "";
+# 		my $qra = $ref->qra || "";
+# 		my $latlong = DXBearing::lltos($lat, $long) if $lat && $long;
+# 		$latlong = "" unless $latlong;
 		
-		push @out, sprintf "%-9s %s %-12.12s %-27.27s %-9s %s %s", $call, $sort, $name, $qth, $homenode, $latlong, $qra;
-	}
-} else {
+# 		push @out, sprintf "%-9s %s %-12.12s %-27.27s %-9s %s %s", $call, $sort, $name, $qth, $homenode, $latlong, $qra;
+# 	}
+# } else {
 	foreach $call (@f) {
 		my $ref = DXUser::get_current($call);
 		if ($ref) {
@@ -87,6 +87,6 @@ if (@f <= 2 && uc $f[0] eq 'ALL') {
 			push @out, $self->msg('usernf', $call);
 		}
 	}
-}
+#}
 
 return (1, @out);

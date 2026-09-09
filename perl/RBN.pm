@@ -206,8 +206,8 @@ sub start
 		my ($h) = $line =~ /host=(\d+\.\d+\.\d+\.\d+)/;
 		$line =~ s/\s*host=\d+\.\d+\.\d+\.\d+// if $h;
 		unless ($h) {
-			($h) = $line =~ /host=([\da..fA..F:]+)/;
-			$line =~ s/\s*host=[\da..fA..F:]+// if $h;
+			($h) = $line =~ /host=([\da-f:]+)/i;
+			$line =~ s/\s*host=[\da-f:]+//i;
 		}
 		if ($h) {
 			$h =~ s/^::ffff://;

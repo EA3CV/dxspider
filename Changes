@@ -3,6 +3,13 @@
    the proffered ip address. This should mean that set/badip will add the 
    address WITH the netmask.
 2. Add testbadip command to allow querying of the badip lists.
+3. Fix dbremove so that it does not attempt to delete first database if 
+   called with no db name.
+4. Fixed IPV6 detection regexes in two places. 
+5. Fix display of incoming group chats to all local group (user) members.
+6. Fix DXUser::get_all_calls from a database;
+7. Remove 'ALL' option from show/station. There is never a need for anyone
+   to display all the 100s of 1000 users known to any user. 
 01Sep26======================================================================
 1. Improved show/lockout in roughly the same way as the (un)set/lock commands
    with the command interface. 

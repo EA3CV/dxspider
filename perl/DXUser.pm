@@ -426,8 +426,13 @@ sub get_current
 sub get_all_calls
 {
 	if ($dbh) {
-		return $dbh->do("select call from users");
-		sync();
+		my $sql = "SELECT call FROM users";
+		dbg("DXUser get_all_calls: sql $sql") if isdbg('sql');
+		 my $sth = $dbh->prepare($sql);
+		return undef unless $sth->execute();
+		my $ref = $sth->fetchall_arrayref;
+		return undef unless $ref;
+		return map {$_->[0]} @$ref;
 	} else {
 		return (sort keys %u);
 	}
@@ -665,26 +670,26 @@ sub del_group
 	
 	$self->{group} = $ref if !$self->{group};
 	
-	@$ref = map { my $a = $_; return (grep { $_ eq $a } @in) ? () : $a } @$ref;
+	@$ref = map { my $a = $_; return (grep { uc $_ eq uc $a } @in) ? () : $a } @$ref;
 }
 
 # does this thing contain all the groups listed?
-sub union
-{
-	my $self = shift;
-	my $ref = $self->{group};
-	my $n;
+# sub union
+# {
+# 	my $self = shift;
+# 	my $ref = $self->{group};
+# 	my $n;
 	
-	return 0 if !$ref || @_ == 0;
-	return 1 if @$ref == 0 && @_ == 0;
-	for ($n = 0; $n < @_; ) {
-		for (@$ref) {
-			my $a = $_;
-			$n++ if grep $_ eq $a, @_; 
-		}
-	}
-	return $n >= @_;
-}
+# 	return 0 if !$ref || @_ == 0;
+# 	return 1 if @$ref == 0 && @_ == 0;
+# 	for ($n = 0; $n < @_; ) {
+# 		for (@$ref) {
+# 			my $a = $_;
+# 			$n++ if grep $_ eq $a, @_; 
+# 		}
+# 	}
+# 	return $n >= @_;
+# }
 
 # simplified group test just for one group
 sub in_group
@@ -694,7 +699,7 @@ sub in_group
 	my $ref = $self->{group};
 	
 	return 0 if !$ref;
-	return grep $_ eq $s, $ref;
+	return grep {uc $_ eq uc $s} @$ref;
 }
 
 # set up a default group (only happens for them's that connect direct)

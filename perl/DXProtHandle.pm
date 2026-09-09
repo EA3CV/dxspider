@@ -2506,6 +2506,14 @@ sub find_pc9x_routes
 	return values %cand;
 }
 
+# find all the users that need to see this chat group
+sub find_chat_group_users
+{
+	my $group = shift;
+	my @out;
+	
+}
+
 sub handle_93
 {
 	my $self = shift;
@@ -2598,13 +2606,16 @@ sub handle_93
 		# note that both local and PC93s at the same time are possible if the
 		# user on more than one node.
 		my @routes = find_pc9x_routes($to);
+		push @routes, find_chat_users($to) unless is_callsign($to);
 		my $lasthops;
 		foreach $dxchan (@routes) {
 			if (ref $dxchan && $dxchan->isa('DXChannel')) {
 				if ($dxchan->{do_pc9x}) {
 					$dxchan->send($line);
-				} else {
+				} elsif (is_callsign($to)) {
 					$dxchan->talk($from, $to, $via, $text, $onode);
+				} else {
+					$dxchan->chat($from, $to, $via, $text, $onode);
 				}
 			} else {
 				dbg("ERROR: $to -> $dxchan is not a DXChannel! (convert to pc10)");

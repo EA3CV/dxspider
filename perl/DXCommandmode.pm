@@ -126,8 +126,8 @@ sub start
 		my ($h) = $line =~ /host=(\d+\.\d+\.\d+\.\d+)/;
 		$line =~ s/\s*host=\d+\.\d+\.\d+\.\d+// if $h;
 		unless ($h) {
-			($h) = $line =~ /host=([\da..fA..F:]+)/;
-			$line =~ s/\s*host=[\da..fA..F:]+// if $h;
+			($h) = $line =~ /host=([\da-f:]+)/i;
+			$line =~ s/\s*host=[\da-f:]+//i if $h;
 		}
 		$self->{hostname} = $h if $h;
 	}
@@ -364,7 +364,7 @@ sub normal
 								if ($self->{state} eq 'talk') {
 									$self->send_talks($_, $l);
 								} else {
-									send_chats($self, $_, $l)
+									$self->send_chats($_, $l)
 								}
 							}
 						}
@@ -1000,7 +1000,7 @@ sub chat
 	my $text = shift;
 	my ($filter, $hops);
 
-	return unless grep uc $_ eq $target, @{$self->{user}->{group}};
+	return unless $self->user->in_group($target);
 	
 	$text =~ s/^\#\d+ //;
 	my $buf;

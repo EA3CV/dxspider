@@ -10,6 +10,7 @@
 
 my ($self, $line) = @_;
 return (1, $self->msg('e5')) unless $self->priv >= 6;
+return (1, "Obsolete command, do not use");
 
 my @dxchan;
 my @out;
