@@ -1,3 +1,8 @@
+09Sep26======================================================================
+1. Fix is_ipaddr to remove the side effect of removing the netmask /xx on
+   the proffered ip address. This should mean that set/badip will add the 
+   address WITH the netmask.
+2. Add testbadip command to allow querying of the badip lists.
 01Sep26======================================================================
 1. Improved show/lockout in roughly the same way as the (un)set/lock commands
    with the command interface. 

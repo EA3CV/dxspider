@@ -493,7 +493,8 @@ sub is_latlong
 # is it an ip address?
 sub is_ipaddr
 {
-	$_[0] =~ s|/\d+$||;
+	my $addr = shift;
+	my ($suffix) = $addr =~ s|(/\d+)$||;
 	# if ($ptonok) {
 	# 	if ($_[0] =~ /:/) {
 	# 		if (inet_pton(AF_INET6, $_[0])) {
@@ -505,10 +506,10 @@ sub is_ipaddr
 	# 		}
 	# 	}
 	# } else {
-		if ($_[0] =~ /:/) {
-			return ($_[0] =~ /^((?:\:?\:?[0-9a-f]{0,4}){1,8}\:?\:?)$/i);	
+		if ($addr =~ /:/) {
+			return ($addr =~ /^((?:\:?\:?[0-9a-f]{0,4}){1,8}\:?\:?)$/i);	
 		} else {
-			return ($_[0] =~ /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+			return ($addr =~ /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
 		}
 #	}
 	return undef;

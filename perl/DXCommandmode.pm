@@ -574,7 +574,7 @@ sub run_cmd
                 unless ($dxc_handled) {
                     eval { @ans = &{"${package}::handle"}($self, $args) };
                 }
-				eval { @ans = &{"${package}::handle"}($self, $args) };
+#				eval { @ans = &{"${package}::handle"}($self, $args) };
 				if ($@) {
 					DXDebug::dbgprintring(25);
 					return (DXDebug::shortmess($@));
