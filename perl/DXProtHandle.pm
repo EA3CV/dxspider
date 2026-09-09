@@ -1562,7 +1562,7 @@ sub handle_41
 	my $origin = shift;
 	my $pc = shift;
 
-	return unless $self->check_available;
+	return if $self->check_available($origin, $pcno);
 	
 	my $call = $pc->[1];
 	my $sort = $pc->[2];
