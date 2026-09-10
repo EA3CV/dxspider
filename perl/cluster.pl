@@ -764,6 +764,9 @@ sub setup_start
 	dbg("Start Protocol Engines ...");
 	DXProt->init();
 
+	# initialise registration subsystem
+	DXReg::init();
+
 	# read startup script
 	my $script = new Script "startup";
 	$script->run($main::me) if $script;
