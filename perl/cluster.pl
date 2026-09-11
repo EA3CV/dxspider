@@ -765,7 +765,7 @@ sub setup_start
 	DXProt->init();
 
 	# initialise registration subsystem
-	DXReg::init();
+	# DXReg::init();
 
 	# read startup script
 	my $script = new Script "startup";
