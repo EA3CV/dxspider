@@ -567,7 +567,7 @@ sub _remove_user
 
 		$main::me->route_pc17($main::mycall, undef, $main::routeroot, $ref);
 		$main::me->route_pc92d($main::mycall, undef, $main::routeroot, $ref)
-			unless $DXProt::pc92_slug_changes || !$DXProt::pc92_ad_enable;
+			unless $DXProt::pc92_slug_changes || !$DXProt::pc92_ad_enables;
 	}
 
 	# _add_thingy() already performs DXSpider's normal DXUser accounting when

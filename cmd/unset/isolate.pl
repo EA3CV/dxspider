@@ -26,7 +26,7 @@ foreach $call (@args) {
 		$user = DXUser::get($call);
 		return (1, $self->msg('usernf', $call)) if !$user; 
 		$user->isolate(0);
-		$user->close();
+		$user->put();
 		push @out, $self->msg('isou', $call);
 		Log('DXCommand', $self->msg('isou', $call));
 	}

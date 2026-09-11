@@ -37,7 +37,7 @@ foreach $call (@args) {
 		if ($user) {
 			$user->sort('B');
 			$user->homenode($call);
-			$user->close();
+			$user->put();
 			push @out, $self->msg($create ? 'nodecc' : 'nodec', $call);
 		} else {
 			push @out, $self->msg('e3', "Set BBS", $call);

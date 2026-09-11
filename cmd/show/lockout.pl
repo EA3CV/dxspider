@@ -52,6 +52,7 @@ sub generate
 				if ($data =~ m{"lockout":(\d)}) {
 					my $v = $1 || '0';
 					push @ans, "$key($v)";
+					++$count;
 				}
 			}
 		}

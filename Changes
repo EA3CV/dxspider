@@ -13,6 +13,7 @@
    including PostgreSQL support.
 7. Improve SQL database detection, initialisation and recreation, including
    create_sysop.
+8. Numerous bug fixes discovered during regression testing + AI analysis. 
 09Sep26======================================================================
 1. Fix is_ipaddr to remove the side effect of removing the netmask /xx on
    the proffered ip address. This should mean that set/badip will add the 

@@ -38,7 +38,7 @@ foreach $call (@args) {
 			$user->homenode($main::mycall);
 			$user->lockout(0);
 			$user->priv(0) unless $user->priv;
-			$user->close();
+			$user->put();
 			push @out, $self->msg($create ? 'nodenc' : 'noden', $call);
 		} else {
 			push @out, $self->msg('e3', "Set RBN", $call);

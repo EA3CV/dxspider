@@ -535,17 +535,22 @@ sub run_cmd
 			
 		dbg("cmd: $cmd") if isdbg('command');
 			
-		# alias it if possible
-		my $acmd = CmdAlias::get_cmd($cmd);
-		if ($acmd) {
-			($cmd, $args) = split /\s+/, "$acmd $args", 2;
-			$args = "" unless defined $args;
-			dbg("cmd: aliased $cmd $args") if isdbg('command');
-		}
-			
+				
 		# first expand out the entry to a command
 		($path, $fcmd) = search($main::localcmd, $cmd, "pl");
 		($path, $fcmd) = search($main::cmd, $cmd, "pl") unless $path && $fcmd;
+
+		# try an alias here as there are some short commands that could
+		# be caught by the alias system
+		# This was done before the full command search
+		unless ($path && $fcmd) {
+			my $acmd = CmdAlias::get_cmd($cmd);
+			if ($acmd) {
+				($cmd, $args) = split /\s+/, "$acmd $args", 2;
+				$args = "" unless defined $args;
+				dbg("cmd: aliased $cmd $args") if isdbg('command');
+			}
+		}
 
 		if ($path && $cmd) {
 			dbg("cmd: path $cmd cmd: $fcmd") if isdbg('command');
@@ -678,7 +683,7 @@ sub disconnect
 
 		# issue a pc17 to everybody interested
 		$main::me->route_pc17($main::mycall, undef, $main::routeroot, $uref);
-		$main::me->route_pc92d($main::mycall, undef, $main::routeroot, $uref) unless $DXProt::pc92_slug_changes || ! $DXProt::pc92_ad_enable;
+		$main::me->route_pc92d($main::mycall, undef, $main::routeroot, $uref) unless $DXProt::pc92_slug_changes || ! $DXProt::pc92_ad_enabled;
 	} else {
 		confess "trying to disconnect a non existant user $self->{dcall}";
 	}

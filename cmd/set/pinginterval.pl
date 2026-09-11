@@ -44,7 +44,7 @@ foreach $call (@args) {
 		if ($dxchan) {
 			$dxchan->pingint($val);
 		} else {
-			$user->close();
+			$user->put();
 		}
 		push @out, $self->msg('pingint', $call, $val);
 	} else {

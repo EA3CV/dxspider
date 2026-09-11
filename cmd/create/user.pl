@@ -24,7 +24,7 @@ foreach $call (@args) {
 		$user = DXUser->new($call);
 		$user->sort('U');
 		$user->homenode($main::mycall);
-		$user->close();
+		$user->put();
 		push @out, $self->msg('creuser', $call);
 	} else {
 		push @out, $self->msg('hasha', $call, 'Users');
