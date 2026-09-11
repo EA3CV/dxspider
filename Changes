@@ -1,14 +1,14 @@
 11Sep26======================================================================
 1. Improve DXUser SQL support for SQLite and MySQL, including user storage,
    enumeration, deletion, migration and persistence.
-2. Preserve historical user data, including lastseen, when importing users.v3j
-   into SQL.
-3. Update show/isolate, show/seeme, show/rbn, show/registered, show/lockout and
-   show/node to work with both DB_File and SQL user databases.
-4. Remove remaining direct DB_File dependencies from SQL capable user database
-   paths.
-5. Improve DXSql spot searches, including ordering, pagination, filtering and
-   Filter::Cmd expression handling.
+2. Preserve historical user data, including lastseen, when importing 
+   users.v3j into SQL.
+3. Update show/isolate, show/seeme, show/rbn, show/registered, show/lockout
+   and show/node to work with both DB_File and SQL user databases.
+4. Remove remaining direct DB_File dependencies from SQL capable user 
+   database paths.
+5. Improve DXSql spot searches, including ordering, pagination, filtering
+   and Filter::Cmd expression handling.
 6. Improve SQL transaction handling, error reporting and prepared inserts,
    including PostgreSQL support.
 7. Improve SQL database detection, initialisation and recreation, including
