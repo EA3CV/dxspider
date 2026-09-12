@@ -81,8 +81,10 @@ sub do
 {
 	my $self = shift;
 	my $s = shift;
-	
-	eval { $self->{dbh}->do($s); }; 
+	my $r = $self->{dbh}->do($s, undef, @_);
+	die "DXSql do failed: " . ($self->{dbh}->errstr || 'unknown SQL error')
+		unless defined $r;
+	return $r;
 }
 
 sub begin_work
@@ -125,7 +127,10 @@ sub spot_insert
 	if ($sth) {
 		push @$spot, undef while  @$spot < 15;
 		pop @$spot while @$spot > 15;
-		eval {$sth->execute(undef, @$spot)};
+		my $r = $sth->execute(undef, @$spot);
+		die "DXSql spot insert failed: " . ($sth->errstr || 'unknown SQL error')
+			unless defined $r;
+		return $r;
 	} else {
 		my $s = "insert into spot values(NULL,";
 		$s .= sprintf("%.1f,", $spot->[0]);
@@ -143,7 +148,7 @@ sub spot_insert
 		$s .= (length $spot->[12] ? $self->quote($spot->[12]) : 'NULL') . ',';
 		$s .= (length $spot->[13] ? $self->quote($spot->[13]) : 'NULL') . ',';
 		$s .= (length $spot->[14] ? $self->quote($spot->[14]) : 'NULL') . ')';
-		eval {$self->do($s)};
+		return $self->do($s);
 	}
 }
 
@@ -154,11 +159,10 @@ sub spot_search
 	$dayfrom = 0 if !$dayfrom;
 	$dayto = $Spot::maxdays unless $dayto;
 	$dayto = $dayfrom + $Spot::maxdays if $dayto < $dayfrom;
-	my $today = Julian::Day->new(time());
-	my $fromdate = $today->sub($dayfrom);
-	my $todate = $fromdate->sub($dayto);
 	$from = 0 unless $from;
 	$to = $Spot::defaultspots unless $to;
+	$to = $from + $Spot::maxspots
+		if $to - $from > $Spot::maxspots || $to - $from <= 0;
 	
 	dbg("DXSql expr: $expr") if isdbg('search');
 	if ($expr =~ /\$r->/) {
@@ -188,13 +192,34 @@ sub spot_search
 	my $days = "time >= " . ($main::systime - ($dayto * 86400));
 	my $trange = $fdays ? "($fdays and $days)" : $days;
 	$expr .= $expr ? " and $trange" : $trange;
-    my $s = qq{select freq,spotcall,time,comment,spotter,spotdxcc,spotterdxcc,
+	my $base = qq{select freq,spotcall,time,comment,spotter,spotdxcc,spotterdxcc,
 origin,spotitu,spotcq,spotteritu,spottercq,spotstate,spotterstate,ipaddr from spot
-where $expr limit $to};
-    dbg("DXSql expr: $s") if isdbg('search');
-	my $ref = $self->{dbh}->selectall_arrayref($s);
+where $expr order by time desc, rowid desc};
+
+	if ($dofilter && $dxchan && $dxchan->{spotsfilter}) {
+		my $sth = $self->{dbh}->prepare($base);
+		$sth->execute;
+		my @out;
+		my $count = 0;
+		while (my $r = $sth->fetchrow_arrayref) {
+			my ($gotone, undef) = $dxchan->{spotsfilter}->it(@$r);
+			next unless $gotone;
+			++$count;
+			next if $count < $from;
+			push @out, [@$r];
+			last if $count >= $to;
+		}
+		$sth->finish;
+		return @out;
+	}
+
+	my $offset = $from > 0 ? $from - 1 : 0;
+	my $limit = $to - $offset;
+	return () if $limit <= 0;
+	my $s = "$base limit ? offset ?";
+	dbg("DXSql expr: $s") if isdbg('search');
+	my $ref = $self->{dbh}->selectall_arrayref($s, undef, $limit, $offset);
 	return @$ref;
 }
 
 1;
-
