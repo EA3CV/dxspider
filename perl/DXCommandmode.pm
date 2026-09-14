@@ -533,25 +533,20 @@ sub run_cmd
 
 		my ($path, $fcmd);
 			
-		dbg("cmd: $cmd") if isdbg('command');
-			
-				
+		dbg("cmd: '$cmd'") if isdbg('command');
+
+		my $acmd = CmdAlias::get_cmd($cmd);
+		if ($acmd) {
+			($cmd, $args) = split /\s+/, "$acmd $args", 2;
+			$args = "" unless defined $args;
+			dbg("cmd: aliased $cmd $args") if isdbg('command');
+		}
+
 		# first expand out the entry to a command
 		($path, $fcmd) = search($main::localcmd, $cmd, "pl");
 		($path, $fcmd) = search($main::cmd, $cmd, "pl") unless $path && $fcmd;
-
-		# try an alias here as there are some short commands that could
-		# be caught by the alias system
-		# This was done before the full command search
-		unless ($path && $fcmd) {
-			my $acmd = CmdAlias::get_cmd($cmd);
-			if ($acmd) {
-				($cmd, $args) = split /\s+/, "$acmd $args", 2;
-				$args = "" unless defined $args;
-				dbg("cmd: aliased $cmd $args") if isdbg('command');
-			}
-		}
-
+		dbg("cmd: search '$cmd '-> $fcmd (path: $path) $args") if isdbg('command');
+		
 		if ($path && $cmd) {
 			dbg("cmd: path $cmd cmd: $fcmd") if isdbg('command');
 			
