@@ -447,7 +447,7 @@ sub handle_11
 	#
 
 	if (Spot::dup_find(@spot[0..4,7,14], \$dupe_reason)) {
-		dbg("PCPROT: Duplicate Spot $self->{call}: $pc->[0] $key ignored $dupe_reason") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
+		dbg("DUPE $self->{call}: $pc->[0] $key ignored $dupe_reason") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
 		return;
 	}
 
