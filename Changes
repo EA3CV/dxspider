@@ -1,5 +1,8 @@
 14Sep26======================================================================
 1. Restore the original ordering of cmd aliasing in DXCommandmode.pm
+2. Only do PC11->PC61 promotion logic on non-pc9x nodes (i.e dxnet/arc).
+3. Deduplicate PC11 earlier to delete any PC11 records after the same PC61
+   has already dropped, rather than waiting until later in the dupe chain.
 11Sep26======================================================================
 1. Improve DXUser SQL support for SQLite and MySQL, including user storage,
    enumeration, deletion, migration and persistence.
