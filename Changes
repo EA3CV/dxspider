@@ -1,3 +1,5 @@
+14Sep26======================================================================
+1. Restore the original ordering of cmd aliasing in DXCommandmode.pm
 11Sep26======================================================================
 1. Improve DXUser SQL support for SQLite and MySQL, including user storage,
    enumeration, deletion, migration and persistence.
