@@ -318,8 +318,9 @@ sub connect_dxs {
       return unless $stream && $this == $stream;
       $buffer .= $bytes;
 
-      # A peer that never terminates a line cannot grow memory indefinitely.
-      if (length($buffer) > $MAX_INPUT_BYTES && index($buffer, "\n") < 0) {
+	  # Web data is disposable: reject any input burst larger than the bound,
+	  # even when it contains one or more complete lines.
+	  if (length($buffer) > $MAX_INPUT_BYTES) {
         $counters{input_overflow}++;
         $buffer = '';
         $this->close;

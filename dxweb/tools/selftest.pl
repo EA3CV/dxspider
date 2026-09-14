@@ -6,7 +6,6 @@ my @required = qw(
 	app.pl public/index.html public/app.js public/style.css
 	tools/ws_check.pl tools/slow_ws.pl tools/slow_dxs_peer.pl
 	tools/check_rx_only.sh tools/check_backpressure.sh
-	install-webpm-backpressure.sh rollback-webpm-backpressure.sh
 );
 die "missing $_\n" for grep { !-f $_ } @required;
 

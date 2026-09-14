@@ -184,26 +184,17 @@ sub init
 				_import_from_v3j() unless $mode == 3;
 			}
 
-		} elsif ($main::userdsn) {
-			my $dbh_tmp = open_database($main::userdsn, $main::dbuser, $main::dbpass) or die "cannot open $main::userdsn" ;
-			
-			my $db_exists = $dbh_tmp->selectrow_array("SHOW DATABASES LIKE ?", undef, $main::userdsn);
-			
-			unless ($db_exists) {
-				print "[DXUser] Creating MySQL database $main::userdsn...\n";
-				$dbh_tmp->do("CREATE DATABASE `$main::userdsn` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-			}
-			
-			$dbh_tmp->disconnect;
-
+		} elsif ($main::userdsn =~ /:mysql:/i) {
 			$dbh = open_database($main::userdsn, $main::dbuser, $main::dbpass) or die qw("cannot open $main::userdsn" );
 			
-			my $table_exists = $dbh->selectrow_array("SHOW TABLES LIKE 'users'");
+			my $table_exists = _table_exists('users');
 			unless ($table_exists) {
 				print "[DXUser] Creating MySQL table and importing from users.v3j...\n";
 				_create_table();
 				_import_from_v3j() unless $mode == 3;
 			}
+		} else {
+			die "Unsupported DXUser SQL DSN '$main::userdsn'";
 		}
 		
 	} else {
@@ -263,7 +254,9 @@ sub open_database
 # create a call/data table called users in a QSL database, if required
 sub _create_table {
 	LogDbg("dxuser", "Creating new 'users' table in SQL DSN $main::userdsn");
-    my $sql = "CREATE TABLE users ( call TEXT PRIMARY KEY, data TEXT )";
+    my $sql = $main::userdsn =~ /:mysql:/i
+		? "CREATE TABLE users (call VARCHAR(32) PRIMARY KEY, data LONGTEXT NOT NULL) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+		: "CREATE TABLE users (call TEXT PRIMARY KEY, data TEXT)";
     my $r = $dbh->do($sql);
 	die "Failed to create SQL user file in $main::userdsn" unless $r;
 #	$sql = "CREATE UNIQUE INDEX on users ( call )";
@@ -274,17 +267,20 @@ sub _create_table {
 # check to see if a table exists in a SQL database
 sub _table_exists {
     my ($t) = @_;
+	$t ||= 'users';
     if ($main::userdsn =~ /:sqlite:/i) {
-        my $sth = $dbh->prepare("SELECT name FROM sqlite_master WHERE type='table'");
-        $sth->execute();
-        my ($exists) = $sth->fetchrow_array;
-        return defined $exists && $exists eq 'users';
+		return $dbh->selectrow_array(
+			"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+			undef,
+			$t
+		) ? 1 : 0;
     } elsif ($main::userdsn =~ /:mysql:/i) {
-        my $sth = $dbh->prepare("SHOW TABLES LIKE users");
-        $sth->execute();
-        my ($exists) = $sth->fetchrow_array;
-        return defined $exists;
+		my $sth = $dbh->table_info(undef, undef, $t, 'TABLE');
+		my $row = $sth->fetchrow_arrayref;
+		$sth->finish;
+		return $row ? 1 : 0;
     }
+	return 0;
 }
 
 # delete files with extreme prejudice
@@ -447,6 +443,7 @@ my $putsth;
 sub put
 {
 	my $self = shift;
+	my %opt = @_;
 	confess "Trying to put nothing!" unless $self && ref $self;
 	my $call = $self->{call};
 	
@@ -455,13 +452,13 @@ sub put
 		return;
 	}
 
-	$self->{lastseen} = $main::systime;
+	$self->{lastseen} = $main::systime unless $opt{preserve_lastseen};
 	my $js = $self->encode;
 
 	if ($dbh) {
 		my $sql;
-		if ($main::userdsn =~ /mysql/i ) {
-			$sql = qq{INSERT INTO users (call, data) VALUES (`$call`, `$js`) ON DUPLICATE KEY UPDATE data = `$js`};
+		if ($main::userdsn =~ /:mysql:/i ) {
+			$sql = q{INSERT INTO users (call, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data)};
 		} else {
 			$sql = qq{INSERT OR REPLACE INTO users (call, data) VALUES (?, ?)};
 		}
@@ -515,13 +512,9 @@ sub encode
 
 sub del
 {
-	my $self = shift;
-	unless (ref $self) {
-		$self = $lru->get(uc "$self"); 
-		return 0 unless $self;	   
-	}
-	
-	my $call = $self->{call};
+	my $thing = shift;
+	my $call = ref $thing ? $thing->{call} : uc "$thing";
+	return 0 unless $call;
 	$lru->remove($call);
 	if ($dbh) {
 		my $sql = "DELETE FROM users WHERE call = ?";
@@ -616,12 +609,12 @@ sub _import_from_v3j {
 
 		my $count = 0;
 		my ($mod, $last);
-		$dbh->begin_work unless  $dbh->sqlite_txn_state();
+		$dbh->begin_work if $dbh->{AutoCommit};
 		foreach my $call (keys %u) {
 			my $data = eval { $json->decode($u{$call}) };
 			next unless $data && ref $data eq 'HASH';
 			my $u = bless $data, 'DXUser';
-			put($u);
+			$u->put(preserve_lastseen => 1);
 			++$count;
 			$mod = int $count % 10000;
 			if ($mod == 0) {
@@ -994,7 +987,7 @@ sub export
 	
 	# save old ones
 	copy $fn, "$fn.keep" unless -e "$fn.keep";
-	copy "$fn.ooooo", "$fn.backstop" unless -e "$fn,backstop";
+	copy "$fn.ooooo", "$fn.backstop" if -e "$fn.ooooo" && !-e "$fn.backstop";
 
 	move "$fn.oooo", "$fn.ooooo" if -e "$fn.oooo";
 	move "$fn.ooo", "$fn.oooo" if -e "$fn.ooo";
@@ -1376,7 +1369,6 @@ sub END
 
 1;
 __END__
-
 
 
 

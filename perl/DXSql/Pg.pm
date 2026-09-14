@@ -55,11 +55,8 @@ sub add_ipaddr
 sub spot_create_table
 {
 	my $self = shift;
-    my $s;
-    $s = q{create sequence spot_rowid_seq};
-    $self->do($s);
-	$s = q{create table spot (
-rowid sequence primary key ,
+	my $s = q{create table spot (
+rowid bigserial primary key,
 freq real not null,
 spotcall varchar(14) not null,
 time int not null,
@@ -68,17 +65,15 @@ spotter varchar(14) not null,
 spotdxcc smallint,
 spotterdxcc smallint,
 origin varchar(14),
-spotitu tinyint,
-spotcq tinyint,
-spotteritu tinyint,
-spottercq tinyint,
+spotitu smallint,
+spotcq smallint,
+spotteritu smallint,
+spottercq smallint,
 spotstate char(2),
 spotterstate char(2),
 ipaddr varchar(40)
 )};
 	$self->do($s);
-    $s = q{alter table spot alter column rowid set default nextval('spot_rowid_seq');};
-    $self->do($s);
 }
 
 sub spot_add_indexes
@@ -90,37 +85,27 @@ sub spot_add_indexes
 	#$self->do('create index spot_ix2 on spot(spotcall asc)');
 }
 
-sub spot_insert
+sub spot_insert_prepare
 {
 	my $self = shift;
-	my $spot = shift;
-	my $sth = shift;
-	
-	if ($sth) {
-		push @$spot, undef while  @$spot < 15;
-		pop @$spot while @$spot > 15;
-		eval {$sth->execute(undef, @$spot)};
-	} else {
-		my $s = "insert into spot values(NEXTVAL('spot_rowid_seq'),";
-		$s .= sprintf("%.1f,", $spot->[0]);
-		$s .= $self->quote($spot->[1]) . "," ;
-		$s .= $spot->[2] . ',';
-		$s .= (length $spot->[3] ? $self->quote($spot->[3]) : 'NULL') . ',';
-		$s .= $self->quote($spot->[4]) . ',';
-		$s .= $spot->[5] . ',';
-		$s .= $spot->[6] . ',';
-		$s .= (length $spot->[7] ? $self->quote($spot->[7]) : 'NULL') . ',';
-		$s .= $spot->[8] . ',';
-		$s .= $spot->[9] . ',';
-		$s .= $spot->[10] . ',';
-		$s .= $spot->[11] . ',';
-		$s .= (length $spot->[12] ? $self->quote($spot->[12]) : 'NULL') . ',';
-		$s .= (length $spot->[13] ? $self->quote($spot->[13]) : 'NULL') . ',';
-		$s .= (length $spot->[14] ? $self->quote($spot->[14]) : 'NULL') . ')';
-		eval {$self->do($s)};
-	}
+	return $self->prepare(q{
+		insert into spot
+		(freq,spotcall,time,comment,spotter,spotdxcc,spotterdxcc,origin,
+		 spotitu,spotcq,spotteritu,spottercq,spotstate,spotterstate,ipaddr)
+		values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	});
 }
 
-
+sub spot_insert
+{
+	my ($self, $spot, $sth) = @_;
+	push @$spot, undef while @$spot < 15;
+	pop @$spot while @$spot > 15;
+	$sth ||= $self->spot_insert_prepare;
+	my $r = $sth->execute(@$spot);
+	die "DXSql PostgreSQL spot insert failed: " . ($sth->errstr || 'unknown SQL error')
+		unless defined $r;
+	return $r;
+}
 
 1;  
