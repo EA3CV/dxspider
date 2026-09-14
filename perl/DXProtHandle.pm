@@ -338,7 +338,14 @@ sub handle_11
 			# if this fires then we have already had one or more PC11s but no PC61 for this spot
 			if ($pc11_saved{$key}) {
 				
-				dbg("DUPE $self->{call} $pc->[0] key: $key is already being processed, ignored (PROCESSING)") if isdbg("pc11");
+				dbg("DUPE $self->{call} $pc->[0] key: $key recurse: $recurse is already being processed, ignored") if isdbg("pc11");
+				return;		# because it's a dup
+			}
+
+			if ((Spot::dup_find(@spot[0..4,7,14], \$dupe_reason))) {
+				
+				dbg("DUPE $self->{call} $pc->[0] key: $key recurse: $recurse is already a DUPE, ignored") if isdbg("pc11");
+				$recurse = 0;
 				return;		# because it's a dup
 			}
 
@@ -372,7 +379,7 @@ sub handle_11
 
 			# if it is STILL (despite all efforts to change it) a PC11
 			# save it and wait - it will be called from pc11_process
-			if ($pcno == 11) {
+			if ($pcno == 11 && !$self->do_pc9x) {
 				$pc11_saved{$key} = [$main::systime, $self, $pcno, $line, $origin, $pc];
 				dbg("WAITING $self->{call}: NEW $pc->[0] spot $key waiting for a better offer") if isdbg("pc11");
 				return;
