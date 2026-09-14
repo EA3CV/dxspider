@@ -192,8 +192,8 @@ sub handle_11
 		}
 	}
 
-	dbg("---") if isdbg("pc11") || isdbg("pc61"); 
-	dbg("INPUT $self->{call}: $line via: $origin recurse: $recurse") if isdbg("pc11") || isdbg("pc61"); 
+	dbg("---") if isdbg("spot") || isdbg("pc61"); 
+	dbg("INPUT $self->{call}: $line via: $origin recurse: $recurse") if isdbg("spot") || isdbg("pc61"); 
 
 #	my ($hops) = $pc->[8] =~ /^H(\d+)/;
 
@@ -313,7 +313,7 @@ sub handle_11
 			if ($pc11_saved{$key}) {
 				# before we promote  because it's a better pc61, check that it's not a dupe (but don't insert it).
 #				if (Spot::dup_find(@spot[0..4,7,14], \$dupe_reason)) {
-#					dbg("PCPROT: Duplicate Spot $self->{call}: $pc->[0] $key ignored $dupe_reason") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
+#					dbg("PCPROT: Duplicate Spot $self->{call}: $pc->[0] $key ignored $dupe_reason") if isdbg('chanerr') || isdbg('dupespot') || isdbg('spot');
 #					delete $pc11_saved{$key};
 #					return;
 #				}
@@ -321,7 +321,7 @@ sub handle_11
 				++$pc11_to_61;
 
 				my $percent = $pc11_rx ? $pc11_to_61 * 100 / $pc11_rx : 0;
-				dbg(sprintf("PROMOTED $self->{call}: BETTER $pc->[0] $key, using pc61, WAITING pc11 DUMPED: $pc61_rx pc11: $pc11_rx better pc61: $pc11_to_61 (%0.1f%%)", $percent)) if isdbg("pc11");
+				dbg(sprintf("PROMOTED $self->{call}: BETTER $pc->[0] $key, using pc61, WAITING pc11 DUMPED: $pc61_rx pc11: $pc11_rx better pc61: $pc11_to_61 (%0.1f%%)", $percent)) if isdbg("spot");
 
 				delete $pc11_saved{$key}; # because we have promoted it, no longer needed.
 
@@ -338,13 +338,13 @@ sub handle_11
 			# if this fires then we have already had one or more PC11s but no PC61 for this spot
 			if ($pc11_saved{$key}) {
 				
-				dbg("DUPE $self->{call} $pc->[0] key: $key recurse: $recurse is already being processed, ignored") if isdbg("pc11");
+				dbg("DUPE $self->{call} $pc->[0] key: $key recurse: $recurse is already being processed, ignored") if isdbg("spot");
 				return;		# because it's a dup
 			}
 
 			if ((Spot::dup_find(@spot[0..4,7,14], \$dupe_reason))) {
 				
-				dbg("DUPE $self->{call} $pc->[0] key: $key recurse: $recurse is already a DUPE, ignored") if isdbg("pc11");
+				dbg("DUPE $self->{call} $pc->[0] key: $key recurse: $recurse is already a DUPE, ignored") if isdbg("spot");
 				$recurse = 0;
 				return;		# because it's a dup
 			}
@@ -352,7 +352,7 @@ sub handle_11
 #			# before we promote by route, check that it's not been preceded by a previous PC61
 #			if (Spot::dup_find(@spot[0..4,7,14], \$dupe_reason)) {
 #				my $s = exists $pc11_saved{$key} ? " stored $key removed" : " key $key";
-#				dbg("PCPROT: Duplicate Spot $self->{call}: PC11$s, recurse: $recurse, ignored $dupe_reason") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
+#				dbg("PCPROT: Duplicate Spot $self->{call}: PC11$s, recurse: $recurse, ignored $dupe_reason") if isdbg('chanerr') || isdbg('dupespot') || isdbg('spot');
 #				delete $pc11_saved{$key};
 #				return;
 #			}
@@ -365,7 +365,7 @@ sub handle_11
 				$pc->[8] = $spot[14] = $rug->ip;
 				++$rpc11_to_61;
 				my $percent = $pc11_rx ? $rpc11_to_61 * 100 / $pc11_rx : 0;
-				dbg(sprintf("PROMOTED $self->{call}: ROUTE pc11 $key PROMOTED to pc61 with IP $spot[14] pc61: $pc61_rx pc11: $pc11_rx route->pc61 $rpc11_to_61 (%0.1f%%)", $percent)) if isdbg("pc11");
+				dbg(sprintf("PROMOTED $self->{call}: ROUTE pc11 $key PROMOTED to pc61 with IP $spot[14] pc61: $pc61_rx pc11: $pc11_rx route->pc61 $rpc11_to_61 (%0.1f%%)", $percent)) if isdbg("spot");
 				$line = join '^', @$pc, $hops, '~';
 
 				# update the stats (NOTE, this record was a PC11, it has now become a PC61
@@ -373,7 +373,7 @@ sub handle_11
 				++$pc11_rx;		# 'cos we received as a PC11 it and it won't be a pc11 anymore 
 				--$pc61_rx;		# 'cos we'll increment it later as it's now a pc61, no double counting
 				
-#				dbg("CHANGED saved key: $key PC11 line to $line") if isdbg('pc11');
+#				dbg("CHANGED saved key: $key PC11 line to $line") if isdbg('spot');
 				delete $pc11_saved{$key};
 			}
 
@@ -381,7 +381,7 @@ sub handle_11
 			# save it and wait - it will be called from pc11_process
 			if ($pcno == 11 && !$self->do_pc9x) {
 				$pc11_saved{$key} = [$main::systime, $self, $pcno, $line, $origin, $pc];
-				dbg("WAITING $self->{call}: NEW $pc->[0] spot $key waiting for a better offer") if isdbg("pc11");
+				dbg("WAITING $self->{call}: NEW $pc->[0] spot $key waiting for a better offer") if isdbg("spot");
 				return;
 			}
 		}
@@ -389,7 +389,7 @@ sub handle_11
 
 	$key .= "|$pc->[8]" if @$pc > 8 && is_ipaddr($pc->[8]);
 			 
-	dbg("PROCESSING $self->{call}: $pc->[0] key: $key") if isdbg('pc11');
+	dbg("PROCESSING $self->{call}: $pc->[0] key: $key") if isdbg('spot');
 	
 	if ($pcno == 11) {
 		++$pc11_rx;
@@ -447,7 +447,7 @@ sub handle_11
 	#
 
 	if (Spot::dup_find(@spot[0..4,7,14], \$dupe_reason)) {
-		dbg("DUPE $self->{call}: $pc->[0] $key ignored $dupe_reason") if isdbg('chanerr') || isdbg('dupespot') || isdbg('pc11');
+		dbg("DUPE $self->{call}: $pc->[0] $key ignored $dupe_reason") if isdbg('chanerr') || isdbg('dupespot') || isdbg('spot');
 		return;
 	}
 
@@ -581,14 +581,14 @@ sub handle_11
 	my $stats = sprintf "pc11: $pc11_rx pc61: $pc61_rx pc11%%: %0.1f%% pc11->pc61: $count(%0.1f%%)", $percent, $pc11_61;
 	if ($recurse) {
 		if ($pc11_saved{$key}) {
-			dbg("END $self->{call}: RECURSED $data removed and finished $stats") if isdbg('pc11');
+			dbg("END $self->{call}: RECURSED $data removed and finished $stats") if isdbg('spot');
 			delete $pc11_saved{$key};
 		} else {
-			dbg("END $self->{call}: RECURSED NO KEY finished $stats") if isdbg('pc11'); 
+			dbg("END $self->{call}: RECURSED NO KEY finished $stats") if isdbg('spot'); 
 		}
 		$recurse = 0;
 	} else {
-		dbg("END $self->{call}: NORMAL $data finished $stats") if isdbg('pc11');
+		dbg("END $self->{call}: NORMAL $data finished $stats") if isdbg('spot');
 	}
 }
 
@@ -598,8 +598,8 @@ sub pc11_process
 	foreach my $key (keys %pc11_saved) {
 		my $r = $pc11_saved{$key};
 		if ($main::systime > $r->[0] + $pc11_dwell_time) {
-			dbg("---") if isdbg("pc11");
-			dbg("RECURSE $r->[1]->{call}: PC11 spot $key timed out waiting, resend") if isdbg("pc11");
+			dbg("---") if isdbg("spot");
+			dbg("RECURSE $r->[1]->{call}: PC11 spot $key timed out waiting, resend") if isdbg("spot");
 			my $self = $r->[1];
 			delete $pc11_saved{$key};
 			$self->handle_11(@$r[2..5], 1);
@@ -2689,7 +2689,7 @@ sub populate_routing_table
 	my $rn = Route::Node::get($node);
 	unless ($rn) {
 		$rn = Route::Node->new($node);
-		dbg("ROUTE $self->{call}: ADD NEW node: $node") if isdbg('pc11');
+		dbg("ROUTE $self->{call}: ADD NEW node: $node") if isdbg('spot');
 	}
 
 	my $ru;
@@ -2697,7 +2697,7 @@ sub populate_routing_table
 		$ru = Route::User::get($user);
 		unless ($ru) {
 			$rn->add_user($user, 0, undef);
-			dbg("ROUTE $self->{call}: ADD NEW user: $user -> $node") if isdbg('pc11');
+			dbg("ROUTE $self->{call}: ADD NEW user: $user -> $node") if isdbg('spot');
 		}
 		$ru = Route::User::get($user);
 	}
@@ -2714,14 +2714,14 @@ sub populate_routing_table
 				if ($ru->ip) {
 					my $old = $ru->ip;
 					$ru->ip($new);
-					dbg("ROUTE $self->{call}: ALTER IP node: $node user: $user old IP: '$old'-> new IP: '$new'") if isdbg('pc11');
+					dbg("ROUTE $self->{call}: ALTER IP node: $node user: $user old IP: '$old'-> new IP: '$new'") if isdbg('spot');
 				} else{
 					$ru->ip($new);
-					dbg("ROUTE $self->{call}: NEW IP node: $node user: $user IP: '$new'") if isdbg('pc11');
+					dbg("ROUTE $self->{call}: NEW IP node: $node user: $user IP: '$new'") if isdbg('spot');
 				}
 			}
 		} else {
-			dbg("ROUTE $self->{call}: ADD Failed for node $node user $user") if isdbg('pc11');
+			dbg("ROUTE $self->{call}: ADD Failed for node $node user $user") if isdbg('spot');
 		}
 	}
 }
