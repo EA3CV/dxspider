@@ -1,57 +1,37 @@
+<!-- DXSpider Web 2.5.0 - 2026-09-15 -->
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DXSpider RX</title>
-<link rel="stylesheet" href="/style.css">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DXSpider Web</title><link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<main>
-  <header>
-    <div class="brand">
-      <div class="title-line">
-        <h1>DXSpider</h1>
-        <span class="copyright">© Dirk G1TLH</span>
-      </div>
-      <p>Read-only HUMAN/RBN</p>
-    </div>
-    <div id="status" class="badge">disconnected</div>
-  </header>
+<header class="topbar">
+  <div class="brand">DXSpider <span class="brandCopyright">© Dirk Koopman G1TLH</span></div>
+  <div id="nodeCall" class="nodeCall">—</div>
+  <div class="topActions"><span id="status">disconnected</span><button id="loginButton">Login</button></div>
+</header>
 
-  <section class="toolbar">
-    <label><input id="human" type="checkbox" checked> HUMAN</label>
-    <label><input id="rbn" type="checkbox" checked> RBN</label>
-    <button id="clear" type="button">Clear view</button>
-    <span id="count">0 displayed</span>
-  </section>
+<nav class="tabs">
+ <button class="active" data-tab="spots">Spots</button><button data-tab="ann">ANN</button><button data-tab="wwv">WWV</button><button data-tab="wcy">WCY</button>
+ <button data-tab="wx">WX</button><button data-tab="filters">Filters</button><button data-tab="console">Console</button>
+</nav>
 
-  <section class="meta">
-    <span id="call">Channel: —</span>
-    <span id="counters">HUMAN: 0 · RBN: 0</span>
-  </section>
-
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Feed</th>
-          <th>UTC</th>
-          <th>Freq</th>
-          <th>DX</th>
-          <th>Comment</th>
-          <th>Spotter</th>
-        </tr>
-      </thead>
-      <tbody id="rows"></tbody>
-    </table>
-  </div>
-
-  <footer>
-    <span>DXSpider RX v1.7.0</span>
-    <span>Read-only HUMAN/RBN</span>
-  </footer>
+<main class="workspace">
+<section id="spots" class="panel active">
+ <div class="panelHead"><h2>Spots</h2><div><button id="spotOpen">Send Spot</button><button class="clearBtn" data-clear="spots">Clear</button><span class="counter" data-count="spots">0</span></div></div>
+ <div class="toolbar"><label><input id="showHuman" type="checkbox" checked> Human</label><label><input id="showRbn" type="checkbox"> RBN</label></div>
+ <div class="resultArea"><table class="spotTable"><colgroup><col class="spotColSource"><col class="spotColUtc"><col class="spotColFreq"><col class="spotColDx"><col class="spotColSpotter"><col class="spotColComment"></colgroup><thead><tr><th>Source</th><th>UTC</th><th>Freq</th><th>DX</th><th>Spotter</th><th>Comment</th></tr></thead><tbody id="spotRows"></tbody></table></div>
+</section>
+<section id="ann" class="panel"><div class="panelHead"><h2>Announcements</h2><div><button class="runBtn" data-command="show/announce">RUN sh/ann</button><button class="clearBtn" data-clear="ann">Clear</button><span class="counter" data-count="ann">0</span></div></div><pre class="feedlog resultArea" data-kind="ann"></pre><form id="annForm" class="bottomCommand annCommand"><label>Scope<select id="annScope"><option value="local">Local</option><option value="full">Full</option><option value="sysop">Sysop</option></select></label><label class="grow">Announcement<input id="annText" maxlength="250" required></label><button type="submit">Send</button><span id="annResult" class="inlineResult"></span></form></section>
+<section id="wwv" class="panel"><div class="panelHead"><h2>WWV</h2><div><button class="runBtn" data-command="show/wwv">RUN sh/wwv</button><button class="clearBtn" data-clear="wwv">Clear</button><span class="counter" data-count="wwv">0</span></div></div><pre class="feedlog resultArea" data-kind="wwv"></pre></section>
+<section id="wcy" class="panel"><div class="panelHead"><h2>WCY</h2><div><button class="runBtn" data-command="show/wcy">RUN sh/wcy</button><button class="clearBtn" data-clear="wcy">Clear</button><span class="counter" data-count="wcy">0</span></div></div><pre class="feedlog resultArea" data-kind="wcy"></pre></section>
+<section id="wx" class="panel"><div class="panelHead"><h2>WX</h2><div><button class="runBtn" data-command="show/wx">RUN sh/wx</button><button class="clearBtn" data-clear="wx">Clear</button><span class="counter" data-count="wx">0</span></div></div><pre class="feedlog resultArea" data-kind="wx"></pre></section>
+<section id="filters" class="panel"><div class="panelHead"><h2>Filters</h2><div><button class="runBtn" data-command="show/filter">RUN sh/filter</button><button class="clearBtn" data-clear="filters">Clear</button></div></div><pre class="commandOutput resultArea" data-output="filters"></pre><form id="filterForm" class="commandBar"><input id="filterCommand" autocomplete="off" placeholder="DXSpider filter command"><button>Send</button></form></section>
+<section id="console" class="panel"><div class="panelHead"><h2>Console</h2><button class="clearBtn" data-clear="console">Clear</button></div><div id="consoleOutput" class="commandOutput resultArea consoleOutput"></div><form id="consoleForm" class="commandBar"><input id="consoleCommand" autocomplete="off" placeholder="DXSpider command"><button>Send</button></form></section>
 </main>
-<script src="/app.js"></script>
-</body>
-</html>
+
+<dialog id="noticeDialog"><div class="dialogCard"><h2>DXSpider</h2><div id="noticeText" class="noticeText"></div><div class="dialogActions"><button id="noticeClose" type="button">OK</button></div></div></dialog>
+<dialog id="loginDialog"><form method="dialog" class="dialogCard" id="loginForm"><h2>Login</h2><label>Callsign<input id="loginCall" autocomplete="username" required></label><label>Password<input id="loginPass" type="password" autocomplete="current-password"></label><div id="loginError" class="error"></div><div class="dialogActions"><button value="cancel">Cancel</button><button id="loginSubmit" value="default">Login</button></div></form></dialog>
+<dialog id="spotDialog"><form method="dialog" class="dialogCard wide" id="spotForm"><h2>Send Spot</h2><div class="compactFields"><label>Freq<input id="spotFreq" size="12" required></label><label>DX<input id="spotDx" size="12" required></label></div><label>Comment<input id="spotComment" maxlength="80"></label><div id="spotResult" class="result"></div><div class="dialogActions"><button value="cancel">Cancel</button><button id="spotSubmit" value="default">Send</button></div></form></dialog>
+<footer><span>DXSpider Web v2.5.0</span><span class="copyright">© Dirk Koopman G1TLH — DXSpider</span></footer><script src="/app.js"></script></body></html>

@@ -1,100 +1,98 @@
-# dxweb 1.7.0 — RX-only HUMAN/RBN
+# DXSpider Web 2.5.0
 
-`dxweb` is the minimal read-only web client for the DXSpider `#WEB-n` technical
-connection. It receives the global HUMAN and RBN feeds from DXSpider and fans
-them out to browser WebSocket clients.
+`dxweb` is the DXSpider-integrated web client. It uses one technical `#WEB-n`
+connection to DXSpider and multiplexes authenticated browser users over it.
 
-The directory is self-contained as the web application and is intended to live
-inside the DXSpider checkout as:
+## Authentication model
 
-    /spider/dxweb/
+There are deliberately two distinct `#WEB` modes.
 
-## DXSpider prerequisite
+* `role=dxweb`, `auth=dxspider`, protocol v2: every browser must provide a
+  callsign. DXSpider validates the callsign/password using the same password
+  rule used by `ExtMsg.pm`: password is required when `$passwdreq` is enabled
+  or the existing DXUser has a password. No browser feed or command access is
+  provided before DXS returns successful authentication.
+* `role=webcluster`, `auth=external`: an external WebCluster remains responsible
+  for authenticating its own users. DXSpider does not receive or validate those
+  user passwords. Existing v1 WebCluster negotiation remains accepted.
 
-The DXSpider revision containing this directory must already contain the
-compatible `perl/Web.pm` implementation for the `#WEB-n` webcluster role and
-its DXSpider-side backpressure protection. That DXSpider change belongs in the
-repository itself.
+Passwords are forwarded only in the integrated `auth` request and are never
+stored in dxweb state or written to the browser history.
 
-There is therefore **no Web.pm prepare/install/rollback step in dxweb**.
-Do not copy or patch `Web.pm` when starting this application.
+## Views
 
-## Requirements
+The browser provides separate views for HUMAN/RBN spots, ANN, WWV, WCY, WX,
+filters and the DXSpider console. Filter and console operations are executed by
+DXSpider's normal command resolver under the authenticated logical user. dxweb
+does not implement a second command permission system.
 
-- Perl
-- Mojolicious
-- A running compatible DXSpider node
-- DXSpider `#WEB` listener reachable from dxweb
+## Feeds and overload protection
 
-Defaults:
-
-    DXSpider: 127.0.0.1:27754
-    HTTP:     0.0.0.0:8080
-    feeds:    HUMAN=on, RBN=on
+DXSpider exports X/R/N/V/Y/W feed frames for HUMAN/RBN/ANN/WWV/WCY/WX. Web.pm
+normalises their payload to JSON after the IntMsg `|`. The existing bounded
+backpressure policy applies to all these disposable feeds. dxweb also bounds
+input, history, fanout and each browser's write buffer. Live traffic remains
+bounded; historical replay is cooperative and yields while the browser socket
+is busy, so replay cannot falsely disconnect a normal browser or apply pressure
+to DXSpider.
 
 ## Start
 
-From the checkout:
+From the repository root:
 
-    cd /spider/dxweb
+    cd dxweb
     ./start.sh
 
-`start.sh` runs in the foreground. Stop it with Ctrl-C or terminate the process
-from the service/supervisor used by the deployment.
+Default listener: `http://0.0.0.0:8080`
+Default DXSpider IntMsg endpoint: `127.0.0.1:27754`
 
-Do **not** set `WS_HIGH_WATER` for normal operation. Its default is 65536 bytes
-(64 KiB). Smaller values such as 4096 or 256 were used only for controlled
-stress tests.
+Optional environment variables include `DXS_HOST`, `DXS_PORT`,
+`WS_HIGH_WATER`, `MAX_INPUT_BYTES`, `MAX_HISTORY`, `MAX_HISTORY_BYTES`,
+`MAX_FANOUT_ITEMS` and `MAX_FANOUT_BYTES`.
 
-## Check status
+The corresponding `perl/Web.pm` from this version must be installed in the
+same DXSpider tree and DXSpider restarted before starting dxweb.
 
-    curl -s http://127.0.0.1:8080/healthz | python3 -m json.tool
+## Validation
 
-A normal connected instance reports, among other fields:
+On the target DXSpider host:
 
-    "state": "ready"
-    "web_call": "#WEB-n"
-    "feeds": { "human": true, "rbn": true }
+    perl -I/spider/local -I/spider/perl -c /spider/perl/Web.pm
+    cd /spider/dxweb
+    perl -c app.pl
+    ./start.sh
 
-Open the web interface at port 8080. If the service is on a remote host, expose
-it according to the deployment policy (for example through an SSH tunnel or a
-reverse proxy); dxweb itself does not require public exposure.
+Then verify:
 
-## Optional environment
+    curl -s http://127.0.0.1:8080/healthz
 
-The normal defaults need no environment variables. Supported overrides include:
+Expected DXS state after negotiation is `ready`. Open the web page and test at
+least: a user without password (when policy permits), a user with password,
+wrong password rejection, HUMAN/RBN, ANN, WWV, WCY, WX and a harmless command
+such as `show/version` or `show/dx 5`.
 
-    DXS_HOST
-    DXS_PORT
-    HTTP_PORT
-    FEED_HUMAN
-    FEED_RBN
-    RECONNECT_SEC
-    MAX_INPUT_BYTES
-    MAX_HISTORY
-    MAX_HISTORY_BYTES
-    MAX_FANOUT_ITEMS
-    MAX_FANOUT_BYTES
-    WS_HIGH_WATER
-    REPLAY_BATCH
-    FANOUT_BATCH
+## Security notes
 
-Example using a different HTTP port:
+There is no guest mode. The HTTP `/healthz` endpoint exposes transport status
+only; feed/history data is sent only to authenticated WebSocket clients.
 
-    HTTP_PORT=8081 ./start.sh
+For a public deployment, terminate TLS in front of dxweb. The integrated mode
+uses the WebSocket peer address as the user's source IP; do not blindly trust
+client-supplied forwarding headers.
 
-## Read-only and overload behaviour
 
-The browser side is deliberately RX-only. Incoming browser WebSocket messages
-are ignored and HTTP POST/PUT/PATCH/DELETE requests return 405. The application
-does not expose browser-originated SPOT, ANNOUNCE, TALK or raw DXSpider command
-paths.
+## Release 2.5.0 (2026-09-15)
 
-Application-owned input, history and fanout queues are bounded. Slow browser
-clients are disposable: overload must result in web data loss/client disconnect
-rather than allowing a browser to pressure DXSpider.
+This release closes the integrated login/logout session bug caused by browser
+history replay reaching the WebSocket high-water mark. Re-authentication of the
+same CALL after `user_del` is supported without restarting DXSpider, dxweb or
+the browser.
 
-## Utilities
+The Spots view now keeps stable columns for HUMAN, RBN and combined display,
+places Source first, gives Comment the largest width, and maintains cumulative
+HUMAN/RBN counters independently of the bounded in-memory/rendered spot list.
 
-Diagnostic/test utilities are under `tools/`. They are not required to start
-or operate dxweb.
+`PROTOCOL-v2.md` documents the complete implemented v2 surface needed by an
+integrated web client: hello/authentication, user removal, command execution,
+spot and announcement submission, feed configuration, ownership, response IDs,
+errors and backpressure requirements.
