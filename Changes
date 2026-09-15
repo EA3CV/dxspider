@@ -1,3 +1,17 @@
+15Sep26======================================================================
+1. Introducing dxweb. An experimental user (currently) shim producing a
+   web presentation of a node. This is a work in progress. Please read the
+   instructions and description files in /spider/dxweb. 
+
+   This is experimental. It is not packaged. It does not start automatically!
+   And it won't for some time. If something breaks you get to keep all the
+   pieces. If you have questions / brickbats, please send them direct to Kin 
+   and myself by email. Please don't fill the support mailing list with 
+   questions that most sysops won't be able to interact with.
+
+   The dxweb app is written, and kindly provided, by Kin EA3CV.  
+
+   Try the interface at: http://gb7djk.dxcluster.net:7380
 14Sep26======================================================================
 1. Restore the original ordering of cmd aliasing in DXCommandmode.pm
 2. Only do PC11->PC61 promotion logic on non-pc9x nodes (i.e dxnet/arc).
