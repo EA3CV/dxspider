@@ -1,195 +1,56 @@
-:root {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #f5f7fa;
-  color: #24364b;
+/* DXSpider Web 2.5.0 - 2026-09-15 */
+
+:root{font-family:Arial,Helvetica,sans-serif;color:#172033;background:#eef3f8}
+*{box-sizing:border-box}html,body{height:100%;overflow:hidden}body{margin:0;background:#eef3f8;color:#172033;display:flex;flex-direction:column}
+button,input,select{font:inherit}.topbar{height:72px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 20px;background:#fff;border-bottom:1px solid #cbd6e2}
+.brand,.nodeCall{font-size:28px;font-weight:700;color:#155aa8}.nodeCall{text-align:center}.topActions{justify-self:end;display:flex;gap:12px;align-items:center}
+button{border:1px solid #9eb3c9;background:#fff;color:#174f8a;border-radius:6px;padding:7px 12px;cursor:pointer}button:hover{background:#edf5fd}
+.tabs{display:flex;gap:5px;padding:10px 14px;background:#dfeaf5;border-bottom:1px solid #c3d1df;flex-wrap:wrap}.tabs button.active{background:#155aa8;color:#fff;border-color:#155aa8}
+.workspace{flex:1;min-height:0;padding:12px;overflow:hidden}.panel{display:none;height:100%;background:#fff;border:1px solid #cbd6e2;border-radius:8px;padding:12px;overflow:hidden}.panel.active{display:flex;flex-direction:column}
+.panelHead{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px}.panelHead h2{margin:0;color:#155aa8}.panelHead>div{display:flex;align-items:center;gap:7px}.counter{min-width:32px;text-align:right;color:#617386}
+.toolbar{display:flex;gap:16px;margin-bottom:8px}.resultArea{flex:1;min-height:0;overflow-y:auto;overflow-x:auto;background:#f8fbfe;border:1px solid #d5e0ea;border-radius:6px;padding:8px;color:#172033}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid #e0e7ee;white-space:nowrap}th{position:sticky;top:0;background:#eaf2fa;color:#174f8a}
+pre{margin:0;font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap}.bottomAction{display:flex;justify-content:flex-end;padding-top:8px}
+.commandBar{display:flex;gap:8px;padding-top:8px}.commandBar input{flex:1}
+input,select{border:1px solid #aebfd0;background:#fff;color:#172033;border-radius:5px;padding:7px 8px}
+dialog{border:0;border-radius:10px;padding:0;box-shadow:0 18px 60px #0005}dialog::backdrop{background:#27415f66}.dialogCard{min-width:330px;max-width:620px;background:#fff;color:#172033;padding:20px}.dialogCard.wide{width:min(620px,90vw)}.dialogCard h2{margin-top:0;color:#155aa8}.dialogCard label{display:block;margin:10px 0;font-weight:600}.dialogCard label input,.dialogCard label select{display:block;margin-top:5px;width:100%;font-weight:400}.compactFields{display:flex;gap:14px}.compactFields label{flex:0 0 auto}.compactFields input{width:150px!important}.dialogActions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.error{color:#a40000;min-height:1.2em}.result{min-height:1.2em;white-space:pre-wrap;margin-top:8px}
+footer{flex:0 0 auto;min-height:30px;padding:7px 14px;color:#647587;background:#fff;border-top:1px solid #cbd6e2;display:flex;justify-content:space-between;align-items:center}
+@media(max-width:700px){.brand,.nodeCall{font-size:21px}.topbar{padding:0 10px}.compactFields{flex-direction:column}.compactFields input{width:100%!important}}
+
+.bottomCommand{display:flex;gap:8px;align-items:end;padding-top:8px;flex:0 0 auto}.bottomCommand label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600}.bottomCommand .grow{flex:1}.bottomCommand .grow input{width:100%}.inlineResult{align-self:center;max-width:35%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#617386}footer .copyright{font-size:12px;color:#647587}
+
+.brandCopyright{font-size:12px;font-weight:400;color:#647587;vertical-align:middle;margin-left:6px;white-space:nowrap}
+.noticeText{line-height:1.45;max-width:460px}
+
+.brand{font-size:30px;font-weight:800;line-height:1}
+.brandCopyright{font-size:9px;font-weight:400;color:#647587;vertical-align:middle;margin-left:5px;white-space:nowrap}
+.consoleOutput{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.consoleCommandLine{font-weight:700;white-space:pre-wrap;margin:0 0 2px 0}
+.consoleResponse{font-weight:400;white-space:pre-wrap;margin:0 0 4px 0}
+
+.brand{font-size:34px;font-weight:800;line-height:1;display:flex;align-items:flex-end;gap:7px}
+.brandCopyright{font-size:11px;font-weight:400;line-height:1.05;color:#647587;margin:0 0 2px 0;white-space:nowrap}
+
+/* v2.3.8 final header sizing/alignment */
+.brand{font-size:36px;font-weight:800;line-height:1;display:flex;align-items:flex-end;gap:8px}
+.brandCopyright{font-size:12px;font-weight:400;line-height:1;color:#647587;margin:0 0 2px 0;white-space:nowrap}
+
+/* v2.4.3: Console is untouched. Other response panes use its typography/size. */
+.feedlog,.commandOutput,#spotRows{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:inherit;
+  line-height:normal;
 }
+#spotRows td{font:inherit}
 
-* { box-sizing: border-box; }
+/* Spots: stable column geometry for Human, RBN, or combined view. */
+.spotTable{table-layout:fixed;min-width:760px}
+.spotTable .spotColSource{width:9%}
+.spotTable .spotColUtc{width:10%}
+.spotTable .spotColFreq{width:10%}
+.spotTable .spotColDx{width:10%}
+.spotTable .spotColSpotter{width:12%}
+.spotTable .spotColComment{width:49%}
+.spotTable th,.spotTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-body {
-  margin: 0;
-  background: #f5f7fa;
-}
-
-main {
-  max-width: 1600px;
-  margin: 0 auto;
-  padding: 22px 28px;
-}
-
-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 18px 22px;
-  color: #fff;
-  background: #187bc1;
-  border-radius: 10px;
-}
-
-.title-line {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-
-h1 {
-  margin: 0;
-  font-size: 2rem;
-  line-height: 1;
-}
-
-.copyright {
-  font-size: .82rem;
-  opacity: .92;
-}
-
-header p {
-  margin: .45rem 0 0;
-  font-size: 1rem;
-  color: #eef7ff;
-}
-
-.badge {
-  padding: 7px 12px;
-  border: 1px solid rgba(255,255,255,.55);
-  border-radius: 999px;
-  font-weight: 600;
-}
-
-.badge[data-state="ready"]::before {
-  content: "●";
-  margin-right: 7px;
-  color: #5df08b;
-}
-
-.toolbar,
-.meta {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  flex-wrap: wrap;
-  margin: 14px 0;
-  padding: 11px 14px;
-  background: #fff;
-  border: 1px solid #dce4ec;
-  border-radius: 9px;
-}
-
-.toolbar label {
-  font-weight: 600;
-}
-
-.toolbar button {
-  margin-left: auto;
-  padding: 7px 12px;
-  border: 1px solid #c8d4df;
-  border-radius: 6px;
-  background: #fff;
-  color: #24364b;
-  cursor: pointer;
-}
-
-.meta {
-  color: #526579;
-}
-
-.table-wrap {
-  height: calc(100vh - 285px);
-  min-height: 320px;
-  overflow-x: auto;
-  overflow-y: scroll;
-  background: #fff;
-  border: 1px solid #d6e0e9;
-  border-radius: 9px;
-  scrollbar-gutter: stable;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: auto;
-}
-
-th,
-td {
-  padding: 8px 12px;
-  text-align: left;
-  border-bottom: 1px solid #e2e8ef;
-  vertical-align: middle;
-}
-
-th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: #edf3f8;
-  color: #23384e;
-  font-size: .92rem;
-}
-
-tbody tr:nth-child(even) {
-  background: #f7f9fb;
-}
-
-tbody tr:hover {
-  background: #edf6fd;
-}
-
-.feed {
-  width: 70px;
-  font-weight: 700;
-}
-
-.feed-human { color: #1378bd; }
-.feed-rbn   { color: #168447; }
-
-.utc {
-  width: 175px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.freq {
-  width: 105px;
-  white-space: nowrap;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.dx {
-  width: 145px;
-  white-space: nowrap;
-  color: #0877c9;
-  font-weight: 700;
-}
-
-.comment {
-  min-width: 320px;
-}
-
-.spotter {
-  width: 150px;
-  white-space: nowrap;
-}
-
-footer {
-  display: flex;
-  gap: 18px;
-  margin-top: 14px;
-  padding: 8px 2px;
-  color: #718196;
-  font-size: .85rem;
-}
-
-@media (max-width: 760px) {
-  main { padding: 10px; }
-  header { border-radius: 0; }
-  .toolbar button { margin-left: 0; }
-  .table-wrap {
-    height: calc(100vh - 300px);
-    min-height: 280px;
-  }
-  th, td { padding: 7px 9px; }
-}
+.spotTable th.spotColUtc,.spotTable td:nth-child(2){transform:translateX(-26px)}

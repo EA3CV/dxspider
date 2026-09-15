@@ -43,7 +43,7 @@ our @ISA = qw(DXCommandmode);
 
 sub new
 {
-	my ($class, $call, $ip, $user) = @_;
+	my ($class, $call, $ip, $user, $priv, $registered) = @_;
 
 	# Reaching this constructor means Web.pm has already verified that this
 	# logical user belongs to this #WEB-n connection and was authenticated by
@@ -58,8 +58,8 @@ sub new
 		sockhost    => $ip,
 		conn        => Web::ActorConn->new($ip),
 		lang        => $user->lang || $main::lang || 'en',
-		priv        => 0,
-		registered  => 1,
+		priv        => defined $priv ? $priv : 0,
+		registered  => defined $registered ? $registered : ($user->registered ? 1 : 0),
 		remotecmd   => 0,
 		inscript    => 0,
 		badip       => DXCIDR::find($ip) || 0,
@@ -167,6 +167,9 @@ sub new
 	$self->{web_version} = 0;
 	$self->{web_users} = {};
 	$self->{web_feed_ann} = 1;
+	$self->{web_feed_wwv} = 1;
+	$self->{web_feed_wcy} = 1;
+	$self->{web_feed_wx} = 1;
 
 	return $self;
 }
@@ -174,7 +177,7 @@ sub new
 sub is_webcluster
 {
 	my $self = shift;
-	return ($self->{web_role} || '') eq 'webcluster';
+	return ($self->{web_role} || '') eq 'webcluster' || ($self->{web_role} || '') eq 'dxweb';
 }
 
 # #WEB output safety. HUMAN/RBN/ANN are disposable; overload must never
@@ -263,9 +266,26 @@ sub _web_control_can_write
 sub announce
 {
 	my $self = shift;
-
-	return if $self->is_webcluster && !$self->{web_feed_ann};
+	if ($self->is_webcluster) {
+		# DXCommandmode::announce args after $line/$isolate are $to,$target,...
+		my $target = $_[3] || '';
+		return if $target eq 'WX' ? !$self->{web_feed_wx} : !$self->{web_feed_ann};
+	}
 	return $self->SUPER::announce(@_);
+}
+
+sub wwv
+{
+	my $self = shift;
+	return if $self->is_webcluster && !$self->{web_feed_wwv};
+	return $self->SUPER::wwv(@_);
+}
+
+sub wcy
+{
+	my $self = shift;
+	return if $self->is_webcluster && !$self->{web_feed_wcy};
+	return $self->SUPER::wcy(@_);
 }
 
 # Keep DXSpider/IntMsg framing untouched, but normalise the WebCluster feed
@@ -273,7 +293,7 @@ sub announce
 # WebCluster technical channel; ordinary Web/CLI channels retain the native
 # DXCommandmode behaviour.
 #
-# X -> HUMAN spot, R -> RBN spot, N -> announcement.
+# X -> HUMAN spot, R -> RBN spot, N -> announcement, V -> WWV, Y -> WCY, W -> WX.
 # Encode a protocol object in a deterministic field order.  DXJSON is still
 # used for each value so escaping and JSON scalar/array handling remain native.
 # DXJSON::encode() deliberately returns undef for a top-level scalar 0
@@ -319,6 +339,9 @@ sub local_send
 			X => 'spot',
 			R => 'rbn',
 			N => 'ann',
+			V => 'wwv',
+			Y => 'wcy',
+			W => 'wx',
 		);
 
 		if (my $type = $type_for{$let}) {
@@ -353,6 +376,7 @@ sub _send_json
 			['type', 'hello'],
 			['role', $data->{role}],
 		);
+		push @pairs, ['auth', $data->{auth}] if exists $data->{auth};
 		push @pairs, ['version', $data->{version}] if exists $data->{version};
 		push @pairs, ['status', $data->{status}] if exists $data->{status};
 		push @pairs, ['error', $data->{error}] if exists $data->{error};
@@ -365,12 +389,12 @@ sub _send_json
 		push @pairs, ['status', $data->{status}] if exists $data->{status};
 		push @pairs, ['action', $data->{action}] if exists $data->{action};
 
-		for my $key (qw(call ip authenticated scope human rbn ann result error messages field)) {
+		for my $key (qw(call ip authenticated auth_source password_required password_used priv registered scope human rbn ann wwv wcy wx result error messages field)) {
 			push @pairs, [$key, $data->{$key}] if exists $data->{$key};
 		}
 
 		# Preserve any future extension fields without disturbing the v1 prefix order.
-		my %known = map { $_ => 1 } qw(type id status action call ip authenticated scope human rbn ann result error messages field);
+		my %known = map { $_ => 1 } qw(type id status action call ip authenticated auth_source password_required password_used priv registered scope human rbn ann wwv wcy wx result error messages field);
 		for my $key (sort grep { !$known{$_} } keys %$data) {
 			push @pairs, [$key, $data->{$key}];
 		}
@@ -446,18 +470,73 @@ sub _locked_out
 	return $lock ? 1 : 0;
 }
 
-sub _user_add
+sub _auth_request
 {
 	my ($self, $req) = @_;
+	my $id = $req->{id};
+
+	unless (($self->{web_role} || '') eq 'dxweb' && ($self->{web_auth} || '') eq 'dxspider') {
+		$self->_error($id, 'auth', 'wrong_auth_mode');
+		return;
+	}
+
+	my $call = _normalise_user_call($req->{call});
+	my $ip = $req->{ip};
+	my $password = exists $req->{password} && !ref($req->{password}) ? $req->{password} : undef;
+
+	unless ($call) { $self->_error($id, 'auth', 'invalid_call'); return; }
+	unless (defined $ip && !ref $ip && is_ipaddr($ip)) {
+		$self->_error($id, 'auth', 'invalid_ip', {call => $call}); return;
+	}
+	$ip =~ s/^::ffff://i;
+	if (DXCIDR::find($ip)) { $self->_error($id, 'auth', 'bad_ip', {call => $call}); return; }
+
+	my $user = DXUser::get_current($call);
+	if (_locked_out($call, $user)) { $self->_error($id, 'auth', 'locked_out', {call => $call}); return; }
+	if ($user && !$user->is_user) { $self->_error($id, 'auth', 'not_user', {call => $call}); return; }
+
+	# Match ExtMsg login semantics exactly: a global password requirement, or
+	# an existing password on this DXUser, requires an exact password match.
+	my $password_required = $main::passwdreq || ($user && $user->passwd) ? 1 : 0;
+	if ($password_required) {
+		unless ($user && defined($password) && $password eq ($user->passwd || '')) {
+			$self->_error($id, 'auth', 'bad_password', {call => $call, password_required => 1});
+			return;
+		}
+	}
+
+	# Reuse the existing logical-user presence path only after DXS authentication.
+	my %u = %$req;
+	$u{authenticated} = 1;
+	$u{type} = 'user_add';
+	$self->_user_add(\%u, {
+		priv => ($password_required && $user) ? ($user->priv || 0) : 0,
+		registered => $user ? ($user->registered ? 1 : 0) : 0,
+		password_used => $password_required ? 1 : 0,
+		auth_source => 'dxspider',
+	});
+}
+
+sub _user_add
+{
+	my ($self, $req, $authmeta) = @_;
 
 	my $id = $req->{id};
 	my $call = _normalise_user_call($req->{call});
 	my $ip = $req->{ip};
 
-	# Authentication is asserted by the trusted WebCluster gateway for this
-	# browser session.  Missing/false means presence-only (guest).  This state
-	# is intentionally kept out of DXUser->{registered}.
-	my $authenticated = $req->{authenticated} ? 1 : 0;
+	# In external mode authentication is asserted by the trusted WebCluster.
+	# In integrated dxweb mode this routine is reached only through _auth_request().
+	# Authentication state is never copied into DXUser->{registered}.
+	my $authenticated = $authmeta ? 1 : ($req->{authenticated} ? 1 : 0);
+	if (($self->{web_auth} || '') eq 'dxspider' && !$authmeta) {
+		$self->_error($id, 'user_add', 'use_auth');
+		return;
+	}
+	if (($self->{web_auth} || '') eq 'external' && !$authenticated) {
+		$self->_error($id, 'user_add', 'authentication_required', {call => $call});
+		return;
+	}
 
 	unless ($call) {
 		$self->_error($id, 'user_add', 'invalid_call');
@@ -539,6 +618,10 @@ sub _user_add
 		ip            => $ip,
 		startt        => $main::systime,
 		authenticated => $authenticated,
+		priv          => $authmeta ? ($authmeta->{priv} || 0) : 0,
+		registered    => $authmeta ? ($authmeta->{registered} || 0) : 0,
+		password_used => $authmeta ? ($authmeta->{password_used} || 0) : 0,
+		auth_source   => $authmeta ? ($authmeta->{auth_source} || 'dxspider') : 'external',
 	};
 
 	$self->tell_login('loginu', $call);
@@ -546,10 +629,14 @@ sub _user_add
 
 	LogDbg('DXCommand', "Web $self->{call} USER_ADD $call from $ip");
 
-	$self->_response($id, 'ok', 'user_add', {
+	$self->_response($id, 'ok', $authmeta ? 'auth' : 'user_add', {
 		call          => $call,
 		ip            => $ip,
 		authenticated => $authenticated,
+		auth_source   => $authmeta ? 'dxspider' : 'external',
+		password_used => $authmeta ? ($authmeta->{password_used} || 0) : 0,
+		priv          => $authmeta ? ($authmeta->{priv} || 0) : 0,
+		registered    => $authmeta ? ($authmeta->{registered} || 0) : 0,
 	});
 }
 
@@ -634,6 +721,12 @@ sub _enable_webcluster_feeds
 	$self->{dx} = 1;
 	$self->{wantrbn} = 1;
 	$self->{web_feed_ann} = 1;
+	$self->{web_feed_wwv} = 1;
+	$self->{web_feed_wcy} = 1;
+	$self->{web_feed_wx} = 1;
+	$self->{wwv} = 1;
+	$self->{wcy} = 1;
+	$self->{wx} = 1;
 	delete $self->{spotsfilter};
 	delete $self->{rbnfilter};
 }
@@ -673,7 +766,10 @@ sub _feed_state
 	return {
 		human    => $self->{dx} ? 1 : 0,
 		rbn      => ($user && $user->wantrbn) ? 1 : 0,
-		ann   => $self->{web_feed_ann} ? 1 : 0,
+		ann      => $self->{web_feed_ann} ? 1 : 0,
+		wwv      => $self->{web_feed_wwv} ? 1 : 0,
+		wcy      => $self->{web_feed_wcy} ? 1 : 0,
+		wx       => $self->{web_feed_wx} ? 1 : 0,
 	};
 }
 
@@ -689,7 +785,7 @@ sub _feed_request
 	}
 
 	my %changes;
-	for my $field (qw(human rbn ann)) {
+	for my $field (qw(human rbn ann wwv wcy wx)) {
 		next unless exists $req->{$field};
 		my $value = _feed_bool($req->{$field});
 		unless (defined $value) {
@@ -709,15 +805,16 @@ sub _feed_request
 		$self->{wantrbn} = $changes{rbn};
 	}
 
-	if (exists $changes{ann}) {
-		$self->{web_feed_ann} = $changes{ann};
-	}
+	if (exists $changes{ann}) { $self->{web_feed_ann} = $changes{ann}; }
+	if (exists $changes{wwv}) { $self->{web_feed_wwv} = $changes{wwv}; $self->{wwv} = $changes{wwv}; }
+	if (exists $changes{wcy}) { $self->{web_feed_wcy} = $changes{wcy}; $self->{wcy} = $changes{wcy}; }
+	if (exists $changes{wx})  { $self->{web_feed_wx}  = $changes{wx};  $self->{wx}  = $changes{wx}; }
 
 	my $state = $self->_feed_state;
 
 	LogDbg('DXCommand', sprintf(
-		'Web %s FEED human=%d rbn=%d ann=%d',
-		$self->{call}, $state->{human}, $state->{rbn}, $state->{ann}
+		'Web %s FEED human=%d rbn=%d ann=%d wwv=%d wcy=%d wx=%d',
+		$self->{call}, $state->{human}, $state->{rbn}, $state->{ann}, $state->{wwv}, $state->{wcy}, $state->{wx}
 	));
 
 	$self->_response($id, 'ok', 'feed', $state);
@@ -747,7 +844,7 @@ sub _actor_for_call
 	return (undef, $call, 'invalid_ip')
 		unless defined $ip && is_ipaddr($ip);
 
-	return (Web::Actor->new($call, $ip, $user), $call, undef);
+	return (Web::Actor->new($call, $ip, $user, $owned->{priv}, $owned->{registered}), $call, undef);
 }
 
 sub _wc_text
@@ -790,6 +887,21 @@ sub _run_wc_command
 	my @messages = grep { defined $_ && length $_ } (@returned, @captured);
 
 	return @messages ? ('message', \@messages) : ('processed', []);
+}
+
+sub _command_request
+{
+	my ($self, $req) = @_;
+	my $id = $req->{id};
+	my ($actor, $call, $err) = $self->_actor_for_call($req->{call});
+	unless ($actor) { $self->_error($id, 'command', $err, $call ? {call => $call} : undef); return; }
+	my $command = _wc_text($req->{command}, 0);
+	unless (defined $command) { $self->_error($id, 'command', 'bad_arguments', {call => $call}); return; }
+	my (@returned, $ok);
+	$ok = eval { @returned = $actor->run_cmd($command); 1 };
+	unless ($ok) { LogDbg('err', "Web $self->{call}: command failed: $@"); $self->_error($id, 'command', 'internal_error', {call => $call}); return; }
+	my @messages = grep { defined $_ && length $_ } (@returned, $actor->output);
+	$self->_response($id, 'ok', 'command', {call => $call, messages => \@messages});
 }
 
 sub _spot_request
@@ -890,36 +1002,41 @@ sub normal
 	unless ($self->is_webcluster) {
 		my $req = $json->decode($line);
 
-		if ($req && ref $req eq 'HASH' &&
-			($req->{type} || '') eq 'hello' &&
-			($req->{role} || '') eq 'webcluster') {
+		if ($req && ref $req eq 'HASH' && ($req->{type} || '') eq 'hello' &&
+			(($req->{role} || '') eq 'webcluster' || ($req->{role} || '') eq 'dxweb')) {
 
 			my $version = $req->{version};
+			my $role = $req->{role};
+			my $expected_auth = $role eq 'dxweb' ? 'dxspider' : 'external';
 
-			unless (defined $version && !ref $version && $version =~ /^\d+$/ && $version == 1) {
+			unless (defined $version && !ref $version && $version =~ /^\d+$/ &&
+				(($role eq 'webcluster' && ($version == 1 || $version == 2)) || ($role eq 'dxweb' && $version == 2))) {
 				$self->_send_json({
 					type      => 'hello',
-					role      => 'webcluster',
+					role      => $role,
 					status    => 'error',
 					error     => 'unsupported_version',
-					supported => [1],
+					supported => $role eq 'dxweb' ? [2] : [1,2],
 				});
 				return;
 			}
 
-			$self->{web_role} = 'webcluster';
+			$self->{web_role} = $role;
+			$self->{web_auth} = $expected_auth;
 			$self->{web_version} = $version;
 			$self->_enable_webcluster_backpressure;
 			$self->_enable_webcluster_feeds;
 
-			LogDbg('DXCommand', "Web $self->{call} switched to webcluster protocol v$version");
+			LogDbg('DXCommand', "Web $self->{call} switched to $role protocol v$version auth=$expected_auth");
 
-			$self->_send_json({
+			my $hello = {
 				type    => 'hello',
-				role    => 'webcluster',
-				version => 1,
+				role    => $role,
+				version => $version,
 				status  => 'ok',
-			});
+			};
+			$hello->{auth} = $expected_auth if $role eq 'dxweb' || $version >= 2;
+			$self->_send_json($hello);
 			return;
 		}
 
@@ -949,6 +1066,11 @@ sub normal
 		return;
 	}
 
+	if ($type eq 'auth') {
+		$self->_auth_request($req);
+		return;
+	}
+
 	if ($type eq 'user_add') {
 		$self->_user_add($req);
 		return;
@@ -961,6 +1083,11 @@ sub normal
 
 	if ($type eq 'feed') {
 		$self->_feed_request($req);
+		return;
+	}
+
+	if ($type eq 'command') {
+		$self->_command_request($req);
 		return;
 	}
 

@@ -1,3 +1,5 @@
+# DXSpider Web 2.5.0
+# Date: 2026-09-15
 #!/usr/bin/env perl
 use strict;
 use warnings;
@@ -9,417 +11,140 @@ use Time::HiRes qw(time);
 
 my $DXS_HOST = $ENV{DXS_HOST} // '127.0.0.1';
 my $DXS_PORT = $ENV{DXS_PORT} // 27754;
-my $FEED_HUMAN = exists $ENV{FEED_HUMAN} ? !!$ENV{FEED_HUMAN} : 1;
-my $FEED_RBN   = exists $ENV{FEED_RBN}   ? !!$ENV{FEED_RBN}   : 1;
-my $RECONNECT  = $ENV{RECONNECT_SEC} // 3;
-
-# All application-owned buffers are bounded. Web data is disposable by design:
-# overload must drop web data or a slow browser, never pressure DXSpider.
-my $MAX_INPUT_BYTES   = $ENV{MAX_INPUT_BYTES}   // (256 * 1024);
-my $MAX_HISTORY       = $ENV{MAX_HISTORY}       // 250;
-my $MAX_HISTORY_BYTES = $ENV{MAX_HISTORY_BYTES} // (512 * 1024);
-my $MAX_FANOUT_ITEMS  = $ENV{MAX_FANOUT_ITEMS}  // 256;
-my $MAX_FANOUT_BYTES  = $ENV{MAX_FANOUT_BYTES}  // (512 * 1024);
-my $WS_HIGH_WATER     = $ENV{WS_HIGH_WATER}     // (64 * 1024);
-my $REPLAY_BATCH      = $ENV{REPLAY_BATCH}      // 8;
-my $FANOUT_BATCH      = $ENV{FANOUT_BATCH}      // 32;
-
-for my $pair (
-  [MAX_INPUT_BYTES   => $MAX_INPUT_BYTES],
-  [MAX_HISTORY       => $MAX_HISTORY],
-  [MAX_HISTORY_BYTES => $MAX_HISTORY_BYTES],
-  [MAX_FANOUT_ITEMS  => $MAX_FANOUT_ITEMS],
-  [MAX_FANOUT_BYTES  => $MAX_FANOUT_BYTES],
-  [WS_HIGH_WATER     => $WS_HIGH_WATER],
-  [REPLAY_BATCH      => $REPLAY_BATCH],
-  [FANOUT_BATCH      => $FANOUT_BATCH],
-) {
-  die "$pair->[0] must be a positive integer\n"
-    unless defined($pair->[1]) && $pair->[1] =~ /^\d+$/ && $pair->[1] > 0;
-}
+my $RECONNECT = $ENV{RECONNECT_SEC} // 3;
+my $MAX_INPUT_BYTES = $ENV{MAX_INPUT_BYTES} // 262144;
+my $MAX_HISTORY = $ENV{MAX_HISTORY} // 250;
+my $MAX_HISTORY_BYTES = $ENV{MAX_HISTORY_BYTES} // 524288;
+my $MAX_FANOUT_ITEMS = $ENV{MAX_FANOUT_ITEMS} // 256;
+my $MAX_FANOUT_BYTES = $ENV{MAX_FANOUT_BYTES} // 524288;
+my $WS_HIGH_WATER = $ENV{WS_HIGH_WATER} // 65536;
+my $REPLAY_BATCH = $ENV{REPLAY_BATCH} // 8;
+my $FANOUT_BATCH = $ENV{FANOUT_BATCH} // 32;
 
 app->static->paths->[0] = app->home->rel_file('public');
-app->secrets(['dxspider-rx-reference-only']);
+app->secrets([$ENV{DXWEB_SECRET} // 'dxspider-dxweb-v2']);
 
-my %state = (
-  state => 'disconnected',
-  web_call => undef,
-  error => undef,
-  connected_since => undef,
-);
-my @history;             # [object, encoded_json, encoded_bytes]
-my $history_bytes = 0;
-my @fanout;
-my $fanout_bytes = 0;
-my $fanout_scheduled = 0;
-my %clients;
-my $next_client_id = 1;
-my $stream;
-my $buffer = '';
-my $request_id = 1;
-my $reconnect_timer;
-my %counters = (
-  human => 0, rbn => 0, total => 0, reconnects => 0,
-  input_overflow => 0,
-  fanout_dropped => 0,
-  ws_sent => 0, ws_dropped => 0, ws_slow_disconnects => 0,
-);
+my %state=(state=>'disconnected',web_call=>undef,error=>undef,connected_since=>undef);
+my ($stream,$buffer,$reconnect_timer)=(undef,'',undef);
+my $request_id=1; my $next_client_id=1;
+my (%clients,%pending); my (@history,@fanout); my ($history_bytes,$fanout_bytes,$fanout_scheduled)=(0,0,0);
+my %counters=map {$_=>0} qw(human rbn ann wwv wcy wx total reconnects input_overflow fanout_dropped ws_sent ws_dropped ws_slow_disconnects auth_ok auth_failed commands);
 my $last_feed_at;
 
-sub ws_stream ($tx) {
-  return unless $tx && $tx->can('connection');
-  my $id = $tx->connection;
-  return unless defined $id;
-  return Mojo::IOLoop->stream($id);
+sub ws_stream($tx){ return unless $tx && $tx->can('connection'); my $id=$tx->connection; return defined($id)?Mojo::IOLoop->stream($id):undef }
+sub public_status(){ return {type=>'status',%state,dxs_host=>$DXS_HOST,dxs_port=>0+$DXS_PORT,counters=>{%counters},last_feed_at=>$last_feed_at,websocket_clients=>scalar(keys %clients),history_items=>scalar(@history),history_bytes=>$history_bytes,fanout_items=>scalar(@fanout),fanout_bytes=>$fanout_bytes} }
+sub client_status($id){ my $o=public_status(); my $cl=$clients{$id}; $o->{authenticated}=($cl&&$cl->{authenticated})?\1:\0; if($cl&&$cl->{authenticated}){$o->{call}=$cl->{call};$o->{registered}=$cl->{registered}?\1:\0;$o->{password_used}=$cl->{password_used}?\1:\0} return $o }
+sub drop_slow_client($id){ my $cl=delete $clients{$id} or return; $counters{ws_slow_disconnects}++; eval{$cl->{tx}->finish(1013=>'slow consumer')} }
+sub ws_send_guarded($id,$json){ my $cl=$clients{$id} or return 0; my $tx=$cl->{tx}; return 0 unless $tx&&$tx->is_websocket; my $s=ws_stream($tx); unless($s&&$s->can('can_write')&&$s->can('bytes_waiting')){$counters{ws_dropped}++;drop_slow_client($id);return 0} my $w=$s->bytes_waiting; my $n=length($json); if(!$s->can_write||$n>$WS_HIGH_WATER||$w+$n>$WS_HIGH_WATER){$counters{ws_dropped}++;drop_slow_client($id);return 0} my $ok=eval{$tx->send($json);1}; if(!$ok){delete $clients{$id};return 0} $counters{ws_sent}++;1 }
+sub pump_fanout { $fanout_scheduled=0; my $b=$FANOUT_BATCH; while($b-->0&&@fanout){my $j=shift@fanout;$fanout_bytes-=length$j; for my $id(keys%clients){next unless $clients{$id}{authenticated};ws_send_guarded($id,$j)}} if(@fanout&&!$fanout_scheduled){$fanout_scheduled=1;Mojo::IOLoop->next_tick(\&pump_fanout)} }
+sub queue_fanout($j){ return 1 unless grep {$clients{$_}{authenticated}} keys%clients; my $n=length$j; if(@fanout>=$MAX_FANOUT_ITEMS||$fanout_bytes+$n>$MAX_FANOUT_BYTES){$counters{fanout_dropped}++;return 0} push@fanout,$j;$fanout_bytes+=$n; unless($fanout_scheduled){$fanout_scheduled=1;Mojo::IOLoop->next_tick(\&pump_fanout)} 1 }
+sub set_state($n,$e=undef){$state{state}=$n;$state{error}=$e;$state{web_call}=undef if $n eq 'disconnected'||$n eq 'connecting';$state{connected_since}=time if $n eq 'tcp_connected'; for my $id(keys%clients){ws_send_guarded($id,encode_json(client_status($id)))}}
+sub history_add($o,$j){my$n=length$j;push@history,[$o,$j,$n];$history_bytes+=$n;while(@history>$MAX_HISTORY||$history_bytes>$MAX_HISTORY_BYTES){my$x=shift@history;$history_bytes-=$x->[2]}}
+sub push_feed($kind,$raw){my$payload=$raw;my$d;eval{$d=decode_json($raw)};$payload=$d->{payload} if !$@&&ref$d eq 'HASH'&&exists$d->{payload};$counters{$kind}++ if exists$counters{$kind};$counters{total}++;$last_feed_at=scalar(gmtime()).'Z';my$o={type=>'feed',feed=>$kind,received_at=>$last_feed_at,payload=>$payload,counters=>{%counters}};my$j=encode_json$o;history_add($o,$j);queue_fanout($j)}
+sub send_line($l){return unless$stream;$stream->write($l."\n")}
+sub send_dxs($o){return unless$state{web_call};send_line('I'.$state{web_call}.'|'.encode_json($o))}
+sub dxs_request($cid,$action,$o){my$id=$request_id++;$o->{id}=$id;$pending{$id}={client=>$cid,action=>$action};send_dxs($o);return$id}
+sub replay_history($id,$pos=0){
+	return unless $clients{$id} && $clients{$id}{authenticated};
+	return if $pos > $#history;
+
+	my $cl = $clients{$id} or return;
+	my $s = ws_stream($cl->{tx}) or return;
+
+	# History replay is optional/catch-up traffic.  Never let it trip the
+	# slow-consumer disconnect used for live WebSocket traffic.  Only queue
+	# another replay batch while there is enough room in the socket buffer.
+	# If the socket is still busy, yield to the event loop and retry the same
+	# position later; DXSpider input/feed processing remains fully asynchronous.
+	if (!$s->can_write || $s->bytes_waiting >= int($WS_HIGH_WATER / 2)) {
+		Mojo::IOLoop->timer(0.05, sub { replay_history($id,$pos) })
+			if $clients{$id} && $clients{$id}{authenticated};
+		return;
+	}
+
+	my $end = $pos + $REPLAY_BATCH - 1;
+	$end = $#history if $end > $#history;
+
+	for my $i ($pos .. $end) {
+		return unless $clients{$id} && $clients{$id}{authenticated};
+		my $json = $history[$i][1];
+		my $n = length $json;
+
+		# Do not call ws_send_guarded() when this optional replay item would
+		# cross the high-water mark: yield and retry this item later instead.
+		my $cur = $s->bytes_waiting;
+		if (!$s->can_write || $n > $WS_HIGH_WATER || $cur + $n > $WS_HIGH_WATER) {
+			Mojo::IOLoop->timer(0.05, sub { replay_history($id,$i) })
+				if $clients{$id} && $clients{$id}{authenticated};
+			return;
+		}
+
+		return unless ws_send_guarded($id,$json);
+	}
+
+	my $next = $end + 1;
+	Mojo::IOLoop->next_tick(sub { replay_history($id,$next) })
+		if $next <= $#history && $clients{$id} && $clients{$id}{authenticated};
 }
-
-sub status_obj {
-  return {
-    type => 'status',
-    %state,
-    dxs_host => $DXS_HOST,
-    dxs_port => 0 + $DXS_PORT,
-    feeds => { human => $FEED_HUMAN ? \1 : \0, rbn => $FEED_RBN ? \1 : \0 },
-    counters => { %counters },
-    last_feed_at => $last_feed_at,
-    websocket_clients => scalar(keys %clients),
-    history_items => scalar(@history),
-    history_bytes => $history_bytes,
-    fanout_items => scalar(@fanout),
-    fanout_bytes => $fanout_bytes,
-  };
+sub handle_response($msg){my$id=$msg->{id};my$p=delete$pending{$id} or return;my$cid=$p->{client};my$cl=$clients{$cid} or return;if($p->{action} eq 'auth'){if(($msg->{status}//'')eq 'ok'){ $cl->{authenticated}=1;$cl->{call}=$msg->{call};$cl->{registered}=$msg->{registered}?1:0;$cl->{password_used}=$msg->{password_used}?1:0;$counters{auth_ok}++;ws_send_guarded($cid,encode_json({type=>'auth',status=>'ok',call=>$msg->{call},priv=>0+($msg->{priv}//0),registered=>$msg->{registered}?\1:\0,password_used=>$msg->{password_used}?\1:\0}));ws_send_guarded($cid,encode_json(client_status($cid)));Mojo::IOLoop->next_tick(sub{replay_history($cid,0)})}else{$counters{auth_failed}++;ws_send_guarded($cid,encode_json({type=>'auth',status=>'error',error=>$msg->{error}//'authentication_failed'}))}return} if($p->{action} eq 'command'){
+  $counters{commands}++; my @m=@{$msg->{messages}||[]}; my @chunks; my @cur; my $bytes=0;
+  for my $line(@m){my$n=length(defined($line)?$line:'')+8;if(@cur&&$bytes+$n>4096){push@chunks,[@cur];@cur=();$bytes=0}push@cur,$line;$bytes+=$n}
+  push@chunks,[@cur] if @cur; @chunks=([]) unless @chunks;
+  my$i=0;my$send_chunk;$send_chunk=sub{return unless$clients{$cid};my$json=encode_json({type=>'command_result',status=>$msg->{status}//'error',messages=>$chunks[$i],error=>$msg->{error},final=>($i==$#chunks?\1:\0)});return unless ws_send_guarded($cid,$json);$i++;Mojo::IOLoop->timer(0.02,$send_chunk) if$i<@chunks};$send_chunk->();return
 }
-
-sub drop_slow_client ($id) {
-  my $tx = delete $clients{$id} or return;
-  $counters{ws_slow_disconnects}++;
-  eval { $tx->finish(1013 => 'slow consumer') };
+if($p->{action} eq 'logout'){
+  my$ok=(($msg->{status}//'')eq'ok'||($msg->{error}//'')eq'not_owned');
+  if($ok){$cl->{authenticated}=0;delete$cl->{call};delete$cl->{registered};delete$cl->{password_used}}
+  ws_send_guarded($cid,encode_json({type=>'logout_result',status=>$ok?'ok':'error',error=>$ok?undef:($msg->{error}//'logout_failed')}));
+  ws_send_guarded($cid,encode_json(client_status($cid)));return
 }
-
-sub ws_send_guarded ($id, $json) {
-  my $tx = $clients{$id};
-  return 0 unless $tx && $tx->is_websocket;
-
-  my $s = ws_stream($tx);
-
-  # If the socket cannot be inspected, do not enqueue blindly.
-  # Sacrifice the browser, never the DXSpider receive path.
-  unless ($s && $s->can('can_write') && $s->can('bytes_waiting')) {
-    $counters{ws_dropped}++;
-    drop_slow_client($id);
-    return 0;
-  }
-
-  my $waiting = $s->bytes_waiting;
-  my $bytes = length($json);
-
-  if (!$s->can_write || $bytes > $WS_HIGH_WATER ||
-      $waiting + $bytes > $WS_HIGH_WATER) {
-    $counters{ws_dropped}++;
-    drop_slow_client($id);
-    return 0;
-  }
-
-  my $ok = eval { $tx->send($json); 1 };
-  unless ($ok) {
-    $counters{ws_dropped}++;
-    delete $clients{$id};
-    return 0;
-  }
-
-  $counters{ws_sent}++;
-  return 1;
-}
-
-sub pump_fanout {
-  $fanout_scheduled = 0;
-  my $budget = $FANOUT_BATCH;
-
-  while ($budget-- > 0 && @fanout) {
-    my $json = shift @fanout;
-    $fanout_bytes -= length($json);
-    ws_send_guarded($_, $json) for keys %clients;
-  }
-
-  if (@fanout && !$fanout_scheduled) {
-    $fanout_scheduled = 1;
-    Mojo::IOLoop->next_tick(\&pump_fanout);
-  }
-}
-
-sub queue_fanout_json ($json) {
-  # No browser means no fanout allocations/work. History is separate.
-  return 1 unless %clients;
-
-  my $len = length($json);
-  if (@fanout >= $MAX_FANOUT_ITEMS || $fanout_bytes + $len > $MAX_FANOUT_BYTES) {
-    $counters{fanout_dropped}++;
-    return 0;
-  }
-
-  push @fanout, $json;
-  $fanout_bytes += $len;
-
-  unless ($fanout_scheduled) {
-    $fanout_scheduled = 1;
-    Mojo::IOLoop->next_tick(\&pump_fanout);
-  }
-  return 1;
-}
-
-sub queue_status {
-  return unless %clients;
-  queue_fanout_json(encode_json(status_obj()));
-}
-
-sub set_state ($name, $error = undef) {
-  $state{state} = $name;
-  $state{error} = $error;
-  $state{web_call} = undef if $name eq 'disconnected' || $name eq 'connecting';
-  $state{connected_since} = time if $name eq 'tcp_connected';
-  queue_status();
-}
-
-sub history_add ($obj, $encoded) {
-  my $len = length($encoded);
-  push @history, [$obj, $encoded, $len];
-  $history_bytes += $len;
-
-  while (@history > $MAX_HISTORY || $history_bytes > $MAX_HISTORY_BYTES) {
-    my $old = shift @history;
-    $history_bytes -= $old->[2];
-  }
-}
-
-sub push_feed ($kind, $raw) {
-  my $payload = $raw;
-  my $decoded;
-  eval { $decoded = decode_json($raw) };
-  if (!$@ && ref($decoded) eq 'HASH' && exists $decoded->{payload}) {
-    $payload = $decoded->{payload};
-  }
-
-  $counters{$kind}++ if exists $counters{$kind};
-  $counters{total}++;
-  $last_feed_at = scalar gmtime() . 'Z';
-
-  my $obj = {
-    type => 'feed',
-    feed => $kind,
-    received_at => scalar gmtime() . 'Z',
-    payload => $payload,
-    raw => $raw,
-    counters => { %counters },
-  };
-  my $encoded = encode_json($obj);
-  history_add($obj, $encoded);
-  queue_fanout_json($encoded);
-}
-
-sub send_line ($line) {
-  return unless $stream;
-  $stream->write($line . "\n");
-}
-
-sub send_json ($obj) {
-  return unless $state{web_call};
-  send_line('I' . $state{web_call} . '|' . encode_json($obj));
-}
-
-sub handle_line ($line) {
+if($p->{action} eq 'spot'){ws_send_guarded($cid,encode_json({type=>'spot_result',status=>$msg->{status}//'error',messages=>$msg->{messages}||[],error=>$msg->{error},result=>$msg->{result}}));return}
+if($p->{action} eq 'ann'){ws_send_guarded($cid,encode_json({type=>'ann_result',status=>$msg->{status}//'error',messages=>$msg->{messages}||[],error=>$msg->{error},result=>$msg->{result},scope=>$msg->{scope}}));return}
+ws_send_guarded($cid,encode_json($msg))}
+sub handle_line($line) {
   $line =~ s/\r$//;
   return if $line eq '';
-
   if (!$state{web_call} && $line =~ /^C(#WEB-\d+)\s*$/) {
-    $state{web_call} = $1;
-    set_state('wait_prompt');
-    return;
+    $state{web_call}=$1; set_state('wait_prompt'); return;
   }
-
   if ($state{web_call} && $line =~ /^D\Q$state{web_call}\E\|(.*)$/s) {
-    my $body = $1;
+    my $body=$1;
+    if ($body =~ /^Hello\s+web,\s+this\s+is\s+([A-Z0-9-]+)/i) {
+      $state{node_call}=uc $1;
+      for my $id (keys %clients) { ws_send_guarded($id,encode_json(client_status($id))) }
+    }
     if ($state{state} eq 'wait_prompt') {
-      if ($body =~ /dxspider\s*>\s*$/i) {
-        set_state('wait_hello');
-        send_json({ type => 'hello', role => 'webcluster', version => 1 });
-      }
+      if ($body =~ /dxspider\s*>\s*$/i) { set_state('wait_hello'); send_dxs({type=>'hello',role=>'dxweb',auth=>'dxspider',version=>2}); }
       return;
     }
-
-    my $msg;
-    eval { $msg = decode_json($body) };
-    return if $@ || ref($msg) ne 'HASH';
-
-    if (($msg->{type} // '') eq 'spot') {
-      push_feed('human', $body);
-      return;
-    }
-    if (($msg->{type} // '') eq 'rbn') {
-      push_feed('rbn', $body);
-      return;
-    }
-
-    if (($msg->{type} // '') eq 'hello' && ($msg->{role} // '') eq 'webcluster') {
-      if (($msg->{status} // '') eq 'ok') {
+    my $m; eval { $m=decode_json $body }; return if $@ || ref($m) ne 'HASH';
+    if (($m->{type}//'') eq 'hello') {
+      if (($m->{status}//'') eq 'ok' && ($m->{role}//'') eq 'dxweb' && ($m->{auth}//'') eq 'dxspider') {
         set_state('configuring_feeds');
-        my $id = $request_id++;
-        send_json({
-          type => 'feed', id => $id,
-          human => $FEED_HUMAN ? \1 : \0,
-          rbn => $FEED_RBN ? \1 : \0,
-          ann => \0,
-        });
-      } else {
-        set_state('hello_error', $msg->{error} // 'hello failed');
-      }
+        dxs_request(0,'feed',{type=>'feed',human=>\1,rbn=>\1,ann=>\1,wwv=>\1,wcy=>\1,wx=>\1});
+      } else { set_state('hello_error',$m->{error}//'hello failed'); }
       return;
     }
-
-    if (($msg->{type} // '') eq 'response' && (($msg->{op} // $msg->{action} // '') eq 'feed')) {
-      if (($msg->{status} // '') eq 'ok') {
-        set_state('ready');
-      } else {
-        set_state('feed_error', $msg->{error} // 'feed configuration failed');
+    if (($m->{type}//'') eq 'response') {
+      if (($m->{action}//'') eq 'feed' && $state{state} eq 'configuring_feeds') {
+        delete $pending{$m->{id}}; set_state(($m->{status}//'') eq 'ok' ? 'ready' : 'feed_error',$m->{error}); return;
       }
+      handle_response($m); return;
     }
     return;
   }
-
-  # Compatibility with enhanced framing.
-  if ($state{web_call} && $line =~ /^X\Q$state{web_call}\E\|(.*)$/s) {
-    push_feed('human', $1);
-    return;
-  }
-  if ($state{web_call} && $line =~ /^R\Q$state{web_call}\E\|(.*)$/s) {
-    push_feed('rbn', $1);
-    return;
+  my %map=(X=>'human',R=>'rbn',N=>'ann',V=>'wwv',Y=>'wcy',W=>'wx');
+  for my $let (keys %map) {
+    if ($state{web_call} && $line =~ /^\Q$let$state{web_call}\E\|(.*)$/s) { push_feed($map{$let},$1); return; }
   }
 }
-
-sub schedule_reconnect;
-sub connect_dxs {
-  return if $stream;
-  set_state('connecting');
-  Mojo::IOLoop->client({address => $DXS_HOST, port => $DXS_PORT} => sub ($loop, $err, $s) {
-    if ($err) {
-      set_state('disconnected', $err);
-      schedule_reconnect();
-      return;
-    }
-
-    $stream = $s;
-    $s->timeout(0);
-    $buffer = '';
-    set_state('tcp_connected');
-    send_line('A#WEB|{"role":"webcluster","version":1}');
-    set_state('wait_assignment');
-
-    $s->on(read => sub ($this, $bytes) {
-      return unless $stream && $this == $stream;
-      $buffer .= $bytes;
-
-	  # Web data is disposable: reject any input burst larger than the bound,
-	  # even when it contains one or more complete lines.
-	  if (length($buffer) > $MAX_INPUT_BYTES) {
-        $counters{input_overflow}++;
-        $buffer = '';
-        $this->close;
-        return;
-      }
-
-      while (1) {
-        my $nl = index($buffer, "\n");
-        last if $nl < 0;
-        my $line = substr($buffer, 0, $nl, '');
-        substr($buffer, 0, 1, '');
-
-        if (length($line) > $MAX_INPUT_BYTES) {
-          $counters{input_overflow}++;
-          next;
-        }
-        handle_line($line);
-      }
-    });
-
-    $s->on(close => sub ($this) {
-      return unless $stream && $this == $stream;
-      $stream = undef;
-      $buffer = '';
-      $counters{reconnects}++;
-      set_state('disconnected', 'DXSpider connection closed');
-      schedule_reconnect();
-    });
-
-    $s->on(error => sub ($this, $err) {
-      return unless $stream && $this == $stream;
-      set_state('transport_error', $err);
-      $this->close;
-    });
-  });
-}
-
-sub schedule_reconnect {
-  return if $reconnect_timer;
-  $reconnect_timer = Mojo::IOLoop->timer($RECONNECT => sub {
-    undef $reconnect_timer;
-    connect_dxs();
-  });
-}
-
-sub replay_history ($id, $pos = 0) {
-  return unless exists $clients{$id};
-  return if $pos > $#history;
-
-  my $end = $pos + $REPLAY_BATCH - 1;
-  $end = $#history if $end > $#history;
-
-  for my $i ($pos .. $end) {
-    return unless exists $clients{$id};
-    return unless ws_send_guarded($id, $history[$i][1]);
-  }
-
-  my $next = $end + 1;
-  Mojo::IOLoop->next_tick(sub { replay_history($id, $next) })
-    if $next <= $#history && exists $clients{$id};
-}
-
-hook before_server_start => sub ($server, $app) {
-  Mojo::IOLoop->next_tick(sub { connect_dxs() });
-};
-
-get '/' => sub ($c) { $c->reply->static('index.html') };
-
-get '/healthz' => sub ($c) {
-  my $ok = $state{state} eq 'ready';
-  $c->render(status => $ok ? 200 : 503, json => status_obj());
-};
-
-any [qw(POST PUT PATCH DELETE)] => '/*whatever' => sub ($c) {
-  $c->render(status => 405, json => {error => 'read_only_service'});
-};
-
-websocket '/ws' => sub ($c) {
-  my $id = $next_client_id++;
-  my $tx = $c->tx;
-  my $s = ws_stream($tx);
-
-  # If backpressure cannot be inspected/enforced, refuse the browser.
-  unless ($s && $s->can('high_water_mark') &&
-          $s->can('can_write') && $s->can('bytes_waiting')) {
-    $c->finish(1011 => 'backpressure unavailable');
-    return;
-  }
-
-  $s->high_water_mark($WS_HIGH_WATER);
-  $clients{$id} = $tx;
-  $c->inactivity_timeout(0);
-
-  ws_send_guarded($id, encode_json(status_obj()));
-  Mojo::IOLoop->next_tick(sub { replay_history($id, 0) });
-
-  # Strict RX-only browser surface: incoming WS messages are ignored.
-  $c->on(message => sub ($c, $msg) { });
-  $c->on(finish => sub { delete $clients{$id} });
-};
-
+sub schedule_reconnect;sub connect_dxs(){return if$stream;set_state('connecting');Mojo::IOLoop->client({address=>$DXS_HOST,port=>$DXS_PORT}=>sub($loop,$err,$s){if($err){set_state('disconnected',$err);schedule_reconnect();return}$stream=$s;$s->timeout(0);$buffer='';set_state('tcp_connected');send_line('A#WEB|dxweb enhanced');set_state('wait_assignment');$s->on(read=>sub($this,$bytes){return unless$stream&&$this==$stream;$buffer.=$bytes;if(length$buffer>$MAX_INPUT_BYTES){$counters{input_overflow}++;$buffer='';$this->close;return}while(1){my$n=index($buffer,"\n");last if$n<0;my$l=substr($buffer,0,$n,'');substr($buffer,0,1,'');handle_line($l)}});$s->on(close=>sub($this){return unless$stream&&$this==$stream;$stream=undef;$buffer='';%pending=();for my$id(keys%clients){$clients{$id}{authenticated}=0;delete$clients{$id}{call}}$counters{reconnects}++;set_state('disconnected','DXSpider connection closed');schedule_reconnect()});$s->on(error=>sub($this,$err){set_state('transport_error',$err);$this->close})})}
+sub schedule_reconnect{return if$reconnect_timer;$reconnect_timer=Mojo::IOLoop->timer($RECONNECT=>sub{undef$reconnect_timer;connect_dxs()})}
+hook before_server_start=>sub($server,$app){Mojo::IOLoop->next_tick(sub{connect_dxs()})};
+get '/'=>sub($c){$c->reply->static('index.html')};
+get '/healthz'=>sub($c){$c->render(status=>$state{state}eq 'ready'?200:503,json=>public_status())};
+any [qw(POST PUT PATCH DELETE)]=>'/*whatever'=>sub($c){$c->render(status=>405,json=>{error=>'websocket_api_only'})};
+websocket '/ws'=>sub($c){my$id=$next_client_id++;my$tx=$c->tx;my$s=ws_stream($tx);unless($s&&$s->can('high_water_mark')&&$s->can('can_write')&&$s->can('bytes_waiting')){$c->finish(1011=>'backpressure unavailable');return}$s->high_water_mark($WS_HIGH_WATER);my$ip=$tx->remote_address||'127.0.0.1';$ip=~s/^::ffff://i;$clients{$id}={tx=>$tx,ip=>$ip,authenticated=>0};$c->inactivity_timeout(0);ws_send_guarded($id,encode_json(client_status($id)));$c->on(message=>sub($c,$raw){my$m;eval{$m=decode_json$raw};return if$@||ref$m ne 'HASH';my$t=lc($m->{type}//'');if($t eq 'auth'){return unless$state{state}eq 'ready';return if$clients{$id}{authenticated};my$call=$m->{call}//'';my$pass=exists$m->{password}?$m->{password}:undef;dxs_request($id,'auth',{type=>'auth',call=>$call,password=>$pass,ip=>$clients{$id}{ip}});return}if($t eq 'logout'){return unless$clients{$id}{authenticated};dxs_request($id,'logout',{type=>'user_del',call=>$clients{$id}{call}});return}return unless$clients{$id}{authenticated};if($t eq 'command'){my$cmd=$m->{command}//'';dxs_request($id,'command',{type=>'command',call=>$clients{$id}{call},command=>$cmd});return}
+if($t eq 'spot'){my$freq=$m->{freq}//'';my$dxcall=$m->{dxcall}//'';my$comment=$m->{comment}//'';dxs_request($id,'spot',{type=>'spot',call=>$clients{$id}{call},freq=>$freq,dxcall=>$dxcall,comment=>$comment});return}
+if($t eq 'ann'){my$text=$m->{text}//'';my$scope=$m->{scope}//'local';dxs_request($id,'ann',{type=>'ann',call=>$clients{$id}{call},text=>$text,scope=>$scope});return}});$c->on(finish=>sub{my$cl=delete$clients{$id};if($cl&&$cl->{authenticated}&&$state{state}eq 'ready'){send_dxs({type=>'user_del',id=>$request_id++,call=>$cl->{call}})}for my$rid(keys%pending){delete$pending{$rid} if$pending{$rid}{client}==$id}})};
 app->start;
