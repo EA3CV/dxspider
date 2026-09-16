@@ -191,3 +191,12 @@ SYSOP operations. `register/request` is shared between normal users and SYSOPs.
 
 Registration operations are local to the node on which they are executed.
 There is no automatic cross-node propagation in V1.
+
+
+## Web integration extension (DXReg 1.1, 16-Sep-2026)
+
+Web registration requests may additionally persist optional `name` (maximum 80 characters)
+and requester `comment` (maximum 500 characters). The existing `note` field remains the
+SYSOP processing note. `list_history()` and `search_history()` provide native read APIs for
+administration; CALL and CALL-SSID searches are grouped by base callsign and sorted newest
+first. Web code must use these APIs and must not access `registration.json` directly.

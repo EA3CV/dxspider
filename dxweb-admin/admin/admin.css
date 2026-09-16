@@ -1,4 +1,4 @@
-/* DXSpider Web 2.8.3 - 2026-09-16 */
+/* DXSpider Web 2.7.0 - 2026-09-16 */
 
 :root{font-family:Arial,Helvetica,sans-serif;color:#172033;background:#eef3f8}
 *{box-sizing:border-box}html,body{height:100%;overflow:hidden}body{margin:0;background:#eef3f8;color:#172033;display:flex;flex-direction:column}
@@ -115,160 +115,19 @@ footer{flex:0 0 auto;min-height:30px;padding:7px 14px;color:#647587;background:#
 .spotTable thead .spotHeadGroup th:first-child,
 .spotTable tbody td:first-child{text-align:center;padding-left:0;padding-right:0}
 
-/* 2.7.0 authenticated-session indicator */
+/* DXSpider Web Administration 0.2.0 - 2026-09-16 */
+.nodeIdentity{display:flex;align-items:baseline;gap:12px;font-weight:700}.adminLabel{font-size:14px;font-weight:600;opacity:.82}.mainTabs{justify-content:flex-start}.subtabs{display:flex;gap:8px;padding:8px 16px;background:#eef4f8;border-bottom:1px solid #c7d5df}.subtabs button{border:1px solid #9eb2c0;background:#fff;color:#183746;border-radius:5px;padding:6px 13px;cursor:pointer}.subtabs button.active{background:#2f718d;color:#fff;border-color:#2f718d}.section{display:none;height:100%}.section.active{display:block}.section>.panel,.section>.regPanel{height:calc(100% - 49px)}.panel{display:none}.panel.active{display:flex}.regPanel{display:none;flex-direction:column}.regPanel.active{display:flex}.emptyState{margin:18px;padding:22px;border:1px dashed #b8c8d2;border-radius:6px;background:#f8fbfe;color:#617581}.searchBar{display:flex;gap:8px;padding:16px}.searchBar input{min-width:280px}.loginHint{font-size:13px;color:#5c6d76;margin-top:-4px}.locked #workspace,.locked .mainTabs{filter:blur(2px);opacity:.28;pointer-events:none;user-select:none}.locked #loginButton{display:none}.spotTable th:first-child,.spotTable td:first-child{text-align:center}.spotTable thead .spotHeadGroup th:first-child{text-align:center}
+
+/* Administration 0.2.0 */
+.nodeIdentity #nodeCall{font-size:24px}.adminLabel{font-size:22px;font-weight:700;color:#155aa8;opacity:1}
 body.authenticated #loginButton{background:#dff2e3;border-color:#6fa77b;color:#195b2b;font-weight:700}
+#quickConsole{margin-left:12px}.regTableWrap{flex:1;min-height:0;overflow:auto;border:1px solid #d5e0ea;border-radius:6px;background:#f8fbfe}.regTable{min-width:980px}.regTable th{z-index:2}.regTable td{vertical-align:top}.regActions{display:flex;gap:5px}.regActions button{padding:4px 7px}.status-ACCEPTED{color:#1c6b31;font-weight:700}.status-REJECTED{color:#9b2626;font-weight:700}.status-REMOVED{color:#7b5b19;font-weight:700}#regActionNote{display:block;width:100%;margin-top:5px;resize:vertical;border:1px solid #aebfd0;border-radius:5px;padding:7px 8px;font:inherit}#regReject{border-color:#b86d6d;color:#8b2020}#regAccept{border-color:#6fa77b;color:#195b2b}
 
 
-/* 2.8.0 anonymous access: C/R reception only until Login. */
-.fieldHint{font-size:12px;font-weight:400;color:#647587}
-.loginRestricted{position:relative;opacity:.38;filter:grayscale(.75) blur(.25px);cursor:not-allowed}
-.loginRestricted::after{content:attr(data-login-tip);position:absolute;z-index:1400;width:300px;max-width:min(300px,72vw);padding:7px 9px;border-radius:5px;background:#26384b;color:#fff;font-size:12px;font-weight:400;line-height:1.3;white-space:normal;opacity:0;pointer-events:none;transition:opacity .12s;box-shadow:0 4px 14px #0003}
-.tabs .loginRestricted::after{left:0;top:calc(100% + 6px)}
-.registerHelp.loginRestricted::after,.restrictedControl.loginRestricted::after{right:0;top:calc(100% + 6px)}
-.loginRestricted:hover::after{opacity:1}
-.registerHelp.loginRestricted button,.restrictedControl.loginRestricted button{opacity:.38;filter:grayscale(.75);pointer-events:none}
+/* Administration 0.6.0: Login remains reachable after Escape; stronger identity. */
+.locked #loginButton{display:inline-block}
+.nodeIdentity #nodeCall{font-size:30px;font-weight:800}
+.nodeIdentity .adminLabel{font-size:28px;font-weight:800}
 
-
-/* 2.8.1 anonymous RX-only mode */
-.anonymousBadge{
-  color:#b00020;font-weight:800;font-size:14px;letter-spacing:.2px;
-  padding:4px 8px;border:1px solid #e0a5ae;border-radius:5px;background:#fff3f5
-}
-.loginOnlyControl{display:inline-block;position:relative}
-.loginOnlyControl.loginRestricted button{
-  opacity:.38;filter:grayscale(.75) blur(.25px);cursor:not-allowed
-}
-.loginOnlyControl.loginRestricted button{pointer-events:none}
-.loginOnlyControl.loginRestricted::after{
-  content:attr(data-login-tip);position:absolute;z-index:1400;width:300px;
-  max-width:min(300px,72vw);padding:7px 9px;border-radius:5px;
-  background:#26384b;color:#fff;font-size:12px;font-weight:400;line-height:1.3;
-  white-space:normal;opacity:0;pointer-events:none;transition:opacity .12s;
-  box-shadow:0 4px 14px #0003
-}
-.loginOnlyControl.loginRestricted::after{right:0;top:calc(100% + 6px)}
-.loginOnlyControl.loginRestricted:hover::after{opacity:1}
-
-/* ANN send form: anonymous gets Login tooltip; logged-in unregistered keeps Registration tooltip. */
-.restrictedArea.loginRestricted{cursor:not-allowed;position:relative}
-.restrictedArea.loginRestricted form{opacity:.38;filter:grayscale(.75) blur(.25px);pointer-events:none}
-.restrictedArea.loginRestricted::after{content:attr(data-login-tip)}
-.restrictedArea.loginRestricted:hover::after{opacity:1}
-
-
-/* 2.8.3: Send Spot hint must overlay the sticky spot table header. */
-#spots .panelHead{position:relative;z-index:50;overflow:visible}
-#spots .resultArea{position:relative;z-index:1}
-#spots .spotTable th{z-index:2}
-#spotRestricted{z-index:60}
-#spotRestricted::after{z-index:5000}
-
-/* Register is intentionally available to Anonymous users. */
-.registerHelp.loginRestricted button{opacity:1;filter:none;pointer-events:auto}
-
-
-/* 2.8.5 - unified help popup appearance.
-   Use the same solid treatment as the Register hint for every hover hint. */
-[data-login-tip]::after,
-[data-register-tip]::after,
-[data-restricted-tip]::after,
-.loginRestricted::after,
-.restricted::after,
-.loginOnlyControl.loginRestricted::after,
-.restrictedArea.loginRestricted::after {
-  background:#26384b !important;
-  color:#fff !important;
-  opacity:0;
-  filter:none !important;
-  backdrop-filter:none !important;
-  text-shadow:none !important;
-  border:0 !important;
-  box-shadow:0 4px 14px rgba(0,0,0,.22) !important;
-}
-[data-login-tip]:hover::after,
-[data-register-tip]:hover::after,
-[data-restricted-tip]:hover::after,
-.loginRestricted:hover::after,
-.restricted:hover::after,
-.loginOnlyControl.loginRestricted:hover::after,
-.restrictedArea.loginRestricted:hover::after {
-  opacity:1;
-}
-
-
-/* 2.8.6 - tooltip opacity fix.
-   Never dim/filter the element that owns ::after: CSS opacity/filter also
-   composites its tooltip. Dim only the control/content underneath it. */
-.loginRestricted{
-  opacity:1 !important;
-  filter:none !important;
-}
-
-/* Disabled top tabs: pale/soft control, but its popup remains fully opaque. */
-.tabs button.loginRestricted{
-  background:#eef1f4 !important;
-  border-color:#d6dce2 !important;
-  color:#a8b0b8 !important;
-  text-shadow:0 0 1px rgba(120,128,136,.55);
-}
-
-/* Inline Login-only controls: dim the button, not its tooltip-owning wrapper. */
-.loginOnlyControl.loginRestricted button,
-.restrictedControl.loginRestricted button{
-  opacity:.38 !important;
-  filter:grayscale(.75) blur(.25px) !important;
-  pointer-events:none;
-}
-
-/* Login-only areas: dim only their functional content. */
-.restrictedArea.loginRestricted form{
-  opacity:.38 !important;
-  filter:grayscale(.75) blur(.25px) !important;
-  pointer-events:none;
-}
-
-/* Every informational popup uses the same solid Register treatment. */
-.registerHelp::after,
-.loginRestricted::after,
-.restrictedControl.restricted::after,
-.restrictedArea.restricted::after,
-.loginOnlyControl.loginRestricted::after,
-.restrictedArea.loginRestricted::after{
-  background:#26384b !important;
-  color:#fff !important;
-  opacity:0;
-  filter:none !important;
-  backdrop-filter:none !important;
-  border:0 !important;
-  text-shadow:none !important;
-  box-shadow:0 4px 14px rgba(0,0,0,.22) !important;
-}
-.registerHelp:hover::after,
-.loginRestricted:hover::after,
-.restrictedControl.restricted:hover::after,
-.restrictedArea.restricted:hover::after,
-.loginOnlyControl.loginRestricted:hover::after,
-.restrictedArea.loginRestricted:hover::after{
-  opacity:1 !important;
-}
-
-
-/* 2.8.7 - ANN Send informational popup above the Send control. */
-#annRestricted::after{
-  top:auto !important;
-  bottom:calc(100% + 8px) !important;
-  left:auto !important;
-  right:0 !important;
-  transform:none !important;
-  z-index:5000 !important;
-}
-#annRestricted{
-  position:relative !important;
-  overflow:visible !important;
-  z-index:70 !important;
-}
-#ann .panelHead,
-#ann .panel,
-#ann form{
-  overflow:visible !important;
-}
+/* 0.6.1 permanent Admin Login/Logout control */
+#loginButton{display:inline-flex;align-items:center;justify-content:center}
