@@ -124,6 +124,10 @@ sub format_request
     push @lines, sprintf('%16s %s', 'Status:', $r->{status} // '-');
     push @lines, sprintf('%16s %s', 'Email:', $r->{email} // '-')
         if defined $r->{email} && length $r->{email};
+    push @lines, sprintf('%16s %s', 'Name:', $r->{name})
+        if defined $r->{name} && length $r->{name};
+    push @lines, sprintf('%16s %s', 'Comment:', $r->{comment})
+        if defined $r->{comment} && length $r->{comment};
     push @lines, sprintf('%16s %s', 'Language:', $r->{language} // '-')
         if defined $r->{language} && length $r->{language};
 

@@ -616,3 +616,48 @@ The current `Web.pm` implements these negotiated request types:
 
 This table is deliberately limited to operations present in the current
 implementation.
+
+
+## Registration extension (DXWeb 2.7.0)
+
+Registration remains owned by native `DXReg.pm`; Web processes do not read or write
+`registration.json` directly.
+
+### Public request
+
+Browser -> dxweb -> #WEB:
+
+```json
+{"type":"reg_request","id":101,"call":"EA3CV","ssids":[1,2],"name":"Kin","email":"user@example.net","comment":"Optional text","language":"EN","ip":"198.51.100.10"}
+```
+
+The browser cannot choose `source`; Web.pm always records Web requests as `USER`.
+The peer IP is supplied by the trusted dxweb server, not by browser form data.
+A successful response has `action:"reg_request"` and `result` containing the persisted
+request. Existing DXReg validation (CALL, email, SSIDs, one PENDING per CALL) applies.
+
+### Administrative operations
+
+All administrative registration operations require that `call` belongs to an authenticated
+logical user on the same #WEB connection, that DXSpider authentication actually used a
+password, and that the authenticated privilege is exactly `9`.
+
+Requests:
+
+```json
+{"type":"reg_pending","id":201,"call":"EA4URE"}
+{"type":"reg_history","id":202,"call":"EA4URE"}
+{"type":"reg_search","id":203,"call":"EA4URE","query":"EA3CV-2"}
+{"type":"reg_accept","id":204,"call":"EA4URE","request_id":17,"note":"Approved"}
+{"type":"reg_reject","id":205,"call":"EA4URE","request_id":18,"note":"Reason"}
+```
+
+`reg_pending` returns current PENDING records newest first. `reg_history` returns resolved
+records newest first. `reg_search` accepts a request ID, CALL or CALL-SSID; CALL and
+CALL-SSID searches are normalized to the callsign family and returned newest first.
+`reg_accept` and `reg_reject` call DXReg's native decision functions. Therefore DXUser
+updates, password generation/reuse, persistence and configured notifications retain the
+same semantics as the native `register/*` commands.
+
+Registration records may contain `name` and `comment`. `note` remains reserved for the
+SYSOP decision and is never reused for requester comments.

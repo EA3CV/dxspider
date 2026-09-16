@@ -15,8 +15,8 @@
 # Configuration:
 #   /spider/local/DXVars.pm
 #
-# Version : 1.0
-# Date    : 21-Aug-2026
+# Version : 1.1
+# Date    : 16-Sep-2026
 #
 
 package DXReg;
@@ -35,7 +35,7 @@ use Fcntl qw(:flock);
 use Encode qw(encode);
 use MIME::Base64 qw(encode_base64);
 
-our $VERSION = '1.0';
+our $VERSION = '1.1';
 
 my $json = DXJSON->new->canonical(1)->pretty(1);
 
@@ -128,6 +128,19 @@ sub create_request
     return (0, 'invalid email address')
         unless _validate_email($email);
 
+    my $name = $arg{name} // '';
+    return (0, 'invalid name') if ref $name;
+    $name =~ s/^\s+//;
+    $name =~ s/\s+$//;
+    return (0, 'name is too long') if length($name) > 80;
+
+    my $comment = $arg{comment} // '';
+    return (0, 'invalid comment') if ref $comment;
+    $comment =~ s/\r\n?/\n/g;
+    $comment =~ s/^\s+//;
+    $comment =~ s/\s+$//;
+    return (0, 'comment is too long') if length($comment) > 500;
+
     my $language = uc($arg{language} // '');
     $language =~ s/^\s+//;
     $language =~ s/\s+$//;
@@ -175,6 +188,8 @@ sub create_request
         id              => $id,
         call            => $call,
         email           => $email,
+        name            => $name,
+        comment         => $comment,
         language        => $language,
         requested_ssids => [ map { int($_) } @$clean_ssids ],
         accepted_ssids  => undef,
@@ -881,6 +896,37 @@ sub get_history
     my $ids = $by_call{$call} || [];
 
     return map { $by_id{$_} } @$ids;
+}
+
+
+# ------------------------------------------------------------
+# list_history / search_history
+# ------------------------------------------------------------
+
+sub list_history
+{
+    return sort {
+        ($b->{created_at} || 0) <=> ($a->{created_at} || 0)
+            || ($b->{id} || 0) <=> ($a->{id} || 0)
+    } grep { ($_->{status} // '') ne 'PENDING' } @requests;
+}
+
+sub search_history
+{
+    my ($term) = @_;
+    $term = uc($term // '');
+    $term =~ s/^\s+//;
+    $term =~ s/\s+$//;
+    return () unless length $term;
+    if ($term =~ /^\d+$/) {
+        my $r = get_request($term);
+        return $r ? ($r) : ();
+    }
+    my $base = _base_call($term);
+    return sort {
+        ($b->{created_at} || 0) <=> ($a->{created_at} || 0)
+            || ($b->{id} || 0) <=> ($a->{id} || 0)
+    } grep { _base_call($_->{call}) eq $base } @requests;
 }
 
 
@@ -2018,6 +2064,8 @@ sub _render_template
     my %vars = (
         CALL            => $request->{call}         // '',
         EMAIL           => $request->{email}        // '',
+        NAME            => $request->{name}         // '',
+        COMMENT         => $request->{comment}      // '',
         LANGUAGE        => $request->{language}     // '',
         REQUEST_ID      => $request->{id}           // '',
         REQUESTED_SSIDS => $requested,

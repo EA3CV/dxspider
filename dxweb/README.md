@@ -1,98 +1,124 @@
-# DXSpider Web 2.5.0
+# DXWeb 0.7.0 --- current closeout snapshot
 
-`dxweb` is the DXSpider-integrated web client. It uses one technical `#WEB-n`
-connection to DXSpider and multiplexes authenticated browser users over it.
+Date: 2026-09-16
 
-## Authentication model
+This package closes the current DXWeb development phase before
+repository upload. It documents the two deliberately separated web
+applications:
 
-There are deliberately two distinct `#WEB` modes.
+-   **DXWeb User** --- normal/anonymous user interface, normally on
+    TCP/7380.
+-   **DXWeb Admin** --- SYSOP administration interface, normally on
+    TCP/7381.
 
-* `role=dxweb`, `auth=dxspider`, protocol v2: every browser must provide a
-  callsign. DXSpider validates the callsign/password using the same password
-  rule used by `ExtMsg.pm`: password is required when `$passwdreq` is enabled
-  or the existing DXUser has a password. No browser feed or command access is
-  provided before DXS returns successful authentication.
-* `role=webcluster`, `auth=external`: an external WebCluster remains responsible
-  for authenticating its own users. DXSpider does not receive or validate those
-  user passwords. Existing v1 WebCluster negotiation remains accepted.
+The technical DXSpider transport remains a `#WEB-n` connection. The
+technical channel is not the browser user and must not acquire the
+browser user's privilege.
 
-Passwords are forwarded only in the integrated `auth` request and are never
-stored in dxweb state or written to the browser history.
+## Security model
 
-## Views
+### Web User
 
-The browser provides separate views for HUMAN/RBN spots, ANN, WWV, WCY, WX,
-filters and the DXSpider console. Filter and console operations are executed by
-DXSpider's normal command resolver under the authenticated logical user. dxweb
-does not implement a second command permission system.
+There are three user states:
 
-## Feeds and overload protection
+1.  **Anonymous**
+    -   receives Spots C and R;
+    -   may enable/disable C and R independently;
+    -   may view received ANN, WWV, WCY and WX;
+    -   may clear receive windows;
+    -   may open **Register** and submit a registration request;
+    -   cannot send spots or announcements, run commands, use Filters or
+        Console;
+    -   Login-only controls remain visible but disabled/attenuated and
+        show an explanatory hover popup;
+    -   the header displays `Anonymous` until Login succeeds.
+2.  **Logged in without password**
+    -   existing login semantics are retained;
+    -   effective Web User privilege remains 0;
+    -   access is governed by the existing DXSpider
+        authentication/registration rules.
+3.  **Logged in with password**
+    -   existing registered/authenticated semantics are retained;
+    -   a SYSOP logging into the normal User Web still has effective Web
+        User privilege 0;
+    -   privileged DXSpider commands are not inherited from the
+        persistent DXUser privilege.
 
-DXSpider exports X/R/N/V/Y/W feed frames for HUMAN/RBN/ANN/WWV/WCY/WX. Web.pm
-normalises their payload to JSON after the IntMsg `|`. The existing bounded
-backpressure policy applies to all these disposable feeds. dxweb also bounds
-input, history, fanout and each browser's write buffer. Live traffic remains
-bounded; historical replay is cooperative and yields while the browser socket
-is busy, so replay cannot falsely disconnect a normal browser or apply pressure
-to DXSpider.
+The Login dialog labels the password as applicable when the user is
+registered.
 
-## Start
+### Web Admin
 
-From the repository root:
+Admin is a separate security context:
 
-    cd dxweb
-    ./start.sh
+-   Admin authentication requires a valid DXSpider user and SYSOP
+    privilege **9 or higher**.
+-   A non-SYSOP login is rejected with `SYSOP privilege 9 is required.`
+-   The Admin transport is restricted to the local DXSpider side; the
+    tested IntMsg listener is bound to `127.0.0.1`.
+-   The Admin page has a permanent **Login / Logout** control. Pressing
+    Esc closes the login dialog but does not remove the Login button.
+-   A successful Admin Login clears content left from the previous
+    browser session before fresh data is loaded.
+-   The normal User Web and Admin Web use independent `#WEB-n`
+    connections.
 
-Default listener: `http://0.0.0.0:8080`
-Default DXSpider IntMsg endpoint: `127.0.0.1:27754`
+Do not expose the existing localhost IntMsg listener by simply changing
+it to `0.0.0.0`. A future remote User Web transport must preserve the
+local-only Admin boundary.
 
-Optional environment variables include `DXS_HOST`, `DXS_PORT`,
-`WS_HIGH_WATER`, `MAX_INPUT_BYTES`, `MAX_HISTORY`, `MAX_HISTORY_BYTES`,
-`MAX_FANOUT_ITEMS` and `MAX_FANOUT_BYTES`.
+## User interface
 
-The corresponding `perl/Web.pm` from this version must be installed in the
-same DXSpider tree and DXSpider restarted before starting dxweb.
+User tabs/areas:
 
-## Validation
+-   Spots: anonymous RX for C/R; C/R selectors and Clear remain active.
+-   ANN / WWV / WCY / WX: anonymous reception and Clear; command/send
+    controls require Login as appropriate.
+-   Filters / Console: Login-only.
+-   Register: available to Anonymous.
+-   Informational hover popups use a common solid, readable visual
+    treatment.
+-   The ANN Send hint is placed above the Send area to avoid clipping.
 
-On the target DXSpider host:
+## Registration
 
-    perl -I/spider/local -I/spider/perl -c /spider/perl/Web.pm
-    cd /spider/dxweb
-    perl -c app.pl
-    ./start.sh
+The registration SSID field accepts individual values and ranges:
 
-Then verify:
+-   `1,2,3,4,5`
+-   `1-5`
+-   mixed sequences such as `1-3,7,8,9`
 
-    curl -s http://127.0.0.1:8080/healthz
+Consecutive values are compacted for display (`1,2,3,4,5` becomes `1-5`)
+but are expanded and treated internally as individual SSIDs. Valid SSIDs
+remain 1..99.
 
-Expected DXS state after negotiation is `ready`. Open the web page and test at
-least: a user without password (when policy permits), a user with password,
-wrong password rejection, HUMAN/RBN, ANN, WWV, WCY, WX and a harmless command
-such as `show/version` or `show/dx 5`.
+## Admin Registration
 
-## Security notes
+Registration provides Pending, History and Search views plus the
+existing accept/reject workflow.
 
-There is no guest mode. The HTTP `/healthz` endpoint exposes transport status
-only; feed/history data is sent only to authenticated WebSocket clients.
+History/Search columns are:
 
-For a public deployment, terminate TLS in front of dxweb. The integrated mode
-uses the WebSocket peer address as the user's source IP; do not blindly trust
-client-supplied forwarding headers.
+`ID | Callsign | SSIDs | Status | Name | Email | Requested | Resolved | By | Note`
 
+Duplicate `By`/`Note` headers were removed. `Note` is displayed from the
+registration record. Consecutive SSIDs are compacted for presentation.
 
-## Release 2.5.0 (2026-09-15)
+## Operational notes
 
-This release closes the integrated login/logout session bug caused by browser
-history replay reaching the WebSocket high-water mark. Re-authentication of the
-same CALL after `user_del` is supported without restarting DXSpider, dxweb or
-the browser.
+User Web: `7380`\
+Admin Web: `7381`\
+DXSpider IntMsg in the tested deployment: `127.0.0.1:27754`
 
-The Spots view now keeps stable columns for HUMAN, RBN and combined display,
-places Source first, gives Comment the largest width, and maintains cumulative
-HUMAN/RBN counters independently of the bounded in-memory/rendered spot list.
+Restarting either web application does **not** require restarting
+DXSpider when only the web frontend/backend files in this package are
+changed.
 
-`PROTOCOL-v2.md` documents the complete implemented v2 surface needed by an
-integrated web client: hello/authentication, user removal, command execution,
-spot and announcement submission, feed configuration, ownership, response IDs,
-errors and backpressure requirements.
+Always verify the actual process working directory with
+`/proc/<pid>/cwd`; during development an old
+`/root/test-sql-merge/dxweb` process was found serving 7380. The
+intended production tree for this work is `/spider/dxweb` and
+`/spider/dxweb-admin`.
+
+See `ADMIN.md`, `PROTOCOL.md`, `VALIDATION.md`, `CHANGES.md` and
+`INSTALL.md`.

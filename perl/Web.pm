@@ -15,6 +15,7 @@ use DXJSON;
 use DXUtil;
 use DXUser;
 use DXCIDR;
+use DXReg;
 use Route;
 use Route::User;
 
@@ -59,6 +60,7 @@ sub new
 		conn        => Web::ActorConn->new($ip),
 		lang        => $user->lang || $main::lang || 'en',
 		priv        => defined $priv ? $priv : 0,
+		width       => 80,
 		registered  => defined $registered ? $registered : ($user->registered ? 1 : 0),
 		remotecmd   => 0,
 		inscript    => 0,
@@ -163,6 +165,11 @@ sub new
 	# would add #WEB-n itself to normal routing.
 	my $self = DXChannel::alloc(@_);
 
+	# #WEB-n is a shared technical transport, never a user/security context.
+	# Keep its effective channel privilege at zero regardless of the persistent
+	# DXUser record or any later logical-user authentication.
+	$self->{priv} = 0;
+
 	$self->{web_role} = '';
 	$self->{web_version} = 0;
 	$self->{web_users} = {};
@@ -174,10 +181,24 @@ sub new
 	return $self;
 }
 
+# DXCommandmode::start() normally copies the persistent DXUser privilege into
+# the channel.  #WEB-n is transport only, so suppress that copy even if an
+# old/persistent #WEB-n DXUser record were ever to contain a non-zero priv.
+sub start
+{
+	my $self = shift;
+	local $self->{user}{priv} = 0 if $self->{user};
+	my @ret = $self->SUPER::start(@_);
+	$self->{priv} = 0;
+	return wantarray ? @ret : $ret[-1];
+}
+
 sub is_webcluster
 {
 	my $self = shift;
-	return ($self->{web_role} || '') eq 'webcluster' || ($self->{web_role} || '') eq 'dxweb';
+	return ($self->{web_role} || '') eq 'webcluster' ||
+	       ($self->{web_role} || '') eq 'dxweb' ||
+	       ($self->{web_role} || '') eq 'dxweb-admin';
 }
 
 # #WEB output safety. HUMAN/RBN/ANN are disposable; overload must never
@@ -470,12 +491,30 @@ sub _locked_out
 	return $lock ? 1 : 0;
 }
 
+sub _admin_peer_is_loopback
+{
+	my $self = shift;
+
+	# This is the peer of the technical #WEB-n TCP connection as recorded by
+	# DXChannel::alloc(), not an address supplied in Web JSON.
+	for my $peer ($self->{hostname}, $self->{sockhost}) {
+		next unless defined $peer && !ref $peer;
+		my $ip = lc $peer;
+		$ip =~ s/^\[|\]$//g;
+		$ip =~ s/^::ffff://;
+		return 1 if $ip eq '::1' || $ip eq 'localhost';
+		return 1 if $ip =~ /^127(?:\.\d{1,3}){3}$/;
+	}
+	return 0;
+}
+
 sub _auth_request
 {
 	my ($self, $req) = @_;
 	my $id = $req->{id};
 
-	unless (($self->{web_role} || '') eq 'dxweb' && ($self->{web_auth} || '') eq 'dxspider') {
+	unless ((($self->{web_role} || '') eq 'dxweb' || ($self->{web_role} || '') eq 'dxweb-admin') &&
+	        ($self->{web_auth} || '') eq 'dxspider') {
 		$self->_error($id, 'auth', 'wrong_auth_mode');
 		return;
 	}
@@ -495,13 +534,37 @@ sub _auth_request
 	if (_locked_out($call, $user)) { $self->_error($id, 'auth', 'locked_out', {call => $call}); return; }
 	if ($user && !$user->is_user) { $self->_error($id, 'auth', 'not_user', {call => $call}); return; }
 
-	# Match ExtMsg login semantics exactly: a global password requirement, or
-	# an existing password on this DXUser, requires an exact password match.
-	my $password_required = $main::passwdreq || ($user && $user->passwd) ? 1 : 0;
-	if ($password_required) {
-		unless ($user && defined($password) && $password eq ($user->passwd || '')) {
+	my $is_admin = ($self->{web_role} || '') eq 'dxweb-admin';
+	my $password_required;
+
+	if ($is_admin) {
+		# Administrative authority is granted only by DXSpider itself.  The
+		# technical dxweb-admin transport must already be local (checked during
+		# HELLO), the account must be a real SYSOP, and a non-empty DXUser
+		# password must match.  Browser/client supplied privilege is ignored.
+		unless ($user && ($user->priv || 0) >= 9) {
+			$self->_error($id, 'auth', 'admin_privilege_required', {call => $call});
+			return;
+		}
+		my $stored = $user->passwd || '';
+		unless (length $stored) {
+			$self->_error($id, 'auth', 'password_required', {call => $call, password_required => 1});
+			return;
+		}
+		unless (defined($password) && length($password) && $password eq $stored) {
 			$self->_error($id, 'auth', 'bad_password', {call => $call, password_required => 1});
 			return;
+		}
+		$password_required = 1;
+	} else {
+		# Public dxweb keeps the normal DXSpider login/password semantics, but
+		# its effective actor privilege remains zero after authentication.
+		$password_required = $main::passwdreq || ($user && $user->passwd) ? 1 : 0;
+		if ($password_required) {
+			unless ($user && defined($password) && $password eq ($user->passwd || '')) {
+				$self->_error($id, 'auth', 'bad_password', {call => $call, password_required => 1});
+				return;
+			}
 		}
 	}
 
@@ -509,8 +572,14 @@ sub _auth_request
 	my %u = %$req;
 	$u{authenticated} = 1;
 	$u{type} = 'user_add';
+	# Authentication proves identity.  A normal Web User never inherits the
+	# persistent DXUser privilege.  Only the separately negotiated Admin
+	# transport may receive the server-side DXUser privilege for its isolated
+	# administrative actor.
+	my $effective_priv = $is_admin ? ($user->priv || 0) : 0;
+
 	$self->_user_add(\%u, {
-		priv => ($password_required && $user) ? ($user->priv || 0) : 0,
+		priv => $effective_priv,
 		registered => $user ? ($user->registered ? 1 : 0) : 0,
 		password_used => $password_required ? 1 : 0,
 		auth_source => 'dxspider',
@@ -614,11 +683,14 @@ sub _user_add
 	$main::me->route_pc92a($main::mycall, undef, $main::routeroot, $ref)
 		unless $DXProt::pc92_slug_changes || !$DXProt::pc92_ad_enabled;
 
+	my $effective_priv = (($self->{web_role} || '') eq 'dxweb-admin' && $authmeta)
+		? ($authmeta->{priv} || 0) : 0;
+
 	$self->{web_users}{$call} = {
 		ip            => $ip,
 		startt        => $main::systime,
 		authenticated => $authenticated,
-		priv          => $authmeta ? ($authmeta->{priv} || 0) : 0,
+		priv          => $effective_priv,
 		registered    => $authmeta ? ($authmeta->{registered} || 0) : 0,
 		password_used => $authmeta ? ($authmeta->{password_used} || 0) : 0,
 		auth_source   => $authmeta ? ($authmeta->{auth_source} || 'dxspider') : 'external',
@@ -635,7 +707,7 @@ sub _user_add
 		authenticated => $authenticated,
 		auth_source   => $authmeta ? 'dxspider' : 'external',
 		password_used => $authmeta ? ($authmeta->{password_used} || 0) : 0,
-		priv          => $authmeta ? ($authmeta->{priv} || 0) : 0,
+		priv          => $effective_priv,
 		registered    => $authmeta ? ($authmeta->{registered} || 0) : 0,
 	});
 }
@@ -844,7 +916,8 @@ sub _actor_for_call
 	return (undef, $call, 'invalid_ip')
 		unless defined $ip && is_ipaddr($ip);
 
-	return (Web::Actor->new($call, $ip, $user, $owned->{priv}, $owned->{registered}), $call, undef);
+	my $actor_priv = ($self->{web_role} || '') eq 'dxweb-admin' ? ($owned->{priv} || 0) : 0;
+	return (Web::Actor->new($call, $ip, $user, $actor_priv, $owned->{registered}), $call, undef);
 }
 
 sub _wc_text
@@ -887,6 +960,97 @@ sub _run_wc_command
 	my @messages = grep { defined $_ && length $_ } (@returned, @captured);
 
 	return @messages ? ('message', \@messages) : ('processed', []);
+}
+
+sub _registration_ready
+{
+	return $main::reg_enable && DXReg::ready();
+}
+
+sub _registration_admin
+{
+	my ($self, $req) = @_;
+	return (undef, 'admin_context_required') unless ($self->{web_role} || '') eq 'dxweb-admin';
+	my $call = _normalise_user_call($req->{call});
+	return (undef, 'invalid_call') unless $call;
+	my $owned = $self->{web_users}{$call};
+	return (undef, 'not_owned') unless $owned;
+	return (undef, 'not_authenticated') unless $owned->{authenticated};
+	return (undef, 'password_required') unless $owned->{password_used};
+	return (undef, 'admin_privilege_required') unless ($owned->{priv} || 0) >= 9;
+	return ($call, undef);
+}
+
+sub _registration_request
+{
+	my ($self, $req) = @_;
+	my $id = $req->{id};
+	unless (_registration_ready()) { $self->_error($id, 'reg_request', 'registration_unavailable'); return; }
+	my $ip = $req->{ip};
+	unless (defined $ip && !ref($ip) && is_ipaddr($ip)) { $self->_error($id, 'reg_request', 'invalid_ip'); return; }
+	$ip =~ s/^::ffff://i;
+	if (DXCIDR::find($ip)) { $self->_error($id, 'reg_request', 'bad_ip'); return; }
+	my $ssids = $req->{ssids};
+	$ssids = [] unless defined $ssids;
+	unless (ref($ssids) eq 'ARRAY') { $self->_error($id, 'reg_request', 'bad_arguments'); return; }
+	my ($ok, $result) = DXReg::create_request(
+		call => $req->{call}, email => $req->{email}, language => ($req->{language} || 'EN'),
+		ssids => $ssids, name => $req->{name}, comment => $req->{comment}, source => 'USER', ip => $ip,
+	);
+	unless ($ok) { $self->_error($id, 'reg_request', 'registration_rejected', {messages => [$result]}); return; }
+	$self->_response($id, 'ok', 'reg_request', {result => $result});
+}
+
+sub _registration_pending
+{
+	my ($self, $req) = @_;
+	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_pending','registration_unavailable'); return; }
+	my ($call,$err)=$self->_registration_admin($req); unless($call){$self->_error($id,'reg_pending',$err);return}
+	my @rows=sort {($b->{created_at}||0)<=>($a->{created_at}||0)||($b->{id}||0)<=>($a->{id}||0)} DXReg::list_pending();
+	$self->_response($id,'ok','reg_pending',{result=>\@rows});
+}
+
+sub _registration_history
+{
+	my ($self, $req) = @_;
+	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_history','registration_unavailable'); return; }
+	my ($call,$err)=$self->_registration_admin($req); unless($call){$self->_error($id,'reg_history',$err);return}
+	my @rows=DXReg::list_history();
+	$self->_response($id,'ok','reg_history',{result=>\@rows});
+}
+
+sub _registration_search
+{
+	my ($self, $req) = @_;
+	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_search','registration_unavailable'); return; }
+	my ($call,$err)=$self->_registration_admin($req); unless($call){$self->_error($id,'reg_search',$err);return}
+	my $query=_wc_text($req->{query},0); unless(defined$query){$self->_error($id,'reg_search','bad_arguments');return}
+	my @rows=DXReg::search_history($query);
+	$self->_response($id,'ok','reg_search',{result=>\@rows});
+}
+
+sub _registration_accept
+{
+	my ($self, $req) = @_;
+	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_accept','registration_unavailable'); return; }
+	my ($call,$err)=$self->_registration_admin($req); unless($call){$self->_error($id,'reg_accept',$err);return}
+	my $rid=$req->{request_id}; unless(defined$rid&&!ref($rid)&&"$rid"=~/^\d+$/){$self->_error($id,'reg_accept','bad_arguments');return}
+	my $note=exists($req->{note})?_wc_text($req->{note},1):undef; if(exists($req->{note})&&!defined$note){$self->_error($id,'reg_accept','bad_arguments');return}
+	my ($ok,$result)=DXReg::accept_request($rid,$call,$note);
+	unless($ok){$self->_error($id,'reg_accept','registration_rejected',{messages=>[$result]});return}
+	$self->_response($id,'ok','reg_accept',{result=>$result});
+}
+
+sub _registration_reject
+{
+	my ($self, $req) = @_;
+	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_reject','registration_unavailable'); return; }
+	my ($call,$err)=$self->_registration_admin($req); unless($call){$self->_error($id,'reg_reject',$err);return}
+	my $rid=$req->{request_id}; unless(defined$rid&&!ref($rid)&&"$rid"=~/^\d+$/){$self->_error($id,'reg_reject','bad_arguments');return}
+	my $note=exists($req->{note})?_wc_text($req->{note},1):undef; if(exists($req->{note})&&!defined$note){$self->_error($id,'reg_reject','bad_arguments');return}
+	my ($ok,$result)=DXReg::reject_request($rid,$call,$note);
+	unless($ok){$self->_error($id,'reg_reject','registration_rejected',{messages=>[$result]});return}
+	$self->_response($id,'ok','reg_reject',{result=>$result});
 }
 
 sub _command_request
@@ -1003,20 +1167,31 @@ sub normal
 		my $req = $json->decode($line);
 
 		if ($req && ref $req eq 'HASH' && ($req->{type} || '') eq 'hello' &&
-			(($req->{role} || '') eq 'webcluster' || ($req->{role} || '') eq 'dxweb')) {
+			(($req->{role} || '') eq 'webcluster' || ($req->{role} || '') eq 'dxweb' || ($req->{role} || '') eq 'dxweb-admin')) {
 
 			my $version = $req->{version};
 			my $role = $req->{role};
-			my $expected_auth = $role eq 'dxweb' ? 'dxspider' : 'external';
+			my $expected_auth = ($role eq 'dxweb' || $role eq 'dxweb-admin') ? 'dxspider' : 'external';
+
+			# dxweb-admin is a local DXSpider control-plane transport.  Enforce
+			# loopback here, inside DXSpider, before the role is activated.
+			if ($role eq 'dxweb-admin' && !$self->_admin_peer_is_loopback) {
+				LogDbg('err', "Web $self->{call}: rejected non-local dxweb-admin HELLO from " . ($self->{hostname} || $self->{sockhost} || 'unknown'));
+				$self->_send_json({
+					type => 'hello', role => $role, version => $version,
+					status => 'error', error => 'admin_local_only',
+				});
+				return;
+			}
 
 			unless (defined $version && !ref $version && $version =~ /^\d+$/ &&
-				(($role eq 'webcluster' && ($version == 1 || $version == 2)) || ($role eq 'dxweb' && $version == 2))) {
+				(($role eq 'webcluster' && ($version == 1 || $version == 2)) || (($role eq 'dxweb' || $role eq 'dxweb-admin') && $version == 2))) {
 				$self->_send_json({
 					type      => 'hello',
 					role      => $role,
 					status    => 'error',
 					error     => 'unsupported_version',
-					supported => $role eq 'dxweb' ? [2] : [1,2],
+					supported => ($role eq 'dxweb' || $role eq 'dxweb-admin') ? [2] : [1,2],
 				});
 				return;
 			}
@@ -1035,7 +1210,7 @@ sub normal
 				version => $version,
 				status  => 'ok',
 			};
-			$hello->{auth} = $expected_auth if $role eq 'dxweb' || $version >= 2;
+			$hello->{auth} = $expected_auth if $role eq 'dxweb' || $role eq 'dxweb-admin' || $version >= 2;
 			$self->_send_json($hello);
 			return;
 		}
@@ -1100,6 +1275,13 @@ sub normal
 		$self->_announce_request($req);
 		return;
 	}
+
+	if ($type eq 'reg_request') { $self->_registration_request($req); return; }
+	if ($type eq 'reg_pending') { $self->_registration_pending($req); return; }
+	if ($type eq 'reg_history') { $self->_registration_history($req); return; }
+	if ($type eq 'reg_search') { $self->_registration_search($req); return; }
+	if ($type eq 'reg_accept') { $self->_registration_accept($req); return; }
+	if ($type eq 'reg_reject') { $self->_registration_reject($req); return; }
 
 	$self->_error($id, $type || 'unknown', 'unknown_type');
 }

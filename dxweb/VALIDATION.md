@@ -1,25 +1,71 @@
-# DXSpider Web 2.5.0 validation checklist
+# DXWeb validation record --- 2026-09-16
 
-Release date: 2026-09-15
+This document records checks actually performed during the current
+development session. It does not claim tests that were not run.
 
-1. Compile `perl/Web.pm` in the real DXSpider environment.
-2. Compile `dxweb/app.pl` with the installed Mojolicious.
-3. Start DXSpider, then dxweb, and confirm `/healthz` reports `ready`.
-4. Before login, confirm no feed/history is displayed and commands are unavailable.
-5. Login with an existing no-password user when policy permits.
-6. Login with an existing password user using the correct password.
-7. Confirm the same user is rejected with a wrong password.
-8. Confirm locked-out/non-user calls are rejected.
-9. Confirm HUMAN, RBN, ANN, WWV, WCY and WX reach their separate views.
-10. Run `w` and another harmless normal command and verify their DXSpider output in Console.
-11. Verify Spot and ANN submission use the authenticated logical user and return their protocol result.
-12. Execute `LOGIN -> w -> LOGOUT -> LOGIN same CALL -> w` repeatedly without restarting DXSpider, dxweb or the browser.
-13. Repeat the login/logout/login cycle at least 10 times for closure validation.
-14. During that test confirm `/healthz` keeps `ws_dropped=0` and `ws_slow_disconnects=0` for a normal browser.
-15. Confirm HUMAN-only, RBN-only and combined Spots views keep identical fixed column geometry.
-16. Confirm Source is the first Spots column and Comment has the largest width.
-17. Confirm the Spots counter can exceed the bounded 1000-item in-memory spot list.
-18. Verify a privileged command is rejected for a priv-0 session.
-19. For a password-authenticated SYSOP, verify privileges are those allowed by normal DXSpider login semantics.
-20. Connect a protocol-v1 external WebCluster and verify its external-auth model remains operational.
-21. Repeat slow-browser/backpressure tests and confirm a slow browser cannot block or degrade DXSpider.
+## Live connectivity
+
+Observed User Web health:
+
+-   TCP/7380 listening;
+-   `state=ready`;
+-   `error=null`;
+-   independent assigned `#WEB-n`;
+-   anonymous browser connected.
+
+Observed Admin Web health:
+
+-   TCP/7381 listening;
+-   `state=ready`;
+-   `error=null`;
+-   independent assigned `#WEB-n`.
+
+DXSpider IntMsg was observed listening on `127.0.0.1:27754`.
+
+## Privilege separation
+
+Live functional checks:
+
+-   SYSOP account through **User Web**: privileged `stat/pc19list`
+    returned `Not Allowed`.
+-   SYSOP account through **Admin Web**: the privileged command
+    executed.
+-   privilege-0 account attempting **Admin Web**: rejected with
+    `SYSOP privilege 9 is required.`
+
+This demonstrates the intended separation between normal Web User
+privilege and Admin authorization.
+
+## Persistent #WEB records
+
+SQLite `dxusers.db` records for `#WEB-1` and `#WEB-2` were inspected.
+Their JSON data contained no persistent `priv` field. They were Type
+`W`, Group `local`.
+
+This is distinct from the effective live actor privilege and should not
+be changed merely to make `stat/user` print a privilege.
+
+## Anonymous receive
+
+With `auth_ok=0`, User Web health counters increased for RBN and HUMAN
+input while a browser WebSocket was connected, confirming server-side
+feed delivery without Login.
+
+## UI corrections validated during iteration
+
+The following behaviours were implemented during the closeout series:
+
+-   Anonymous indicator and anonymous RX mode.
+-   Register available without Login.
+-   C/R selectors remain usable anonymously.
+-   unified opaque informational hover popups;
+-   ANN Send popup moved above its Send area;
+-   Admin permanent Login/Logout control;
+-   Admin History/Search registration column corrections;
+-   compact SSID display and range input support;
+-   previous Admin session display cleared on successful Login;
+-   redundant Operation Console button removed.
+
+Final visual acceptance of the repository-upload snapshot should still
+include a browser hard refresh and a short manual smoke test after
+installation.

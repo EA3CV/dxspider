@@ -6,7 +6,7 @@ use MIME::Base64 qw(encode_base64);
 use Socket qw(SOL_SOCKET SO_RCVBUF);
 
 my $host = shift // '127.0.0.1';
-my $port = shift // 8080;
+my $port = shift // 7380;
 my $seconds = shift // 30;
 
 my $sock = IO::Socket::INET->new(
