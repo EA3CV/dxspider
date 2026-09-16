@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-URL=${1:-http://127.0.0.1:8080/healthz}
+URL=${1:-http://127.0.0.1:7380/healthz}
 echo "Health:"
 curl -fsS "$URL" || true
 echo

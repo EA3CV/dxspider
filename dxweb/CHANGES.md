@@ -1,22 +1,37 @@
-# DXSpider Web changes
+# Changes --- closeout snapshot 0.7.0
 
-## 2.5.0 — 2026-09-15
+## User Web
 
-- Fixed repeated integrated login/logout/login failure caused by browser-side history replay reaching the WebSocket high-water buffer.
-- Historical replay now yields/retries under browser-side backpressure without blocking or degrading DXSpider.
-- Preserved the normal `auth -> user_del -> auth` protocol sequence; repeated login of the same CALL does not require restarting DXSpider, dxweb or the browser.
-- Spots columns now remain fixed when displaying HUMAN, RBN or both feeds.
-- `Source` is the first Spots column and `Comment` has the largest display area.
-- HUMAN/RBN spot counters are cumulative and are no longer limited by the bounded in-memory spot list.
-- Expanded `PROTOCOL-v2.md` with the implemented `#WEB` v2 interface: authentication, logout, command execution, spot and announcement submission, feeds, request IDs, ownership, errors and backpressure requirements.
-- Updated validation and HTTP-surface checks for the integrated web interface.
+-   Added Anonymous state.
+-   Anonymous receives C/R spots plus ANN, WWV, WCY and WX.
+-   Anonymous can select C/R and clear receive windows.
+-   Added visible Anonymous indicator.
+-   Login-only actions are attenuated and explain the Login requirement.
+-   Register remains available before Login.
+-   Registration request can be submitted anonymously.
+-   Password label clarifies its registered-user purpose.
+-   Unified informational popup appearance.
+-   Corrected popup stacking/clipping, including ANN Send.
+-   Added SSID range input and compact consecutive-range presentation.
+-   Preserved effective privilege 0 for normal Web User sessions.
 
-## 2.0.0
+## Admin Web
 
-- Mandatory browser login; no guest feed access.
-- Integrated `dxweb` mode: DXSpider validates CALL/password.
-- External `webcluster` mode remains externally authenticated; v1 HELLO remains accepted.
-- Separate HUMAN/RBN, ANN, WWV, WCY and WX views/feeds.
-- Filters and Console views execute normal DXSpider commands under the authenticated identity.
-- Existing #WEB and browser backpressure/bounded-buffer protections extended to new feeds.
-- HTTP health remains non-sensitive; feed/history fanout requires an authenticated WebSocket.
+-   Separated Admin authentication/authorization from normal User Web.
+-   Requires SYSOP privilege \>= 9.
+-   Added permanent Login/Logout control.
+-   Esc no longer leaves the user without a way to reopen Login.
+-   Increased node/Administration heading prominence.
+-   Clears previous displayed session content after successful Login.
+-   Removed redundant Console button from Operation.
+-   Corrected Registration History/Search columns.
+-   Removed duplicate By/Note headers.
+-   Added Note display.
+-   Added compact SSID presentation.
+
+## Operational/security
+
+-   User and Admin use separate technical `#WEB-n` sessions.
+-   `#WEB-n` remains a privilege-0 transport.
+-   Local IntMsg boundary observed on 127.0.0.1:27754.
+-   No requirement to restart DXSpider for UI-only changes.

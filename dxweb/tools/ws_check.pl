@@ -4,7 +4,7 @@ use warnings;
 use Mojo::UserAgent;
 use Mojo::IOLoop;
 
-my $url   = shift // 'ws://127.0.0.1:8080/ws';
+my $url   = shift // 'ws://127.0.0.1:7380/ws';
 my $limit = shift // 20;
 my $n = 0;
 my %seen;
