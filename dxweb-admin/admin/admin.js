@@ -51,11 +51,76 @@ $('regSearchForm').addEventListener('submit',e=>{e.preventDefault();const q=$('r
 function renderPending(rows){$('pendingRows').innerHTML=(rows||[]).map(r=>`<tr><td>#${esc(r.id)}</td><td>${esc(r.call)}</td><td>${esc(compactSsids(r.requested_ssids||[]))}</td><td>${esc(r.name||'-')}</td><td>${esc(r.email||'-')}</td><td>${esc(r.ip||'-')}</td><td>${esc(fmtTime(r.created_at))}</td><td>${esc(r.comment||'-')}</td><td><div class="regActions"><button data-reg-id="${esc(r.id)}" data-reg-action="accept">Accept</button><button data-reg-id="${esc(r.id)}" data-reg-action="reject">Reject</button></div></td></tr>`).join('')||'<tr><td colspan="9">No pending registration requests.</td></tr>';document.querySelectorAll('[data-reg-action]').forEach(b=>b.onclick=()=>openDecision(b.dataset.regId,b.dataset.regAction,rows))}
 function renderHistory(rows,target='historyRows'){$(target).innerHTML=(rows||[]).map(r=>`<tr><td>#${esc(r.id)}</td><td>${esc(r.call)}</td><td>${esc(ssids(r))}</td><td class="status-${esc(r.status)}">${esc(r.status||'-')}</td><td>${esc(r.name||'-')}</td><td>${esc(r.email||'-')}</td><td>${esc(fmtTime(r.created_at))}</td><td>${esc(fmtTime(r.processed_at))}</td><td>${esc(r.processed_by||'-')}</td><td>${esc(r.note??'-')}</td></tr>`).join('')||'<tr><td colspan="10">No matching registration records.</td></tr>'}
 let decisionId=null;
-function openDecision(id,action,rows){decisionId=Number(id);const r=(rows||[]).find(x=>Number(x.id)===decisionId)||{};$('regActionTitle').textContent=action==='accept'?'Accept registration':'Reject registration';$('regActionSummary').textContent=`#${id} ${r.call||''} — ${r.email||''}${r.comment?'\n'+r.comment:''}`;$('regActionNote').value='';$('regActionResult').textContent='';$('regActionDialog').showModal()}
-$('regAccept').onclick=()=>decision('accept');$('regReject').onclick=()=>decision('reject');
-function decision(action){if(!decisionId)return;$('regActionResult').textContent='Processing…';send({type:`reg_${action}`,request_id:decisionId,note:$('regActionNote').value.trim()})}
+let decisionAction=null;
+function openDecision(id,action,rows){
+ decisionId=Number(id);
+ decisionAction=action==='reject'?'reject':'accept';
+ const r=(rows||[]).find(x=>Number(x.id)===decisionId)||{};
+ $('regActionTitle').textContent=decisionAction==='accept'?'Accept registration':'Reject registration';
+ $('regActionSummary').textContent=`#${id} ${r.call||''} — ${r.email||''}${r.comment?'\n'+r.comment:''}`;
+ $('regActionNote').value='';
+ $('regActionResult').textContent='';
+ $('regAccept').hidden=decisionAction!=='accept';
+ $('regReject').hidden=decisionAction!=='reject';
+ $('regAccept').disabled=false;
+ $('regReject').disabled=false;
+ $('regActionDialog').showModal();
+}
+$('regAccept').onclick=()=>decision('accept');
+$('regReject').onclick=()=>decision('reject');
+function decision(action){
+ if(!decisionId||action!==decisionAction)return;
+ $('regAccept').disabled=true;
+ $('regReject').disabled=true;
+ $('regActionResult').textContent=action==='accept'?'Accepting…':'Rejecting…';
+ if(!send({type:`reg_${action}`,request_id:decisionId,note:$('regActionNote').value.trim()})){
+  $('regAccept').disabled=false;
+  $('regReject').disabled=false;
+  $('regActionResult').textContent='DXSpider connection is not ready.';
+ }
+}
+$('deleteUserOpen').onclick=()=>{
+ $('deleteUserCall').value='';
+ $('deleteUserNote').value='';
+ $('deleteUserResult').textContent='';
+ $('deleteUserDialog').showModal();
+ $('deleteUserCall').focus();
+};
+$('deleteUserForm').addEventListener('submit',e=>{
+ if(e.submitter&&e.submitter.value==='cancel')return;
+ e.preventDefault();
+ const target=$('deleteUserCall').value.trim().toUpperCase().replace(/-\d+$/,'');
+ if(!target)return;
+ $('deleteUserConfirm').disabled=true;
+ $('deleteUserResult').textContent='Deleting…';
+ if(!send({type:'reg_delete_user',target,note:$('deleteUserNote').value.trim()})){
+  $('deleteUserConfirm').disabled=false;
+  $('deleteUserResult').textContent='DXSpider connection is not ready.';
+ }
+});
+
 function responseText(m){const a=Array.isArray(m.messages)?m.messages.filter(x=>x!=null):[];return a.join('\n')+(m.error?`${a.length?'\n':''}ERROR: ${m.error}`:'')}
-function handle(m){if(m.type==='status'){$('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===false&&!authenticated){setLocked(true);if(m.state==='ready')showLogin()}return}if(m.type==='auth'||m.type==='auth_result'){$('loginSubmit').disabled=false;if(m.status==='ok'){clearSessionContent();loginState(true,m);$('loginDialog').close();$('loginError').textContent='';loadPending()}else{loginState(false);$('loginError').textContent=m.error==='admin_privilege_required'?'SYSOP privilege 9 is required.':m.error==='password_required'?'A valid DXSpider password is required.':(m.error||'Authentication failed');showLogin($('loginError').textContent)}return}if(m.type==='logout_result'){logoutPending=false;loginState(false);showLogin();return}if(!authenticated)return;if(m.type==='reg_pending_result'){if(m.status==='ok')renderPending(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_history_result'){if(m.status==='ok')renderHistory(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_search_result'){if(m.status==='ok')renderHistory(m.result||[],'searchRows');else notice(responseText(m));return}if(m.type==='reg_accept_result'||m.type==='reg_reject_result'){if(m.status==='ok'){const pw=m.type==='reg_accept_result'&&m.result&&m.result.password?` Password: ${m.result.password}`:'';$('regActionResult').textContent='Completed.'+pw;setTimeout(()=>{$('regActionDialog').close();loadPending();loadHistory()},900)}else $('regActionResult').textContent=responseText(m);return}if(m.type==='feed'){acceptFeed(m);return}if(m.type==='command_result'){const target=pendingCommandTargets[0]||activePanel,t=responseText(m),out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);if(logs[target]){if(t){logs[target].push(...t.split('\n'));renderLog(target)}}else if(out&&t){if(target==='console'){const b=document.createElement('div');b.className='consoleResponse';b.textContent=t;out.appendChild(b)}else out.textContent+=t+'\n';out.scrollTop=out.scrollHeight}if(m.final!==false)pendingCommandTargets.shift()}}
+function finishCommandTarget(target){
+ if(logs[target]){
+  logs[target].push('');
+  if(logs[target].length>500)logs[target]=logs[target].slice(-500);
+  renderLog(target);
+  return;
+ }
+ const out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);
+ if(!out)return;
+ if(target==='console'){
+  const spacer=document.createElement('div');
+  spacer.className='commandSeparator';
+  spacer.textContent='\u00a0';
+  out.appendChild(spacer);
+ }else{
+  out.textContent+='\n';
+ }
+ out.scrollTop=out.scrollHeight;
+}
+function handle(m){if(m.type==='status'){$('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===false&&!authenticated){setLocked(true);if(m.state==='ready')showLogin()}return}if(m.type==='auth'||m.type==='auth_result'){$('loginSubmit').disabled=false;if(m.status==='ok'){clearSessionContent();loginState(true,m);$('loginDialog').close();$('loginError').textContent='';loadPending()}else{loginState(false);$('loginError').textContent=m.error==='admin_privilege_required'?'SYSOP privilege 9 is required.':m.error==='password_required'?'A valid DXSpider password is required.':(m.error||'Authentication failed');showLogin($('loginError').textContent)}return}if(m.type==='logout_result'){logoutPending=false;loginState(false);showLogin();return}if(!authenticated)return;if(m.type==='reg_pending_result'){if(m.status==='ok')renderPending(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_history_result'){if(m.status==='ok')renderHistory(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_search_result'){if(m.status==='ok')renderHistory(m.result||[],'searchRows');else notice(responseText(m));return}if(m.type==='reg_accept_result'||m.type==='reg_reject_result'){const expected=decisionAction?`reg_${decisionAction}_result`:null;if(expected&&m.type!==expected){$('regActionResult').textContent=`Unexpected registration response: ${m.type}`;return}if(m.status==='ok'){const accepted=m.type==='reg_accept_result';const pw=accepted&&m.result&&m.result.password?` Password: ${m.result.password}`:'';$('regActionResult').textContent=(accepted?'Accepted.':'Rejected.')+pw;setTimeout(()=>{$('regActionDialog').close();decisionId=null;decisionAction=null;loadPending();loadHistory()},900)}else{$('regAccept').disabled=false;$('regReject').disabled=false;$('regActionResult').textContent=responseText(m)}return}if(m.type==='reg_delete_user_result'){$('deleteUserConfirm').disabled=false;if(m.status==='ok'){const calls=(m.result&&m.result.affected_calls)||[];$('deleteUserResult').textContent=`Deleted ${calls.length} DXUser record(s): ${calls.join(', ')}`;loadHistory();setTimeout(()=>$('deleteUserDialog').close(),1200)}else{$('deleteUserResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Delete failed'))}return}
+ if(m.type==='feed'){acceptFeed(m);return}if(m.type==='command_result'){const target=pendingCommandTargets[0]||activePanel,t=responseText(m),out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);if(logs[target]){if(t){logs[target].push(...t.split('\n'));renderLog(target)}}else if(out&&t){if(target==='console'){const b=document.createElement('div');b.className='consoleResponse';b.textContent=t;out.appendChild(b)}else out.textContent+=t+'\n';out.scrollTop=out.scrollHeight}if(m.final!==false){finishCommandTarget(target);pendingCommandTargets.shift()}}}
 loginState(false);connect();
 
 

@@ -131,3 +131,32 @@ body.authenticated #loginButton{background:#dff2e3;border-color:#6fa77b;color:#1
 
 /* 0.6.1 permanent Admin Login/Logout control */
 #loginButton{display:inline-flex;align-items:center;justify-content:center}
+
+/* Administration 0.6.2: destructive action + readable Registration history. */
+.dangerButton{border-color:#b86d6d!important;color:#8b2020!important;font-weight:700}
+#registrationTabs #deleteUserOpen{margin-left:auto}
+
+/* Do not crowd History.  The wrapper already scrolls horizontally, so keep
+   comfortable columns and reserve a genuinely wide final Note column. */
+.historyTable{table-layout:fixed;min-width:1560px}
+.historyTable th,.historyTable td{padding-left:12px;padding-right:12px}
+.historyTable col.regId{width:70px}
+.historyTable col.regCall{width:125px}
+.historyTable col.regSsids{width:105px}
+.historyTable col.regStatus{width:110px}
+.historyTable col.regName{width:140px}
+.historyTable col.regEmail{width:220px}
+.historyTable col.regWhen{width:170px}
+.historyTable col.regBy{width:120px}
+.historyTable col.regNote{width:330px}
+.historyTable td:last-child,.historyTable th:last-child{white-space:normal;overflow-wrap:anywhere}
+.commandSeparator{display:block;min-height:1.15em;height:1.15em}
+.status-DELETED{color:#8b2020;font-weight:700}
+
+
+/* Administration 0.8.3: Delete DXUser dialog layout. */
+#deleteUserDialog .dialogCard{width:min(620px,calc(100vw - 32px))}
+#deleteUserDialog label{display:block;margin-top:12px}
+#deleteUserCall{display:block;width:180px;max-width:100%;margin-top:5px}
+#deleteUserNote{display:block;box-sizing:border-box;width:100%;min-height:78px;margin-top:5px;resize:vertical}
+#deleteUserDialog .dialogActions{margin-top:18px}

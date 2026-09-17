@@ -21,8 +21,10 @@ my $web   = slurp(File::Spec->catfile($root,       'perl',  'Web.pm'));
 my $reg   = slurp(File::Spec->catfile($root,       'perl',  'DXReg.pm'));
 my $app   = slurp(File::Spec->catfile($dxweb,      'app.pl'));
 my $admin = slurp(File::Spec->catfile($admin_root, 'admin.pl'));
-my $pubjs = slurp(File::Spec->catfile($dxweb,      'public', 'app.js'));
+my $pubhtml = slurp(File::Spec->catfile($dxweb,      'public', 'index.html'));
+my $pubjs   = slurp(File::Spec->catfile($dxweb,      'public', 'app.js'));
 my $admjs = slurp(File::Spec->catfile($admin_root, 'admin',  'admin.js'));
+my $admcss = slurp(File::Spec->catfile($admin_root, 'admin', 'admin.css'));
 my $html  = slurp(File::Spec->catfile($admin_root, 'admin',  'index.html'));
 
 my @checks = (
@@ -65,6 +67,56 @@ my @checks = (
 
     ['admin search UI',
         $html =~ /id="regSearchForm"/],
+
+    ['DXReg delete family API',
+        $reg =~ /sub delete_user_family/],
+
+    ['Web delete family bridge',
+        $web =~ /sub _registration_delete_user/],
+
+    ['admin delete UI',
+        $html =~ /id="deleteUserForm"/],
+
+    ['admin delete websocket',
+        $admjs =~ /reg_delete_user/],
+
+    ['command final separator user',
+        $pubjs =~ /finishCommandTarget/],
+
+    ['command final separator admin helper',
+        $admjs =~ /function finishCommandTarget/],
+
+    ['command final separator admin is called on final',
+        $admjs =~ /if\(m\.final!==false\)\{finishCommandTarget\(target\);pendingCommandTargets\.shift\(\)\}/],
+
+    ['reject dialog exposes only selected action',
+        index($admjs, q{decisionAction=action==='reject'?'reject':'accept'}) >= 0 &&
+        index($admjs, q{$('regAccept').hidden=decisionAction!=='accept'}) >= 0 &&
+        index($admjs, q{$('regReject').hidden=decisionAction!=='reject'}) >= 0],
+
+    ['reject response cannot display generated password',
+        $admjs =~ /const accepted=m\.type==='reg_accept_result'/],
+
+    ['delete dialog has no redundant browser confirm',
+        $admjs !~ /window\.confirm\(/],
+
+    ['delete basecall field has compact layout',
+        $admcss =~ /#deleteUserCall\{[^}]*width:180px/s],
+
+    ['delete note is block full width',
+        $admcss =~ /#deleteUserNote\{[^}]*display:block[^}]*width:100%/s],
+
+    ['registration language selector',
+        $pubhtml =~ /id="registerLanguage"/],
+
+    ['registration language sent',
+        $pubjs =~ /language:\$\('registerLanguage'\)/],
+
+    ['generic two-letter registration language',
+        $reg =~ /language must be a two-letter code/],
+
+    ['template language fallback EN',
+        $reg =~ /\$file = "\$dir\/\$name\.EN"/],
 );
 
 my $failed = 0;
