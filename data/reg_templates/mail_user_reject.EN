@@ -1,0 +1,12 @@
+Subject: DXSpider registration request rejected $NODE - $CALL
+
+Hello,
+
+Your DXSpider registration request has not been accepted.
+
+       Call: $CALL
+    Request: #$REQUEST_ID
+       Note: $NOTE
+
+73,
+$NODE
