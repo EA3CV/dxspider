@@ -1,3 +1,6 @@
+17Sep26======================================================================
+1. Improved web interface, started an experimental registration system - if
+   you want to try the registration system install libemail-sender-perl.
 15Sep26======================================================================
 1. Introducing dxweb. An experimental user (currently) shim producing a
    web presentation of a node. This is a work in progress. Please read the
