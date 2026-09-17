@@ -1,0 +1,12 @@
+Subject: New DXSpider registration request $NODE - $CALL
+
+A new DXSpider registration request is waiting.
+
+          Request: #$REQUEST_ID
+             Call: $CALL
+            Email: $EMAIL
+         Language: $LANGUAGE
+  Requested SSIDs: $REQUESTED_SSIDS
+           Source: $SOURCE
+               IP: $IP
+             Node: $NODE

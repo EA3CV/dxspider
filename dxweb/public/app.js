@@ -63,7 +63,7 @@ $('registerForm').addEventListener('submit',e=>{
  try{ssids=parseSsidSpec($('registerSsids').value);$('registerSsids').value=compactSsidSpec(ssids)}
  catch(err){$('registerResult').textContent=err.message;return}
  $('registerSubmit').disabled=true;$('registerResult').textContent='Sending request…';
- if(!send({type:'reg_request',call:$('registerCall').value.trim().toUpperCase(),ssids,name:$('registerName').value.trim(),email:$('registerEmail').value.trim(),comment:$('registerComment').value.trim()})){$('registerSubmit').disabled=false;$('registerResult').textContent='DXSpider connection is not ready.'}
+ if(!send({type:'reg_request',call:$('registerCall').value.trim().toUpperCase(),ssids,name:$('registerName').value.trim(),email:$('registerEmail').value.trim(),language:$('registerLanguage').value||'EN',comment:$('registerComment').value.trim()})){$('registerSubmit').disabled=false;$('registerResult').textContent='DXSpider connection is not ready.'}
 });
 
 function clearSessionData(){
@@ -171,6 +171,25 @@ function acceptFeed(m){
    renderLog(k);
  }
 }
+function finishCommandTarget(target){
+ if(logs[target]){
+  logs[target].push('');
+  if(logs[target].length>500)logs[target]=logs[target].slice(-500);
+  renderLog(target);
+  return;
+ }
+ const out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);
+ if(!out)return;
+ if(target==='console'){
+  const spacer=document.createElement('div');
+  spacer.className='commandSeparator';
+  spacer.textContent='\u00a0';
+  out.appendChild(spacer);
+ }else{
+  out.textContent+='\n';
+ }
+ out.scrollTop=out.scrollHeight;
+}
 function handle(m){
  if(m.type==='reg_request_result'){$('registerSubmit').disabled=false;if(m.status==='ok'){const r=m.result||{};$('registerResult').textContent=`Request #${r.id||'?'} sent successfully.`;setTimeout(()=>{$('registerDialog').close()},900)}else{$('registerResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Registration request failed'))}return}
  if(m.type==='status'){$('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===true)loginState(true,m);else if(m.authenticated===false&&!logoutPending)loginState(false);return}
@@ -185,7 +204,7 @@ function handle(m){
    const target=pendingCommandTargets[0]||activeTab;const t=responseText(m);
    if(logs[target]){if(t){for(const line of t.split('\n'))logs[target].push(line);if(logs[target].length>500)logs[target]=logs[target].slice(-500);renderLog(target)}}
    else{const out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);if(out&&t){if(target==='console'){const block=document.createElement('div');block.className='consoleResponse';block.textContent=t;out.appendChild(block)}else out.textContent+=t+'\n';out.scrollTop=out.scrollHeight}}
-   if(m.final!==false)pendingCommandTargets.shift();return;
+   if(m.final!==false){finishCommandTarget(target);pendingCommandTargets.shift()}return;
  }
  if(m.type==='spot_result'){$('spotResult').textContent=responseText(m)||(m.status==='ok'?'Spot accepted by DXSpider':'Spot rejected');if(m.status==='ok')setTimeout(()=>$('spotDialog').close(),500);return}
  if(m.type==='ann_result'){$('annResult').textContent=responseText(m)||(m.status==='ok'?'Announcement accepted by DXSpider':'Announcement rejected');if(m.status==='ok')$('annText').value='';return}

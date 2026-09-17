@@ -1,0 +1,14 @@
+Subject: DXSpider registration accepted $NODE - $CALL
+
+Hello,
+
+Your DXSpider registration request has been accepted.
+
+                Call: $CALL
+            Password: $PASSWORD
+    Registered SSIDs: $ACCEPTED_SSIDS
+
+The same password has been applied to the base callsign and all accepted SSIDs.
+
+73,
+$NODE

@@ -272,3 +272,5 @@ body.authenticated #loginButton{background:#dff2e3;border-color:#6fa77b;color:#1
 #ann form{
   overflow:visible !important;
 }
+
+.commandSeparator{min-height:1em}

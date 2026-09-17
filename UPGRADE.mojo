@@ -72,7 +72,7 @@ You will need the following CPAN packages:
 	that is reasonably new (I use Ubuntu 18.04 and Debian 10) then you
 	can simply do:
 
-	sudo apt-get install libev-perl libmojolicious-perl libjson-perl libjson-xs-perl libdata-structure-util-perl libmath-round-perl libnet-cidr-lite-perl libdbd-sqlite3-perl libdbi-perl
+	sudo apt-get install libev-perl libmojolicious-perl libjson-perl libjson-xs-perl libdata-structure-util-perl libmath-round-perl libnet-cidr-lite-perl libdbd-sqlite3-perl libdbi-perl libemail-sender-perl
 
     or on Redhat based systems you can install the very similarly (but
 	not the same) named packages. I don't know the exact names but

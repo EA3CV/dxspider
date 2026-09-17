@@ -46,13 +46,13 @@ files but does not reload `DXReg.pm`.
 
 Normal user:
 
-    register/request <email> <EN|ES> [ssid-list]
+    register/request <email> <language> [ssid-list]
 
 The CALL is always taken from the connected session.
 
 SYSOP:
 
-    register/request <call> <email> <EN|ES> [ssid-list]
+    register/request <call> <email> <language> [ssid-list]
 
 Examples:
 
@@ -64,6 +64,11 @@ Only one PENDING request per CALL is allowed. Previous ACCEPTED, REJECTED or
 REMOVED records remain in history.
 
 Valid SSIDs are 1..99. SSID 0 and zero-padded forms such as 01..09 are rejected.
+
+Language is stored as an uppercase two-letter code. The Web registration form
+offers a language selector and defaults to EN. Notification template lookup
+first tries the selected language; when that template is not installed,
+DXReg automatically uses the corresponding English (`.EN`) template.
 
 ### register/show
 
