@@ -145,8 +145,10 @@ sub create_request
     $language =~ s/^\s+//;
     $language =~ s/\s+$//;
 
-    return (0, 'language must be EN or ES')
-        unless $language eq 'EN' || $language eq 'ES';
+    $language = 'EN' unless length $language;
+
+    return (0, 'language must be a two-letter code')
+        unless $language =~ /^[A-Z]{2}$/;
 
     my @ssids = @{ $arg{ssids} || [] };
 
@@ -761,6 +763,164 @@ sub remove_registration
         }
     );
 }
+
+# ------------------------------------------------------------
+# delete_user_family
+#
+# Permanently delete the DXUser base callsign and every existing
+# BASE-SSID (1..99).  Registration history is never deleted.
+#
+# The operation refuses to run while any affected callsign has a
+# live DXChannel.  A DELETED historical entry is appended only for
+# a completed operation.  If history persistence fails, deleted
+# DXUser records are restored best-effort from their snapshots.
+# ------------------------------------------------------------
+
+sub delete_user_family
+{
+    my ($target, $sysop, $note, $source_ip) = @_;
+
+    return (0, 'registration subsystem is not available')
+        unless $ready;
+
+    return (0, 'callsign is required')
+        unless defined $target && length $target;
+
+    my $base = _base_call($target);
+
+    my ($call_ok, $call_err) = _validate_call($base);
+    return (0, $call_err) unless $call_ok;
+
+    $sysop = uc($sysop // '');
+    $sysop =~ s/^\s+//;
+    $sysop =~ s/\s+$//;
+
+    return (0, 'SYSOP callsign is required')
+        unless length $sysop;
+
+    if (defined $note) {
+        $note =~ s/^\s+//;
+        $note =~ s/\s+$//;
+        $note = undef unless length $note;
+    }
+
+    my @affected;
+    my @affected_ssids;
+
+    push @affected, $base if DXUser::get_current($base);
+
+    for my $ssid (1 .. 99) {
+        my $call = "$base-$ssid";
+        next unless DXUser::get_current($call);
+        push @affected, $call;
+        push @affected_ssids, $ssid;
+    }
+
+    return (0, "no DXUser records found for $base")
+        unless @affected;
+
+    my @online = grep { DXChannel::get($_) } @affected;
+    return (
+        0,
+        'cannot delete connected DXUser record(s): ' . join(', ', @online)
+    ) if @online;
+
+    # Keep complete in-memory snapshots.  DXUser records are plain blessed
+    # hashes; a shallow copy preserves all persisted scalar/array/hash values
+    # without modifying the originals before deletion.
+    my @snapshots;
+    for my $call (@affected) {
+        my $ref = DXUser::get_current($call)
+            or return (0, "DXUser $call disappeared before delete");
+        push @snapshots, { call => $call, data => { %$ref } };
+    }
+
+    my @deleted;
+    my $delete_ok = eval {
+        for my $call (@affected) {
+            my $ref = DXUser::get_current($call)
+                or die "DXUser $call disappeared during delete";
+            $ref->del()
+                or die "DXUser delete returned failure for $call";
+            push @deleted, $call;
+        }
+        1;
+    };
+
+    unless ($delete_ok) {
+        my $err = $@ || 'unknown DXUser delete error';
+        $err =~ s/\s+$//;
+        _rollback_deleted_dxusers(\@snapshots, \@deleted);
+        DXLog::LogDbg('err', "DXReg: delete failed for $base: $err");
+        return (0, "unable to delete DXUser records for $base: $err");
+    }
+
+    my @history = sort {
+        ($b->{id} || 0) <=> ($a->{id} || 0)
+    } get_history($base);
+    my $previous = $history[0];
+    my $now = int(time);
+
+    my $record = {
+        id              => int($next_id++),
+        call            => $base,
+        email           => $previous ? ($previous->{email} // '') : '',
+        language        => $previous ? ($previous->{language} // 'EN') : 'EN',
+        requested_ssids => [],
+        accepted_ssids  => undef,
+        affected_ssids  => [ map { int($_) } @affected_ssids ],
+        affected_calls  => [ @affected ],
+        status          => 'DELETED',
+        source          => 'SYSOP',
+        ip              => defined $source_ip && length $source_ip ? "$source_ip" : undef,
+        created_at      => $now,
+        processed_at    => $now,
+        processed_by    => $sysop,
+        note            => $note,
+    };
+
+    push @requests, $record;
+    _index_request($record);
+
+    my ($saved, $save_err) = _save();
+
+    unless ($saved) {
+        pop @requests;
+        --$next_id if $next_id > 1;
+        _rebuild_indexes();
+        _rollback_deleted_dxusers(\@snapshots, \@deleted);
+
+        DXLog::LogDbg(
+            'err',
+            sprintf(
+                'DXReg: delete for %s rolled back because history could not be saved: %s',
+                $base,
+                $save_err
+            )
+        );
+
+        return (0, "unable to save user deletion history: $save_err");
+    }
+
+    DXLog::LogDbg(
+        'registration',
+        sprintf(
+            'registration: %s and %d DXUser record(s) deleted by %s',
+            $base,
+            scalar(@affected),
+            $sysop
+        )
+    );
+
+    return (
+        1,
+        {
+            record         => $record,
+            affected_calls => \@affected,
+        }
+    );
+}
+
 
 # ------------------------------------------------------------
 # reject_request
@@ -2292,6 +2452,39 @@ sub _rollback_remove_dxusers
             DXLog::LogDbg(
                 'err',
                 "DXReg: remove rollback failed for $s->{call}: $err"
+            );
+        }
+    }
+
+    return;
+}
+
+
+# ------------------------------------------------------------
+# _rollback_deleted_dxusers
+# ------------------------------------------------------------
+
+sub _rollback_deleted_dxusers
+{
+    my ($snapshots, $deleted) = @_;
+    my %deleted = map { $_ => 1 } @{ $deleted || [] };
+
+    for my $s (reverse @{ $snapshots || [] }) {
+        next unless $deleted{$s->{call}};
+
+        eval {
+            my $ref = DXUser::get_current($s->{call});
+            $ref ||= DXUser->alloc($s->{call});
+            %$ref = %{ $s->{data} };
+            $ref->put();
+        };
+
+        if ($@) {
+            my $err = $@;
+            $err =~ s/\s+$//;
+            DXLog::LogDbg(
+                'err',
+                "DXReg: delete rollback failed for $s->{call}: $err"
             );
         }
     }

@@ -1053,6 +1053,19 @@ sub _registration_reject
 	$self->_response($id,'ok','reg_reject',{result=>$result});
 }
 
+sub _registration_delete_user
+{
+	my ($self, $req) = @_;
+	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_delete_user','registration_unavailable'); return; }
+	my ($call,$err)=$self->_registration_admin($req); unless($call){$self->_error($id,'reg_delete_user',$err);return}
+	my $target=_wc_text($req->{target},0); unless(defined$target){$self->_error($id,'reg_delete_user','bad_arguments');return}
+	my $note=exists($req->{note})?_wc_text($req->{note},1):undef; if(exists($req->{note})&&!defined$note){$self->_error($id,'reg_delete_user','bad_arguments');return}
+	my $ip=exists($req->{ip})?_wc_text($req->{ip},1):undef;
+	my ($ok,$result)=DXReg::delete_user_family($target,$call,$note,$ip);
+	unless($ok){$self->_error($id,'reg_delete_user','registration_rejected',{messages=>[$result]});return}
+	$self->_response($id,'ok','reg_delete_user',{result=>$result});
+}
+
 sub _command_request
 {
 	my ($self, $req) = @_;
@@ -1282,6 +1295,7 @@ sub normal
 	if ($type eq 'reg_search') { $self->_registration_search($req); return; }
 	if ($type eq 'reg_accept') { $self->_registration_accept($req); return; }
 	if ($type eq 'reg_reject') { $self->_registration_reject($req); return; }
+	if ($type eq 'reg_delete_user') { $self->_registration_delete_user($req); return; }
 
 	$self->_error($id, $type || 'unknown', 'unknown_type');
 }
