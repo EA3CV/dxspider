@@ -1597,6 +1597,7 @@ sub broadcast_route_pc9x
 		$line = &$generate(@_);
 	}
 
+	my $sent = 0;
 	$line =~ /\^H(\d+)\^\~?$/;
 	unless ($1 > 0 && $self->{isolate}) {
 		foreach $dxchan (@dxchan) {
@@ -1607,8 +1608,10 @@ sub broadcast_route_pc9x
 			next if $dxchan->is_ccluster;
 
 			$dxchan->send($line);
+			++$sent;
 		}
 	}
+	return $sent;
 }
 
 sub route_pc16

@@ -18,6 +18,7 @@ use DXM;
 use DXDebug;
 
 use strict;
+use DXHealth;
 
 use vars qw($sentencelth $pc19_version $pc9x_nodupe_first_slot $pc92c_ipaddr_enable);
 
@@ -432,19 +433,25 @@ sub gen_pc92_with_time
 # add a local one
 sub pc92a
 {
-	return _gen_pc92('A', 2, @_);
+	my $l = _gen_pc92('A', 2, @_);
+	DXHealth::pc92_generated_line($l);
+	return $l;
 }
 
 # delete a local one
 sub pc92d
 {
-	return _gen_pc92('D', 0, @_);
+	my $l = _gen_pc92('D', 0, @_);
+	DXHealth::pc92_generated_line($l);
+	return $l;
 }
 
 # send a config
 sub pc92c
 {
-	return _gen_pc92('C', $pc92c_ipaddr_enable ? 2 : 1, @_);
+	my $l = _gen_pc92('C', $pc92c_ipaddr_enable ? 2 : 1, @_);
+	DXHealth::pc92_generated_line($l);
+	return $l;
 }
 
 # send a keep alive
@@ -460,7 +467,9 @@ sub pc92k
 	$s .= "^" . scalar $nref->users;
 	$s .= "^" .  _encode_maybe_rfc1918_ip($ipaddr);
 	$s .= "^$main::gitbranch/$main::gitversion";
-	return $s . '^H99^';
+	my $l = $s . '^H99^';
+	DXHealth::pc92_generated_line($l);
+	return $l;
 }
 
 # send a 'find' message

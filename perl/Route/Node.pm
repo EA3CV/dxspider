@@ -24,6 +24,8 @@ use vars qw(%list %valid @ISA $max $filterdef $obscount);
 		  K => '9,Seen on PC92K,yesno',
 		  PC92C_dxchan => '9,PC92C hops,phash',
 		  build => '0,Build',
+		  gitbranch => '0,Git Branch',
+		  gitversion => '0,Git Version',
 		  do_pc9x => '0,Uses pc9x,yesno',
 		  handle_xml => '0,Using XML,yesno',
 		  last_PC92C => '9,Last PC92C',

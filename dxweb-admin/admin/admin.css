@@ -160,3 +160,77 @@ body.authenticated #loginButton{background:#dff2e3;border-color:#6fa77b;color:#1
 #deleteUserCall{display:block;width:180px;max-width:100%;margin-top:5px}
 #deleteUserNote{display:block;box-sizing:border-box;width:100%;min-height:78px;margin-top:5px;resize:vertical}
 #deleteUserDialog .dialogActions{margin-top:18px}
+/* DXSpider supervision v0.1 */
+.supervisionGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:14px 0}.supervisionGrid>div{min-width:0}.supervisionGrid pre{min-height:120px;white-space:pre-wrap}.supervisionGrid h3,#supervision>div>h3{margin:12px 0 6px}
+
+
+/* DXSpider supervision v0.2: internal dashboard navigation */
+#supervision{overflow:hidden}.supervisionTabs{align-items:center;flex-wrap:wrap}.supervisionTabs .supervisionRefresh{margin-left:auto}.supervisionBanner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 16px;background:#f7fafc;border-bottom:1px solid #d5e0ea;font-size:13px}.supervisionBanner strong{font-size:16px}.healthPill{display:inline-block;border:1px solid #aebdca;border-radius:999px;padding:2px 8px;font-weight:700}.healthPill.ok{background:#e4f4e8;border-color:#7db68a;color:#1c642e}.healthPill.bad{background:#fbe7e7;border-color:#c98c8c;color:#8b2020}.healthPill.unknown{background:#eef1f4;color:#5e6b74}.supervisionState{margin:8px 16px}.superPanel{display:none;height:calc(100% - 118px);min-height:0;padding:0 16px 16px;overflow:auto}.superPanel.active{display:block}.supervisionGrid{grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin-top:8px}.superCard{border:1px solid #d5e0ea;border-radius:7px;background:#fbfdff;padding:10px}.superCard h3{margin:0 0 7px}.superCard .commandOutput{margin:0;min-height:120px}.supervisionOutput{min-height:260px;white-space:pre-wrap}.supervisionTableWrap{height:calc(100% - 55px);overflow:auto}.panelHint{font-size:12px;color:#647681;margin-left:auto}
+
+
+/* DXSpider supervision v0.3: operational dashboard */
+#supervision{background:#f3f7fa}
+.supervisionState{color:#5b6c78;font-size:12px}
+.bannerMeta{margin-left:auto;color:#647681}
+.kpiGrid{display:grid;grid-template-columns:repeat(6,minmax(145px,1fr));gap:10px;margin:10px 0 14px}
+.kpiCard{background:#fff;border:1px solid #ccd9e2;border-radius:8px;padding:12px 14px;min-width:0;box-shadow:0 1px 2px #17384b0a}
+.kpiCard .kpiLabel{display:block;text-transform:uppercase;letter-spacing:.04em;color:#667b89;font-size:11px;font-weight:700;margin-bottom:6px}
+.kpiCard strong{display:block;font-size:22px;line-height:1.1;color:#123e57;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpiCard small{display:block;margin-top:6px;color:#607481;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.supervisionGrid{grid-template-columns:repeat(2,minmax(340px,1fr));gap:12px}
+.overviewGrid{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);align-items:start}
+.overviewRightColumn{display:grid;grid-template-columns:1fr;gap:12px;min-width:0}
+.superCard{background:#fff;padding:14px 16px;box-shadow:0 1px 2px #17384b0a}
+.cardTitle{display:flex;align-items:center;gap:8px;border-bottom:1px solid #e4ebf0;padding-bottom:8px;margin-bottom:4px}.cardTitle h3{margin:0}.cardHint{margin-left:auto;color:#748793;font-size:11px}
+.healthDot{width:9px;height:9px;border-radius:50%;display:inline-block}.healthDot.ok{background:#2c9a52}.healthDot.bad{background:#c94b4b}
+.metricList{margin:0}.metricRow{display:grid;grid-template-columns:minmax(130px,1fr) minmax(90px,1fr);gap:16px;padding:7px 0;border-bottom:1px solid #edf2f5}.metricRow:last-child{border-bottom:0}.metricRow dt{color:#657986}.metricRow dd{margin:0;text-align:right;font-weight:650;color:#183746;font-variant-numeric:tabular-nums}.metricListWide{max-width:760px}
+.compactTable{display:flex;flex-direction:column}.compactRow{display:grid;grid-template-columns:90px minmax(90px,1fr) minmax(110px,1fr) auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #edf2f5}.compactRow:last-child{border-bottom:0}
+.stateBadge{display:inline-block;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:750;border:1px solid #bac8d1;background:#eef3f6;color:#536875}.stateBadge.ok{background:#e4f4e8;border-color:#7db68a;color:#1c642e}.stateBadge.bad{background:#fbe7e7;border-color:#c98c8c;color:#8b2020}
+.panelSub{font-size:12px;color:#6b7f8b;margin-top:2px}.filterBar{display:flex;align-items:center;gap:6px;margin-left:auto}.filterBar button{padding:5px 9px}.filterBar button.active{background:#2f718d;color:#fff;border-color:#2f718d}.filterBar input{width:180px;padding:6px 8px;margin-left:5px;border:1px solid #aebfd0;border-radius:5px}
+.superTable{width:100%;border-collapse:collapse;background:#fff}.superTable th{position:sticky;top:0;background:#eaf2f7;color:#07598e;text-align:left;padding:8px 10px;border-bottom:1px solid #ccd9e2}.superTable td{padding:8px 10px;border-bottom:1px solid #e1e8ed;font-variant-numeric:tabular-nums}.superTable tbody tr:hover{background:#f5f9fc}.callCell{font-weight:750;color:#183f57}.warnText{color:#9a6412;font-weight:750}.badText{color:#9b2626;font-weight:750}.emptyCell{padding:22px!important;color:#6a7e89;text-align:center}
+.rbnCards{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:12px}.rbnCard{background:#fff;border:1px solid #ccd9e2;border-radius:8px;padding:12px 14px}.rbnHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.rbnHead strong{font-size:18px;color:#123e57}.rbnHead span{font-size:12px;color:#667b89}
+.miniTable{width:100%;border-collapse:collapse}.miniTable th,.miniTable td{padding:6px 8px;border-bottom:1px solid #e5edf2;text-align:right;font-variant-numeric:tabular-nums}.miniTable th:first-child,.miniTable td:first-child{text-align:left}.miniTable th{font-size:11px;text-transform:uppercase;color:#657986}
+.systemGrid{display:grid;grid-template-columns:repeat(3,minmax(260px,1fr));gap:12px}.diagnosticsGrid{display:grid;grid-template-columns:repeat(2,minmax(320px,1fr));gap:12px}.rawDetails{margin-top:12px;background:#fff;border:1px solid #ccd9e2;border-radius:7px;padding:10px 12px}.rawDetails summary{cursor:pointer;font-weight:700;color:#4c6574}.rawDetails pre{margin:10px 0 0;white-space:pre-wrap}
+.superNote{margin-top:12px;padding:10px 12px;border-left:3px solid #9bb8c8;background:#f8fbfd;color:#5f7481;font-size:12px}.wideCard{margin-top:12px;max-width:820px}
+@media(max-width:1100px){.kpiGrid{grid-template-columns:repeat(3,1fr)}.systemGrid{grid-template-columns:1fr 1fr}.supervisionGrid{grid-template-columns:1fr}.overviewGrid{grid-template-columns:1fr}}
+@media(max-width:720px){.kpiGrid,.systemGrid,.diagnosticsGrid{grid-template-columns:1fr}.filterBar{width:100%;flex-wrap:wrap;margin-left:0}.rbnCards{grid-template-columns:1fr}.compactRow{grid-template-columns:1fr 1fr}.bannerMeta{margin-left:0}}
+
+
+/* DXSpider supervision v0.4: complete information architecture, passive placeholders */
+.wideSuperTable{min-width:1450px}
+.legendLine{display:flex;flex-wrap:wrap;gap:18px;padding:8px 2px;color:#687c88;font-size:11px}
+.naValue{color:#8b9aa3!important;font-weight:500!important}
+.protocolCard{margin-top:12px}
+.protocolCard h4{margin:12px 0 6px;color:#294f64}
+.protocolGroup{margin-top:12px}
+.protocolTable{max-width:900px}
+.pc92Activity{max-width:760px}
+.pc92Neighbour{min-width:850px}
+.pc92Neighbour th{text-align:center}.pc92Neighbour th:first-child{text-align:left}
+.webSessionGrid{display:grid;grid-template-columns:minmax(260px,.65fr) minmax(700px,2fr);gap:12px;margin-top:12px}
+@media(max-width:1100px){.webSessionGrid{grid-template-columns:1fr}}
+
+/* v0.4.2: connection table contains connection/channel fields only. */
+#connections .wideSuperTable{min-width:1120px}
+
+/* Supervision v0.9: PC92 packet/byte detail and snapshot-derived rates. */
+.pc92Activity td:not(:first-child),.pc92CountCell{text-align:right;font-variant-numeric:tabular-nums}
+.pc92Activity td small,.pc92CountCell small{display:block;margin-top:2px;color:#6b8391;font-size:11px;font-weight:400;white-space:nowrap}
+.pc92Totals{margin-top:10px;max-width:900px}
+.pc92Totals th:not(:first-child),.pc92Totals td:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+
+
+/* DXSpider supervision v0.10: compact traffic layout and aligned value/unit columns. */
+.trafficTopGrid{display:grid;grid-template-columns:minmax(260px,1.15fr) minmax(230px,.9fr) minmax(210px,.8fr);gap:12px;margin:12px 0}
+.trafficPairGrid{display:grid;grid-template-columns:minmax(520px,1fr) minmax(520px,1fr);gap:12px;margin:12px 0}
+.neighbourCard{margin-top:12px}.neighbourGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.neighbourGrid .tableWrap{min-width:0}
+.compactMetrics .metricRow{grid-template-columns:minmax(110px,1fr) minmax(115px,.75fr);padding:5px 0;gap:10px}
+.vu{display:inline-grid;grid-template-columns:minmax(4.8em,auto) minmax(3.3em,auto);column-gap:.42em;align-items:baseline;white-space:nowrap;font-variant-numeric:tabular-nums}
+.vuValue{text-align:right}.vuUnit{text-align:left;color:#6b8391;font-size:.88em;font-weight:500}
+.unitCell{text-align:right}.unitCell .vu{min-width:8.6em}
+.pc92Activity{max-width:none}.pc92Activity td:not(:first-child){min-width:92px}.pc92Activity .vu{grid-template-columns:minmax(3.8em,auto) minmax(2.5em,auto)}
+.pc92Totals{margin-top:0;max-width:none}.pc92Totals td:not(:first-child){white-space:nowrap}.pc92Totals .vu{grid-template-columns:minmax(4.5em,auto) minmax(3.4em,auto)}
+.pc92Neighbour{min-width:620px;font-size:12px}.pc92Neighbour th,.pc92Neighbour td{padding:6px 7px}.pc92Neighbour .vu{grid-template-columns:minmax(3.5em,auto) minmax(2.4em,auto);column-gap:.28em}
+#nodes .wideSuperTable{min-width:1380px}
+@media(max-width:1250px){.trafficTopGrid{grid-template-columns:1fr 1fr}.trafficTopGrid>.superCard:first-child{grid-column:1/-1}.trafficPairGrid,.neighbourGrid{grid-template-columns:1fr}}
+@media(max-width:760px){.trafficTopGrid{grid-template-columns:1fr}.trafficTopGrid>.superCard:first-child{grid-column:auto}}

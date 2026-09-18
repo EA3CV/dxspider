@@ -35,6 +35,7 @@ use Script;
 use DXCIDR;
 
 use strict;
+use DXHealth;
 use warnings qw(all);
 no warnings qw(uninitialized);
 
@@ -2199,6 +2200,10 @@ sub handle_92
 	my $sort = $pc->[3];
 	my $hops = $pc->[-1];
 
+	# Physical transport accounting is deliberately before logical validation:
+	# it records an A/D/C/K PC92 that really arrived on this direct channel.
+	DXHealth::pc92_physical_in($self->{call}, $sort, length($line));
+
 	# this catches loops of A/Ds
 #	if (eph_dup($line, $pc9x_dupe_age)) {
 #		return;
@@ -2308,6 +2313,10 @@ sub handle_92
 			my $user = check_add_user($parent->call, 'S');
 			my $oldsort = $user->sort // '';
 			my $ipaddr = @ent > 10 ? $ent[9] : '';
+			my ($gitbranch, $gitversion);
+			if (defined $pc->[8] && length $pc->[8] && $pc->[8] =~ m{^(.+)/([^/]+)$}) {
+				($gitbranch, $gitversion) = ($1, $2);
+			}
 
 			dbg("PCPROT: PC92 K v: $version ov: $oldversion b: $build ob: $oldbuild pk: " . ($parent->K || '0') . " uk: " . ($user->K || 0)) if isdbg('pc92k');
 				
@@ -2319,6 +2328,11 @@ sub handle_92
 					$user->build($parent->build($build));
 					++$changed;
 				}
+
+				# PC92 K already carries gitbranch/gitversion in field 8. Keep it
+				# as live route metadata; do not persist it into DXUser.
+				$parent->gitbranch($gitbranch);
+				$parent->gitversion($gitversion);
 
 				unless ($user->is_spider || $user->is_ccluster) {
 					$user->sort('S');
@@ -2469,11 +2483,15 @@ sub handle_92
 		$self->route_pc16($pcall, undef, $parent, @pc16) if @pc16;
 	}
 
+	# Reaching here means an A/D/C/K survived the logical handling above.
+	DXHealth::pc92_received($sort, length($line));
+
 	# broadcast it if we get here (but not if it's an A or D record and pc92_ad_enabled isn't set;
 	if ($sort eq 'A' || $sort eq 'D') {
 		return unless $pc92_ad_enabled;
 	}
-	$self->broadcast_route_pc9x($pcall, undef, $line, 0);
+	my $sent = $self->broadcast_route_pc9x($pcall, undef, $line, 0);
+	DXHealth::pc92_forwarded($sort, length($line)) if $sent;
 }
 
 # get all the routes for a thing, bearing in mind that the thing (e.g. a user)

@@ -16,6 +16,7 @@ use DXUtil;
 use DXUser;
 use DXCIDR;
 use DXReg;
+use DXSupervisor;
 use Route;
 use Route::User;
 
@@ -981,6 +982,25 @@ sub _registration_admin
 	return ($call, undef);
 }
 
+sub _supervisor_request
+{
+	my ($self, $req) = @_;
+	my $id = $req->{id};
+	my ($call, $err) = $self->_registration_admin($req);
+	unless ($call) { $self->_error($id, 'supervisor', $err); return; }
+	my $what = lc($req->{what} || 'status');
+	unless ($what =~ /^(?:status|connections|traffic|web|rbn|self_health)$/) {
+		$self->_error($id, 'supervisor', 'unsupported_snapshot');
+		return;
+	}
+	my ($ok, $result) = DXSupervisor::snapshot($what);
+	unless ($ok) {
+		$self->_error($id, 'supervisor', $result->{error} || 'snapshot_failed');
+		return;
+	}
+	$self->_response($id, 'ok', 'supervisor', {what => $what, result => $result});
+}
+
 sub _registration_request
 {
 	my ($self, $req) = @_;
@@ -1289,6 +1309,7 @@ sub normal
 		return;
 	}
 
+	if ($type eq 'supervisor') { $self->_supervisor_request($req); return; }
 	if ($type eq 'reg_request') { $self->_registration_request($req); return; }
 	if ($type eq 'reg_pending') { $self->_registration_pending($req); return; }
 	if ($type eq 'reg_history') { $self->_registration_history($req); return; }

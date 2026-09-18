@@ -30,6 +30,7 @@ use DXM;
 use DXUtil;
 use DXVars;
 use DXDebug;
+use DXHealth;
 use Filter;
 use Prefix;
 use Route;
@@ -486,6 +487,7 @@ sub send						# this is always later and always data
 		for (ref $l ? @$l : $l) {
 			my @lines = split /\n/;
 			for (@lines) {
+				DXHealth::pc92_physical_out_line($self->{call}, $_);
 				$conn->send_later("D$call|$_");
 				dbg("-> D $self->{dcall} $_") if isdbg('chan');
 			}

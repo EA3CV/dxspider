@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# DXSpider Web Administration 0.5.0
+# DXSpider Web Administration 0.10.0
 # Date: 2026-09-16
 use strict;
 use warnings;
@@ -33,6 +33,7 @@ my $last_feed_at;
 
 sub ws_stream($tx){ return unless $tx && $tx->can('connection'); my $id=$tx->connection; return defined($id)?Mojo::IOLoop->stream($id):undef }
 sub public_status(){ return {type=>'status',%state,dxs_host=>$DXS_HOST,dxs_port=>0+$DXS_PORT,counters=>{%counters},last_feed_at=>$last_feed_at,websocket_clients=>scalar(keys %clients),history_items=>scalar(@history),history_bytes=>$history_bytes,fanout_items=>scalar(@fanout),fanout_bytes=>$fanout_bytes} }
+sub browser_client_snapshot(){ my$total=scalar(keys %clients);my$auth=grep{$clients{$_}{authenticated}}keys%clients;return{clients=>$total,authenticated=>0+$auth,anonymous=>$total-$auth} }
 sub client_status($id){ my $o=public_status(); my $cl=$clients{$id}; $o->{authenticated}=($cl&&$cl->{authenticated})?\1:\0; if($cl&&$cl->{authenticated}){$o->{call}=$cl->{call};$o->{priv}=0+($cl->{priv}//0);$o->{registered}=$cl->{registered}?\1:\0;$o->{password_used}=$cl->{password_used}?\1:\0} return $o }
 sub drop_slow_client($id){ my $cl=delete $clients{$id} or return; $counters{ws_slow_disconnects}++; eval{$cl->{tx}->finish(1013=>'slow consumer')} }
 sub ws_send_guarded($id,$json){ my $cl=$clients{$id} or return 0; my $tx=$cl->{tx}; return 0 unless $tx&&$tx->is_websocket; my $s=ws_stream($tx); unless($s&&$s->can('can_write')&&$s->can('bytes_waiting')){$counters{ws_dropped}++;drop_slow_client($id);return 0} my $w=$s->bytes_waiting; my $n=length($json); if(!$s->can_write||$n>$WS_HIGH_WATER||$w+$n>$WS_HIGH_WATER){$counters{ws_dropped}++;drop_slow_client($id);return 0} my $ok=eval{$tx->send($json);1}; if(!$ok){delete $clients{$id};return 0} $counters{ws_sent}++;1 }
@@ -101,6 +102,7 @@ if($p->{action} eq 'logout'){
 if($p->{action} eq 'spot'){ws_send_guarded($cid,encode_json({type=>'spot_result',status=>$msg->{status}//'error',messages=>$msg->{messages}||[],error=>$msg->{error},result=>$msg->{result}}));return}
 if($p->{action} eq 'ann'){ws_send_guarded($cid,encode_json({type=>'ann_result',status=>$msg->{status}//'error',messages=>$msg->{messages}||[],error=>$msg->{error},result=>$msg->{result},scope=>$msg->{scope}}));return}
 if($p->{action}=~/^reg_(?:pending|history|search|accept|reject|delete_user)$/){ws_send_guarded($cid,encode_json({type=>$p->{action}.'_result',status=>$msg->{status}//'error',messages=>$msg->{messages}||[],error=>$msg->{error},result=>$msg->{result}}));return}
+if($p->{action}=~/^supervisor_(?:status|connections|traffic|web|rbn|self_health)$/){my$result=$msg->{result};if($p->{action} eq 'supervisor_web'&&ref($result) eq 'HASH'){$result={%$result,browser_clients=>browser_client_snapshot()}}ws_send_guarded($cid,encode_json({type=>$p->{action}.'_result',status=>$msg->{status}//'error',error=>$msg->{error},result=>$result}));return}
 ws_send_guarded($cid,encode_json($msg))}
 sub handle_line($line) {
   $line =~ s/\r$//;
@@ -141,9 +143,39 @@ sub handle_line($line) {
 }
 sub schedule_reconnect;sub connect_dxs(){return if$stream;set_state('connecting');Mojo::IOLoop->client({address=>$DXS_HOST,port=>$DXS_PORT}=>sub($loop,$err,$s){if($err){set_state('disconnected',$err);schedule_reconnect();return}$stream=$s;$s->timeout(0);$buffer='';set_state('tcp_connected');send_line('A#WEB|dxweb enhanced');set_state('wait_assignment');$s->on(read=>sub($this,$bytes){return unless$stream&&$this==$stream;$buffer.=$bytes;if(length$buffer>$MAX_INPUT_BYTES){$counters{input_overflow}++;$buffer='';$this->close;return}while(1){my$n=index($buffer,"\n");last if$n<0;my$l=substr($buffer,0,$n,'');substr($buffer,0,1,'');handle_line($l)}});$s->on(close=>sub($this){return unless$stream&&$this==$stream;$stream=undef;$buffer='';%pending=();for my$id(keys%clients){$clients{$id}{authenticated}=0;delete$clients{$id}{call}}$counters{reconnects}++;set_state('disconnected','DXSpider connection closed');schedule_reconnect()});$s->on(error=>sub($this,$err){set_state('transport_error',$err);$this->close})})}
 sub schedule_reconnect{return if$reconnect_timer;$reconnect_timer=Mojo::IOLoop->timer($RECONNECT=>sub{undef$reconnect_timer;connect_dxs()})}
+
+sub local_system_snapshot {
+    my %r = (collected_at => time);
+    if (open my $fh, '<', '/proc/uptime') {
+        my $line = <$fh> // '';
+        $r{host_uptime_seconds} = 0 + $1 if $line =~ /^([0-9.]+)/;
+        close $fh;
+    }
+    if (open my $fh, '<', '/proc/loadavg') {
+        my $line = <$fh> // '';
+        @r{qw(load1 load5 load15)} = map {0+$_} ($1,$2,$3) if $line =~ /^([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)/;
+        close $fh;
+    }
+    my %m;
+    if (open my $fh, '<', '/proc/meminfo') {
+        while (<$fh>) { $m{$1}=1024*(0+$2) if /^(MemTotal|MemAvailable|SwapTotal|SwapFree):\s+(\d+)/ }
+        close $fh;
+    }
+    $r{mem_total_bytes}=$m{MemTotal}||0;
+    $r{mem_available_bytes}=$m{MemAvailable}||0;
+    $r{mem_used_bytes}=($m{MemTotal}||0)-($m{MemAvailable}||0);
+    $r{swap_total_bytes}=$m{SwapTotal}||0;
+    $r{swap_used_bytes}=($m{SwapTotal}||0)-($m{SwapFree}||0);
+    if (open my $fh, '<', '/proc/self/status') {
+        while (<$fh>) { if (/^VmRSS:\s+(\d+)/) {$r{admin_rss_bytes}=1024*(0+$1);last} }
+        close $fh;
+    }
+    return \%r;
+}
+
 hook before_server_start=>sub($server,$app){Mojo::IOLoop->next_tick(sub{connect_dxs()})};
 get '/'=>sub($c){$c->reply->static('index.html')};
 get '/healthz'=>sub($c){$c->render(status=>$state{state}eq 'ready'?200:503,json=>public_status())};
 any [qw(POST PUT PATCH DELETE)]=>'/*whatever'=>sub($c){$c->render(status=>405,json=>{error=>'websocket_api_only'})};
-websocket '/ws'=>sub($c){my$id=$next_client_id++;my$tx=$c->tx;my$s=ws_stream($tx);unless($s&&$s->can('high_water_mark')&&$s->can('can_write')&&$s->can('bytes_waiting')){$c->finish(1011=>'backpressure unavailable');return}$s->high_water_mark($WS_HIGH_WATER);my$ip=$tx->remote_address||'127.0.0.1';$ip=~s/^::ffff://i;$clients{$id}={tx=>$tx,ip=>$ip,authenticated=>0};$c->inactivity_timeout(0);ws_send_guarded($id,encode_json(client_status($id)));$c->on(message=>sub($c,$raw){my$m;eval{$m=decode_json$raw};return if$@||ref$m ne 'HASH';my$t=lc($m->{type}//'');if($t eq 'auth'){return unless$state{state}eq 'ready';return if$clients{$id}{authenticated};my$call=$m->{call}//'';my$pass=exists$m->{password}?$m->{password}:undef;dxs_request($id,'auth',{type=>'auth',call=>$call,password=>$pass,ip=>$clients{$id}{ip}});return}if($t eq 'logout'){return unless$clients{$id}{authenticated};dxs_request($id,'logout',{type=>'user_del',call=>$clients{$id}{call}});return}return unless$clients{$id}{authenticated};if($t=~/^reg_(?:pending|history)$/){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call}});return}if($t eq 'reg_search'){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call},query=>$m->{query}//''});return}if($t=~/^reg_(?:accept|reject)$/){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call},request_id=>$m->{request_id},note=>$m->{note}//''});return}if($t eq 'reg_delete_user'){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call},target=>$m->{target}//'',note=>$m->{note}//'',ip=>$clients{$id}{ip}});return}if($t eq 'command'){my$cmd=$m->{command}//'';dxs_request($id,'command',{type=>'command',call=>$clients{$id}{call},command=>$cmd});return}});$c->on(finish=>sub{my$cl=delete$clients{$id};if($cl&&$cl->{authenticated}&&$state{state}eq 'ready'){send_dxs({type=>'user_del',id=>$request_id++,call=>$cl->{call}})}for my$rid(keys%pending){delete$pending{$rid} if$pending{$rid}{client}==$id}})};
+websocket '/ws'=>sub($c){my$id=$next_client_id++;my$tx=$c->tx;my$s=ws_stream($tx);unless($s&&$s->can('high_water_mark')&&$s->can('can_write')&&$s->can('bytes_waiting')){$c->finish(1011=>'backpressure unavailable');return}$s->high_water_mark($WS_HIGH_WATER);my$ip=$tx->remote_address||'127.0.0.1';$ip=~s/^::ffff://i;$clients{$id}={tx=>$tx,ip=>$ip,authenticated=>0};$c->inactivity_timeout(0);ws_send_guarded($id,encode_json(client_status($id)));$c->on(message=>sub($c,$raw){my$m;eval{$m=decode_json$raw};return if$@||ref$m ne 'HASH';my$t=lc($m->{type}//'');if($t eq 'auth'){return unless$state{state}eq 'ready';return if$clients{$id}{authenticated};my$call=$m->{call}//'';my$pass=exists$m->{password}?$m->{password}:undef;dxs_request($id,'auth',{type=>'auth',call=>$call,password=>$pass,ip=>$clients{$id}{ip}});return}if($t eq 'logout'){return unless$clients{$id}{authenticated};dxs_request($id,'logout',{type=>'user_del',call=>$clients{$id}{call}});return}return unless$clients{$id}{authenticated};if($t=~/^reg_(?:pending|history)$/){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call}});return}if($t eq 'reg_search'){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call},query=>$m->{query}//''});return}if($t=~/^reg_(?:accept|reject)$/){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call},request_id=>$m->{request_id},note=>$m->{note}//''});return}if($t eq 'reg_delete_user'){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call},target=>$m->{target}//'',note=>$m->{note}//'',ip=>$clients{$id}{ip}});return}if($t eq 'supervisor_system'){ws_send_guarded($id,encode_json({type=>'supervisor_system_result',status=>'ok',result=>local_system_snapshot()}));return}if($t=~/^supervisor_(status|connections|traffic|web|rbn|self_health)$/){my$what=$1;dxs_request($id,$t,{type=>'supervisor',call=>$clients{$id}{call},what=>$what});return}if($t eq 'command'){my$cmd=$m->{command}//'';dxs_request($id,'command',{type=>'command',call=>$clients{$id}{call},command=>$cmd});return}});$c->on(finish=>sub{my$cl=delete$clients{$id};if($cl&&$cl->{authenticated}&&$state{state}eq 'ready'){send_dxs({type=>'user_del',id=>$request_id++,call=>$cl->{call}})}for my$rid(keys%pending){delete$pending{$rid} if$pending{$rid}{client}==$id}})};
 app->start;
