@@ -34,6 +34,7 @@ use Route::Node;
 use Script;
 use DXProtHandle;
 use DXCIDR;
+use DXHealth;
 
 use Time::HiRes qw(gettimeofday tv_interval);
 use DXSubprocess;
@@ -383,6 +384,7 @@ sub start
 
 	# send info to all logged in thingies
 	$self->tell_login('loginn');
+	DXHealth::connection_up($self, 'node');
 
 	# run a script send the output to the debug file
 	my $script = new Script(lc $call) || new Script('node_default');
@@ -429,6 +431,7 @@ sub normal
 	# process PC frames, this will fail unless the frame starts PCnn
 	my ($pcno) = $field[0] =~ /^PC(\d\d)/; # just get the number
 	unless (defined $pcno && $pcno >= 10 && $pcno <= 99) {
+		DXHealth::protocol_reject_unknown($self->{call}, $line);
 		dbg("PCPROT: unknown protocol") if isdbg('chanerr');
 		return;
 	}
@@ -436,9 +439,14 @@ sub normal
 	# check for and dump bad protocol messages
 	my $n = check($pcno, \@field);
 	if ($n) {
+		DXHealth::protocol_reject_malformed($self->{call}, $pcno, $n, $line);
 		dbg("PCPROT: bad field $n, dumped (" . parray($checklist[$pcno-10]) . ")") if isdbg('chanerr');
 		return;
 	}
+
+	# Physical protocol telemetry: count the validated wire frame before any
+	# hop-count rewrite or Local::pcprot processing changes its meaning.
+	DXHealth::protocol_physical_in_line($self->{call}, $line);
 
 	# modify the hop count here
 	if ($self != $main::me) {
@@ -585,6 +593,7 @@ sub send_dx_spot
 	my $pc11;
 	my $pc91;
 	my @f = split /\^/, $line;
+	my $sent = 0;
 
 	# send it if it isn't the except list and isn't isolated and still has a hop count
 	# taking into account filtering and so on
@@ -597,7 +606,8 @@ sub send_dx_spot
 			unless ($pc11) {
 				$pc11 = join '^', 'PC11', @f[1..7,9];
 			}
-			$dxchan->dx_spot($pc11, $self->{isolate}, @_, $self->{call});
+			my $did = $dxchan->dx_spot($pc11, $self->{isolate}, @_, $self->{call});
+			$sent++ if $did && $dxchan->isa('DXProt');
 		} else {
 #			if ($dxchan->do_pc91) {
 #				unless ($pc91) {
@@ -605,9 +615,11 @@ sub send_dx_spot
 #				}
 #				$dxchan->dx_spot($pc91, $self->{isolate}, @_, $self->{call});
 #			}
-			$dxchan->dx_spot($line, $self->{isolate}, @_, $self->{call});
+			my $did = $dxchan->dx_spot($line, $self->{isolate}, @_, $self->{call});
+			$sent++ if $did && $dxchan->isa('DXProt');
 		}
 	}
+	return $sent;
 }
 
 sub dx_spot
@@ -621,7 +633,7 @@ sub dx_spot
 		($filter, $hops) = $self->{spotsfilter}->it(@_);
 		return unless $filter;
 	}
-	send_prot_line($self, $filter, $hops, $isolate, $line);
+	return send_prot_line($self, $filter, $hops, $isolate, $line);
 }
 
 sub send_prot_line
@@ -639,9 +651,14 @@ sub send_prot_line
 	}
 	if ($filter) {
 		$self->send($routeit);
+		return 1;
 	} else {
-		$self->send($routeit) unless $self->{isolate} || $isolate;
+		unless ($self->{isolate} || $isolate) {
+			$self->send($routeit);
+			return 1;
+		}
 	}
+	return 0;
 }
 
 
@@ -652,6 +669,7 @@ sub send_wwv_spot
 	my @dxchan = DXChannel::get_all();
 	my $dxchan;
 	my @dxcc = ((Prefix::cty_data($_[6]))[0..2], (Prefix::cty_data($_[7]))[0..2]);
+	my $sent = 0;
 
 	# send it if it isn't the except list and isn't isolated and still has a hop count
 	# taking into account filtering and so on
@@ -662,8 +680,10 @@ sub send_wwv_spot
 		my $routeit;
 		my ($filter, $hops);
 
-		$dxchan->wwv($line, $self->{isolate}, @_, $self->{call}, @dxcc);
+		my $did = $dxchan->wwv($line, $self->{isolate}, @_, $self->{call}, @dxcc);
+		$sent++ if $did && $dxchan->isa('DXProt');
 	}
+	return $sent;
 }
 
 sub wwv
@@ -677,7 +697,7 @@ sub wwv
 		($filter, $hops) = $self->{wwvfilter}->it(@_[7..$#_]);
 		return unless $filter;
 	}
-	send_prot_line($self, $filter, $hops, $isolate, $line)
+	return send_prot_line($self, $filter, $hops, $isolate, $line)
 }
 
 sub send_wcy_spot
@@ -687,6 +707,7 @@ sub send_wcy_spot
 	my @dxchan = DXChannel::get_all();
 	my $dxchan;
 	my @dxcc = ((Prefix::cty_data($_[10]))[0..2], (Prefix::cty_data($_[11]))[0..2]);
+	my $sent = 0;
 
 	# send it if it isn't the except list and isn't isolated and still has a hop count
 	# taking into account filtering and so on
@@ -695,8 +716,10 @@ sub send_wcy_spot
 		next if $dxchan == $self;
 		next if $dxchan->is_rbn;
 
-		$dxchan->wcy($line, $self->{isolate}, @_, $self->{call}, @dxcc);
+		my $did = $dxchan->wcy($line, $self->{isolate}, @_, $self->{call}, @dxcc);
+		$sent++ if $did && $dxchan->isa('DXProt');
 	}
+	return $sent;
 }
 
 sub wcy
@@ -710,7 +733,8 @@ sub wcy
 		($filter, $hops) = $self->{wcyfilter}->it(@_);
 		return unless $filter;
 	}
-	send_prot_line($self, $filter, $hops, $isolate, $line) if $self->is_clx || $self->do_pc9x || $self->is_dxnet;
+	return send_prot_line($self, $filter, $hops, $isolate, $line) if $self->is_clx || $self->do_pc9x || $self->is_dxnet;
+	return 0;
 }
 
 # send an announce
@@ -1096,8 +1120,9 @@ sub route
 
 	if ($dxchan) {
 		my $routeit = adjust_hops($dxchan, $line);   # adjust its hop count by node name
-		if ($routeit) {
-			$dxchan->send($routeit) unless $dxchan == $main::me;
+		if ($routeit && $dxchan != $main::me) {
+			$dxchan->send($routeit);
+			return 1;
 		}
 	} else {
 		dbg("PCPROT: No route available, dropped") if isdbg('chanerr');
@@ -1400,6 +1425,7 @@ sub disconnect
 
 	# send info to all logged in thingies
 	$self->tell_login('logoutn');
+	DXHealth::connection_down($self, 'node');
 
 	Log('DXProt', $call . " Disconnected");
 
@@ -1498,6 +1524,7 @@ sub send_route
 			push @rin, $r unless $self->{isolate} && $r->call ne $main::mycall;
 		}
 	}
+	my $sent = 0;
 	if (@rin) {
 		foreach my $line (&$generate(@rin, @_)) {
 			if ($hops) {
@@ -1509,8 +1536,10 @@ sub send_route
 			}
 
 			$self->send($routeit);
+			++$sent;
 		}
 	}
+	return $sent;
 }
 
 # broadcast everywhere
@@ -1522,6 +1551,7 @@ sub broadcast_route
 	my $line = shift;
 	my @dxchan = DXChannel::get_all_nodes();
 	my $dxchan;
+	my $sent = 0;
 
 	if ($line) {
 		$line =~ /\^H(\d+)\^?\~?$/;
@@ -1533,9 +1563,10 @@ sub broadcast_route
 			next if $origin eq $dxchan->{call};	# don't route some from this call back again.
 			next unless $dxchan->isa('DXProt');
 
-			$dxchan->send_route($origin, $generate, @_);
+			$sent += $dxchan->send_route($origin, $generate, @_);
 		}
 	}
+	return $sent;
 }
 
 # broadcast to non-pc9x nodes
@@ -1653,7 +1684,7 @@ sub route_pc24
 	my $self = shift;
 	my $origin = shift;
 	my $line = shift;
-	broadcast_route($self, $origin, \&pc24, $line, 1, @_);
+	return broadcast_route($self, $origin, \&pc24, $line, 1, @_);
 }
 
 sub route_pc41

@@ -234,3 +234,128 @@ body.authenticated #loginButton{background:#dff2e3;border-color:#6fa77b;color:#1
 #nodes .wideSuperTable{min-width:1380px}
 @media(max-width:1250px){.trafficTopGrid{grid-template-columns:1fr 1fr}.trafficTopGrid>.superCard:first-child{grid-column:1/-1}.trafficPairGrid,.neighbourGrid{grid-template-columns:1fr}}
 @media(max-width:760px){.trafficTopGrid{grid-template-columns:1fr}.trafficTopGrid>.superCard:first-child{grid-column:auto}}
+
+
+/* DXSpider supervision topology v0.1.2: passive Route::Node graph. */
+.topologyLegend{display:flex;gap:14px;align-items:center;flex-wrap:wrap;color:#607681;font-size:11px}.topologyLegend span{display:flex;align-items:center;gap:5px}.topoDot{width:9px;height:9px;border-radius:50%;display:inline-block;background:#8598a3}.topoDot.self{background:#174f6b}.topoDot.direct{background:#2f718d}.topoDot.pc92{background:#68869a}.topoDot.legacy{background:#a8b4bb}.topologyKpis{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:12px;margin:12px 0}.topologyStage{position:relative;height:min(70vh,820px);min-height:520px;background:#fbfdfe;border:1px solid #ccd9e2;border-radius:8px;overflow:hidden}.topologyGraph{display:block;width:100%;height:100%}.topoEdge{stroke:#d1dce2;stroke-width:1;opacity:.7}.topoEdge.pc92{stroke:#9db2be}.topoEdge.direct{stroke:#4f829b;stroke-width:2;opacity:.9}.topoNode circle{stroke:#fff;stroke-width:1.5}.topoNode text{font-size:10px;fill:#536a77;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.topoNode.legacy circle{fill:#a8b4bb}.topoNode.pc92 circle{fill:#68869a}.topoNode.direct circle{fill:#2f718d}.topoNode.self circle{fill:#174f6b;stroke-width:3}.topoNode.direct text,.topoNode.self text{font-weight:750;fill:#173f55}.topologyEmpty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#718590}.topologyStage:hover .topoNode text{font-size:11px}@media(max-width:760px){.topologyKpis{grid-template-columns:1fr}.topologyStage{min-height:430px}}
+
+
+/* Topology explorer v0.2 - browser-only interaction, no extra DXSpider requests */
+.topologyTools{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0}.topologySearch{display:flex;gap:6px;min-width:260px}.topologySearch input{min-width:190px}.topologyButtons{display:flex;gap:6px;flex-wrap:wrap}.topologyButtons button{min-width:38px}.topologyButtons .topologyHop.active{background:#174f6b;color:#fff;border-color:#174f6b}.topologyWorkspace{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px;min-height:560px}.topologyWorkspace .topologyStage{height:min(72vh,840px);min-height:560px;cursor:grab;user-select:none}.topologyWorkspace .topologyStage.dragging{cursor:grabbing}.topologyHint{position:absolute;left:10px;bottom:8px;padding:4px 7px;border-radius:4px;background:rgba(255,255,255,.88);color:#718590;font-size:10px;pointer-events:none}.topologyInspector{border:1px solid #ccd9e2;border-radius:8px;background:#fff;min-width:0;overflow:auto;padding:14px}.topologyInspectorEmpty{color:#718590;padding:20px 4px}.topologyInspector h3{margin:0 0 4px;font-size:20px;color:#173f55}.topologyInspector .topoType{font-size:11px;color:#607681;margin-bottom:14px}.topologyInspector dl{display:grid;grid-template-columns:1fr auto;gap:7px 10px;margin:0 0 16px}.topologyInspector dt{color:#718590}.topologyInspector dd{margin:0;font-weight:650;text-align:right}.topologyInspector .topoRelations{border-top:1px solid #e0e8ed;padding-top:12px}.topologyInspector .topoRelations strong{display:block;margin-bottom:7px}.topologyInspector .topoRelationList{display:flex;flex-wrap:wrap;gap:5px}.topologyInspector .topoRelation{font-size:11px;padding:3px 6px;border:1px solid #d6e1e7;border-radius:4px;background:#f8fbfc;cursor:pointer}.topologyInspector .topoRelation:hover{border-color:#6f9caf;background:#eef6f9}.topoNode{cursor:pointer}.topoNode.selected circle{stroke:#f0a000;stroke-width:4}.topoNode.neighbour circle{stroke:#1f879f;stroke-width:3}.topoNode.dim{opacity:.14}.topoEdge.dim{opacity:.06}.topoEdge.selected{stroke:#1f879f;stroke-width:2.5;opacity:1}.topoNode text{pointer-events:none}.topologyGraph.labelsCompact .topoNode:not(.self):not(.direct):not(.selected):not(.neighbour) text{display:none}.topologyGraph.labelsSparse .topoNode:not(.self):not(.direct):not(.selected):not(.neighbour) text{opacity:.35}.topoNode.searchHit circle{stroke:#e08a00;stroke-width:5}.topologyNoMatch{color:#a44;font-size:11px;margin-top:8px}@media(max-width:980px){.topologyWorkspace{grid-template-columns:1fr}.topologyInspector{max-height:260px}.topologyWorkspace .topologyStage{min-height:500px}}
+
+/* Topology UI v0.3.0 */
+.topologyLegend{font-size:12px;font-weight:650}.topoDot{width:11px;height:11px;border:1px solid rgba(0,0,0,.12)}.topoDot.self{background:#173f55}.topoDot.direct{background:#008a8a}.topoDot.pc92{background:#7656a8}.topoDot.legacy{background:#c87528}
+.topologySummaryRow{display:grid;grid-template-columns:minmax(440px,640px) minmax(520px,1fr);gap:14px;align-items:center;margin:10px 0}.topologySummaryRow .topologyKpis{grid-template-columns:repeat(4,minmax(96px,1fr));gap:8px;margin:0}.topologySummaryRow .kpiCard{padding:9px 11px}.topologySummaryRow .topologyTools{margin:0;justify-content:flex-end;flex-wrap:nowrap}.topologySummaryRow .topologySearch{min-width:230px;flex:1}.topologySummaryRow .topologySearch input{min-width:150px;width:100%}
+.topoNode.legacy circle{fill:#c87528}.topoNode.pc92 circle{fill:#7656a8}.topoNode.direct circle{fill:#008a8a}.topoNode.self circle{fill:#173f55}.topoEdge.pc92{stroke:#8b75ad}.topoEdge.direct{stroke:#008a8a}.topologyInspectorTitle{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px}.topologyInspectorTitle h3{margin:0}.topologyInspector .topologyInspectorTitle .topoType{font-size:13px;color:#173f55;font-weight:750;margin:0;text-align:right;white-space:nowrap}.topologyInspector .topoRelation{font-size:13px;font-weight:650;padding:5px 8px}.topologyInspector .topoRelationList{gap:7px}
+@media(max-width:1250px){.topologySummaryRow{grid-template-columns:1fr}.topologySummaryRow .topologyTools{justify-content:space-between}.topologySummaryRow .topologyKpis{grid-template-columns:repeat(4,minmax(110px,1fr))}}@media(max-width:760px){.topologySummaryRow .topologyKpis{grid-template-columns:repeat(2,1fr)}.topologySummaryRow .topologyTools{flex-wrap:wrap}}
+
+/* Topology UI v0.4.0 */
+.topologySearch{min-width:0;flex:0 0 auto}
+.topologySearch input{width:20ch;min-width:0;max-width:20ch}
+#topologyOpenMap{font-weight:650}
+
+/* protocol traffic v0.16.0 */
+.protocolGlobalCard,.protocolPeerCard{margin-top:12px}.compactHead{margin-bottom:8px}.protocolGlobal{max-width:760px}.protocolGlobal tfoot th{border-top:1px solid var(--line,#334);font-weight:700}.protocolPeerCard .tableWrap{max-height:430px;overflow:auto}.protocolPeers thead{position:sticky;top:0;z-index:1}.protocolPeers td:nth-child(1),.protocolPeers td:nth-child(2){white-space:nowrap}
+
+
+/* Admin 0.19.0: traffic readability and single PC92 neighbour table. */
+.protocolGlobal{max-width:none;width:100%;table-layout:auto}
+.protocolGlobal th,.protocolGlobal td{white-space:nowrap}
+.protocolGlobal th:first-child,.protocolGlobal td:first-child{width:8%}
+.protocolGlobal th:nth-child(n+2),.protocolGlobal td:nth-child(n+2){text-align:right}
+.protocolGlobalCard .tableWrap{width:100%;overflow-x:auto}
+.neighbourCard .tableWrap{width:100%;overflow-x:auto}
+.pc92Neighbour{width:100%;max-width:none;min-width:760px}
+
+/* Connections v0.20.0 */
+.connectionKpis{margin:0 0 14px}.connectionAttention{margin:0 0 14px}.attentionRow{display:grid;grid-template-columns:minmax(110px,180px) 1fr auto;gap:14px;padding:8px 10px;border-top:1px solid var(--line,#dbe3ea);align-items:center}.attentionRow:first-child{border-top:0}.attentionRow span:last-child{white-space:nowrap;color:var(--muted,#64748b)}.connectionTable th,.connectionTable td{white-space:nowrap}
+
+/* 0.21.0 Peers */
+.peerSearch{max-width:220px}.peerTable th,.peerTable td{white-space:nowrap}.peerKpis{grid-template-columns:repeat(4,minmax(145px,1fr))}
+/* 0.23.0 consolidation */
+.connectionKpis{grid-template-columns:repeat(4,minmax(120px,180px));gap:8px;margin-bottom:8px}
+.connectionKpis .kpiCard{padding:8px 12px;min-height:58px}
+.connectionKpis .kpiCard strong{font-size:1.25rem}
+.connectionTable{font-size:.88rem;white-space:nowrap}
+.nodePeerTable{white-space:nowrap}
+#updateStatusBadge{margin-left:auto}
+/* 0.23.0 consolidation */
+.connectionKpis{grid-template-columns:repeat(4,minmax(120px,180px));gap:8px;margin-bottom:8px}
+.connectionKpis .kpiCard{padding:8px 12px;min-height:58px}.connectionKpis .kpiCard strong{font-size:1.25rem}
+.connectionTable,.nodePeerTable{font-size:.88rem;white-space:nowrap}#updateStatusBadge{margin-left:auto}
+
+/* 0.24.0 alignment and update-state polish */
+#updateStatusBadge.warn{background:#ffd6d6;border-color:#d92d20;color:#b42318;font-weight:850;box-shadow:0 0 0 2px rgba(217,45,32,.10)}
+.updateMismatchField.updateMismatch{color:#b42318!important;font-weight:800}
+.connectionTable th:nth-last-child(-n+2),.connectionTable td:nth-last-child(-n+2){text-align:right}
+.protocolGlobal th:nth-child(3),.protocolGlobal th:nth-child(5),.protocolPeers th:nth-child(4),.protocolPeers th:nth-child(6){text-align:right}
+.pc92Activity th:not(:first-child),.pc92Totals th:not(:first-child){text-align:right}
+.pc92Neighbour thead tr:first-child th:not(:first-child),.pc92Neighbour thead tr:nth-child(2) th{text-align:right}
+.nodePeerTable th:nth-child(12),.nodePeerTable th:nth-child(13){text-align:right}
+\n/* 0.25.0: unit-bearing numeric headers align with the numeric value, not the unit suffix. */
+.connectionTable th:nth-last-child(-n+2),
+.protocolGlobal th:nth-child(3),.protocolGlobal th:nth-child(5),
+.nodePeerTable th:nth-child(12),.nodePeerTable th:nth-child(13){padding-right:4.05em}
+/* Only fields proven stale by the mojo comparison are marked: branch and commit. */
+
+/* 0.26.0 exact header/value alignment. Do not change table/card widths. */
+.numHead{text-align:right!important}
+/* Value+unit cells use .vu. Byte headers end over the numeric value, not over KiB/MiB. */
+.vuHead{text-align:right!important}
+.bytesHead{padding-right:calc(3.3em + .42em + 8px)!important}
+.pc92ActivityHead{padding-right:calc(2.5em + .42em + 7px)!important}
+/* Headers whose label is meant to end at the unit edge. */
+.unitEndHead{text-align:right!important}
+/* Keep PC92 direct-neighbour geometry from the established full-width two-level table. */
+.pc92Neighbour{width:100%!important;max-width:none!important;min-width:760px!important}
+.pc92Neighbour .pc92GroupHead{text-align:center!important}
+.pc92Neighbour thead tr:nth-child(2) .unitEndHead{text-align:right!important}
+/* Override obsolete nth-child padding rules from 0.25. */
+.connectionTable th.bytesHead,.protocolGlobal th.bytesHead,.protocolPeers th.bytesHead,.nodePeerTable th.bytesHead{padding-right:calc(3.3em + .42em + 8px)!important}
+.updateBranchField.updateMismatch,.updateBuildField.updateMismatch,.updateCommitField.updateMismatch{color:#b42318!important;font-weight:800}
+
+
+/* 0.27.0 exact table geometry from the supplied screenshots. */
+/* Direct-neighbour PC traffic: all numeric packet/byte data is right aligned. */
+.protocolPeers th:nth-child(n+3),.protocolPeers td:nth-child(n+3){text-align:right!important}
+/* PC92 totals: header labels and rendered value+unit cells share the same right edge. */
+.pc92Totals{table-layout:fixed!important;width:100%!important}
+.pc92Totals th:not(:first-child),.pc92Totals td:not(:first-child){text-align:right!important;padding-right:8px!important}
+.pc92Totals td:not(:first-child) .vu{justify-content:end}
+/* Restore PC92 direct-neighbour as two side-by-side tables. */
+.neighbourGrid{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;gap:12px!important}
+.neighbourGrid .tableWrap{min-width:0!important;overflow:hidden!important}
+.pc92Neighbour{width:100%!important;min-width:0!important;max-width:none!important;table-layout:fixed!important}
+.pc92Neighbour th:first-child,.pc92Neighbour td:first-child{width:78px;text-align:left!important}
+.pc92Neighbour .pc92GroupHead{text-align:center!important;padding-left:7px!important;padding-right:7px!important}
+.pc92Neighbour .pc92IoHead,.pc92Neighbour .pc92CountCell{text-align:right!important;padding-left:4px!important;padding-right:7px!important}
+.pc92Neighbour .pc92CountCell .vu{justify-content:end}
+@media(max-width:1250px){.neighbourGrid{grid-template-columns:1fr!important}.neighbourGrid .tableWrap{overflow:auto!important}.pc92Neighbour{min-width:620px!important}}
+
+/* 0.28.0 — exact column-edge alignment.
+ * Rule: a numeric header ends on the same vertical edge as the rendered
+ * number/unit below it. PC92 group labels stay centered over their IN/OUT pair.
+ */
+/* Direct-neighbour protocol table: numeric data and headers share right edge. */
+.protocolPeers th:nth-child(n+3),
+.protocolPeers td:nth-child(n+3){text-align:right!important}
+.protocolPeers td.unitCell .vu{display:grid;width:100%;justify-content:stretch}
+
+/* Nodes: all numeric columns align to the right; byte units reach that edge. */
+.nodePeerTable th:nth-child(n+10),
+.nodePeerTable td:nth-child(n+10){text-align:right!important}
+.nodePeerTable td.unitCell .vu{display:grid;width:100%;justify-content:stretch}
+.nodePeerTable th.bytesHead{padding-right:8px!important}
+
+/* PC92 totals: the unit itself ends at the column edge; header uses same edge. */
+.pc92Totals th:not(:first-child),
+.pc92Totals td:not(:first-child){text-align:right!important;padding-right:8px!important}
+.pc92Totals td:not(:first-child) .vu{display:grid;width:100%;justify-content:stretch}
+
+/* PC92 direct neighbour: IN/OUT end exactly at their unit edge.
+ * A/D/C/K remain centered by colspan=2 over the two equal IN/OUT columns. */
+.pc92Neighbour{table-layout:fixed!important}
+.pc92Neighbour th:first-child,.pc92Neighbour td:first-child{width:78px!important}
+.pc92Neighbour .pc92GroupHead{text-align:center!important;padding-left:4px!important;padding-right:4px!important}
+.pc92Neighbour .pc92IoHead,.pc92Neighbour .pc92CountCell{text-align:right!important;padding-left:4px!important;padding-right:7px!important}
+.pc92Neighbour .pc92CountCell .vu{display:grid;width:100%;justify-content:stretch}

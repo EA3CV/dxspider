@@ -15,7 +15,7 @@ use Spot;
 use Route::Node;
 use DXUser;
 
-our $VERSION = '0.3';
+our $VERSION = '0.5';
 our $SCHEMA_VERSION = 1;
 our $MAX_CONNECTIONS = 512;
 our $boot_id = join('-', time(), $$, int(rand(0x7fffffff)));
@@ -95,38 +95,55 @@ sub status {
     return $o;
 }
 sub connections {
-    my @all = sort { ($a->{call}||'') cmp ($b->{call}||'') } DXChannel::get_all();
-    my $truncated = @all > $MAX_CONNECTIONS ? 1 : 0;
-    splice(@all, $MAX_CONNECTIONS) if @all > $MAX_CONNECTIONS;
+    my @all_full = DXChannel::get_all();
+    my %live = map { (uc($_->{call} || '') => $_) } grep { defined $_->{call} && length $_->{call} } @all_full;
+    my $hist = DXHealth::connection_snapshot({ map { $_ => 1 } keys %live });
+    my $hrows = $hist->{rows} || {};
+
+    my %calls = map { $_ => 1 } (keys %live, keys %$hrows);
+    my @calls = sort keys %calls;
+    my $truncated = @calls > $MAX_CONNECTIONS ? 1 : 0;
+    splice(@calls, $MAX_CONNECTIONS) if @calls > $MAX_CONNECTIONS;
     my @rows;
-    for my $c (@all) {
-        my $conn = $c->{conn};
-        my $user = $c->{user};
-        my $rnode = eval { Route::Node::get($c->{call}) };
+    for my $call (@calls) {
+        my $c = $live{$call};
+        my $h = $hrows->{$call} || {};
+        my $conn = $c ? $c->{conn} : undef;
+        my $user = $c ? $c->{user} : undef;
+        my $rnode = $c ? eval { Route::Node::get($c->{call}) } : undef;
+        my $kind = $c ? _kind($c) : ($h->{last_kind} || 'other');
         push @rows, {
-            call => $c->{call} || '', kind => _kind($c), sort => $c->{sort} || '', state => $c->{state} || '',
-            connected_since => _num($c->{startt}), outbound => _bool($c->{outbound}), errors => _num($c->{errors}),
-            ip => $c->{hostname} || ($conn ? ($conn->{peerhost} || '') : ''),
-            registered => defined $c->{registered} ? _bool($c->{registered}) : undef,
+            call => $call, kind => $kind, online => $c ? 1 : 0,
+            sort => $c ? ($c->{sort} || '') : '', state => $c ? ($c->{state} || '') : 'offline',
+            connected_since => $c ? _num($c->{startt}) : 0,
+            outbound => $c ? _bool($c->{outbound}) : ($h->{last_direction} eq 'out' ? 1 : $h->{last_direction} eq 'in' ? 0 : undef),
+            errors => $c ? _num($c->{errors}) : 0,
+            ip => $c ? ($c->{hostname} || ($conn ? ($conn->{peerhost} || '') : '')) : ($h->{last_host} || ''),
+            connect_count => _num($h->{connect_count}), disconnect_count => _num($h->{disconnect_count}),
+            last_connect => _num($h->{last_connect}), last_disconnect => _num($h->{last_disconnect}), last_event => _num($h->{last_event}),
+            too_many_count => _num($h->{too_many_count}), last_too_many => _num($h->{last_too_many}),
+            registered => $c && defined $c->{registered} ? _bool($c->{registered}) : undef,
             password_configured => $user ? ((eval { $user->passwd }) ? 1 : 0) : undef,
-            # On a physical DXSpider connection usedpasswd means exactly
-            # "password was used"; it is not the Web logical-user auth flag.
             password_used => $conn ? _maybe_bool($conn->{usedpasswd}) : undef,
             cnum => ($conn && defined $conn->{cnum}) ? _num($conn->{cnum}) : undef,
-            queue_depth => _qlen($c->{inqueue}), lastping => _num($c->{lastping}), nopings => _num($c->{nopings}), pingave => _num($c->{pingave}),
+            queue_depth => $c ? _qlen($c->{inqueue}) : 0, lastping => $c ? _num($c->{lastping}) : 0,
+            nopings => $c ? _num($c->{nopings}) : 0, pingave => $c ? _num($c->{pingave}) : 0,
             bytes_in => $conn ? _num($conn->{datain}) : 0, bytes_out => $conn ? _num($conn->{dataout}) : 0,
             lines_in => $conn ? _num($conn->{linesin}) : 0, lines_out => $conn ? _num($conn->{linesout}) : 0,
-            protocol_version_raw => (defined $c->{version} && $c->{version} ne '') ? $c->{version} : ($rnode ? $rnode->version : undef),
-            dxspider_version => _dxspider_version($c, (defined $c->{version} && $c->{version} ne '') ? $c->{version} : ($rnode ? $rnode->version : undef)),
-            build => defined $c->{build} && $c->{build} ne '' ? $c->{build} : ($rnode ? $rnode->build : undef),
-            git_branch => $rnode ? $rnode->gitbranch : undef,
-            git_version => $rnode ? $rnode->gitversion : undef,
-            do_pc9x => $rnode ? _maybe_bool($rnode->do_pc9x) : (defined $c->{do_pc9x} ? _maybe_bool($c->{do_pc9x}) : undef),
+            protocol_version_raw => $c ? ((defined $c->{version} && $c->{version} ne '') ? $c->{version} : ($rnode ? $rnode->version : undef)) : undef,
+            dxspider_version => $c ? _dxspider_version($c, (defined $c->{version} && $c->{version} ne '') ? $c->{version} : ($rnode ? $rnode->version : undef)) : undef,
+            build => $c ? (defined $c->{build} && $c->{build} ne '' ? $c->{build} : ($rnode ? $rnode->build : undef)) : undef,
+            git_branch => $rnode ? $rnode->gitbranch : undef, git_version => $rnode ? $rnode->gitversion : undef,
+            do_pc9x => $c ? ($rnode ? _maybe_bool($rnode->do_pc9x) : (defined $c->{do_pc9x} ? _maybe_bool($c->{do_pc9x}) : undef)) : undef,
             via_pc92 => $rnode ? _maybe_bool($rnode->via_pc92) : undef,
-            is_self => (($c->{call} || '') eq ($main::mycall || '')) ? 1 : 0,
+            is_self => $c && (($c->{call} || '') eq ($main::mycall || '')) ? 1 : 0,
         };
     }
-    my $o=_base(); $o->{total}=scalar(DXChannel::get_all()); $o->{truncated}=$truncated; $o->{connections}=\@rows; return $o;
+    my $o=_base();
+    $o->{total}=scalar(@all_full); $o->{truncated}=$truncated; $o->{connections}=\@rows;
+    $o->{connection_totals}=$hist->{totals}; $o->{connection_retained}=$hist->{retained};
+    $o->{connection_retention_seconds}=$hist->{retention_seconds};
+    return $o;
 }
 sub traffic {
     my $o=_base();
@@ -151,6 +168,11 @@ sub traffic {
                 promotions_percent => _num($r->{promotions_percent}),
             };
         }
+    }
+    my $proto = eval { DXHealth::protocol_snapshot() };
+    if ($proto && ref($proto) eq 'HASH') {
+        $o->{protocol} = $proto;
+        $o->{spots}{local_generated} = _num($proto->{local_spots_generated});
     }
     my $pc92 = eval { DXHealth::pc92_snapshot() };
     $o->{pc92} = $pc92 if $pc92 && ref($pc92) eq 'HASH';
@@ -193,10 +215,68 @@ sub rbn {
     }
     my $o=_base(); $o->{channels}=\@rows; return $o;
 }
+sub topology {
+    # Keep this snapshot deliberately compact.  It runs in the DXSpider event
+    # loop, therefore it must neither perform I/O nor build an unbounded object.
+    # The Web control channel is protected by a 64 KiB HWM; the compact schema
+    # carries only the fields needed by the graph.
+    my $MAX_TOPOLOGY_NODES = 650;
+    my $MAX_TOPOLOGY_EDGES = 3000;
+    my @all = sort { ($a->{call}||'') cmp ($b->{call}||'') } Route::Node::get_all();
+    my $node_truncated = @all > $MAX_TOPOLOGY_NODES ? 1 : 0;
+    splice(@all, $MAX_TOPOLOGY_NODES) if @all > $MAX_TOPOLOGY_NODES;
+
+    my %included = map { (($_->{call}||'') => 1) } @all;
+    my %node_index; my $next_index=0; for my $n (@all) { my$c=$n->{call}||''; $node_index{$c}=$next_index++ if length$c }
+    my %direct;
+    for my $c (DXChannel::get_all()) {
+        next unless eval { $c->is_node };
+        $direct{$c->{call}} = 1 if $c->{call};
+    }
+
+    my (@nodes,@edges); my %edge_seen; my $edge_truncated=0;
+    for my $n (@all) {
+        my $call=$n->{call}||''; next unless length $call;
+        my @children=eval { $n->nodes }; @children=() if $@;
+        my @users=eval { $n->users }; @users=() if $@;
+        # Compact wire schema v2:
+        # [call,self,direct,pc9x,known_users,known_children,k_users,k_nodes].
+        # K values are bounded RAM-only telemetry from the last valid PC92K.
+        my $k = DXHealth::pc92k_advertised_get($call);
+        push @nodes, [$call,
+            ($call eq ($main::mycall||''))?1:0,
+            $direct{$call}?1:0,
+            _maybe_bool(eval { $n->do_pc9x }),
+            scalar(@users), scalar(@children),
+            ($k ? $k->{users} : undef),
+            ($k ? $k->{nodes} : undef)];
+        for my $child (sort @children) {
+            next unless length($child) && $included{$child};
+            my $key="$call\0$child"; next if $edge_seen{$key}++;
+            if (@edges >= $MAX_TOPOLOGY_EDGES) {$edge_truncated=1; last}
+            my $cn=Route::Node::get($child);
+            # Compact wire schema: [from_node_index,to_node_index,direct,pc92].
+            push @edges,[$node_index{$call},$node_index{$child},
+                ($call eq ($main::mycall||'') && $direct{$child})?1:0,
+                ($cn && eval{$cn->via_pc92})?1:0];
+        }
+    }
+    my $o=_base();
+    $o->{root}=$main::mycall||''; $o->{node_count}=scalar @nodes;
+    $o->{edge_count}=scalar @edges; $o->{direct_count}=scalar keys %direct;
+    $o->{pc92_count}=scalar(grep { $_->[3] } @nodes);
+    $o->{non_pc92_count}=scalar(grep { !$_->[3] } @nodes);
+    $o->{wire_format}='compact-v2';
+    $o->{truncated}=($node_truncated||$edge_truncated)?1:0;
+    $o->{node_truncated}=$node_truncated; $o->{edge_truncated}=$edge_truncated;
+    $o->{nodes}=\@nodes; $o->{edges}=\@edges;
+    return $o;
+}
+
 sub self_health { my $o=_base(); $o->{health}={%self_health}; return $o; }
 sub snapshot {
     my ($what)=@_; $what=lc($what||'');
-    my %allowed=(status=>\&status,connections=>\&connections,traffic=>\&traffic,web=>\&web,rbn=>\&rbn,self_health=>\&self_health);
+    my %allowed=(status=>\&status,connections=>\&connections,traffic=>\&traffic,web=>\&web,rbn=>\&rbn,self_health=>\&self_health,topology=>\&topology);
     return (0,{error=>'unsupported_snapshot'}) unless $allowed{$what};
     my $t=time(); $self_health{requests}++; $self_health{last_request}=$t;
     my ($ok,$data); $ok=eval{$data=$allowed{$what}->();1};

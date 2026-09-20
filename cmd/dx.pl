@@ -1,3 +1,4 @@
+use DXHealth;
 #
 # the DX command
 #
@@ -180,6 +181,8 @@ if ($freq =~ /^69/ || $localonly) {
 		# store in spots database 
 		unless (Spot::dup_find(@spot)) {
 			Spot::add_local(@spot);
+			DXHealth::local_spot_generated();
+			DXHealth::protocol_logical_line('generated', $spot);
 			DXProt::send_dx_spot($self, $spot, @spot);
 		} else {
 			return (1, $self->msg('dup'));

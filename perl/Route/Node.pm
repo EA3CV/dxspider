@@ -32,6 +32,8 @@ use vars qw(%list %valid @ISA $max $filterdef $obscount);
 		  lastid => '0,Last Route MsgID',
 		  lastmsg => '0,Last Route Msg,atime',
 		  nodes => '0,Nodes,parray',
+		  pc92_nodes => '0,PC92K Advertised Node Count',
+		  pc92_users => '0,PC92K Advertised User Count',
 		  obscount => '0,Obscount',
 		  usercount => '0,User Count',
 		  users => '0,Users,parray',
@@ -398,7 +400,15 @@ sub PC92C_dxchan
 	return (%{$parent->{PC92C_dxchan}});
 }
 
-sub TO_JSON { return { %{ shift() } }; }
+sub TO_JSON
+{
+	my $self = shift;
+	my %copy = %$self;
+	# PC92K advertised counters are deliberately live-only metadata.  Do not
+	# persist them in route_node_cache; a fresh K must repopulate them.
+	delete @copy{qw(pc92_nodes pc92_users)};
+	return \%copy;
+}
 
 sub write_cache
 {

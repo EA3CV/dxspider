@@ -18,6 +18,7 @@ use 5.10.1;
 use POSIX qw(:math_h);
 use DXUtil;
 use DXChannel;
+use DXHealth;
 use DXUser;
 use DXVars;
 use DXDebug;
@@ -201,6 +202,7 @@ sub start
 	}
 	
 	$self->tell_login('loginu');
+	DXHealth::connection_up($self, 'user');
 	$self->tell_buddies('loginb');
 
 	# is this a bad ip address?
@@ -688,6 +690,7 @@ sub disconnect
 		
 	# send info to all logged in thingies
 	$self->tell_login('logoutu');
+	DXHealth::connection_down($self, 'user');
 	$self->tell_buddies('logoutb');
 
 	LogDbg('DXCommand', "$self->{dcall} disconnected");
