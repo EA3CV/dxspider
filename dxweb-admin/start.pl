@@ -3,6 +3,8 @@ use strict;
 use warnings;
 use FindBin qw($Bin);
 
+$SIG{HUP}='IGNORE';
+
 # The administrative process may be reached by a SYSOP browser according to
 # the HTTP bind below, but its privileged DXSpider transport is hard-wired in
 # admin.pl to 127.0.0.1.  It cannot be redirected to a remote DXSpider host.
