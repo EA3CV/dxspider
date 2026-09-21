@@ -312,7 +312,7 @@ body.authenticated #loginButton{background:#dff2e3;border-color:#6fa77b;color:#1
 .pc92Neighbour thead tr:nth-child(2) .unitEndHead{text-align:right!important}
 /* Override obsolete nth-child padding rules from 0.25. */
 .connectionTable th.bytesHead,.protocolGlobal th.bytesHead,.protocolPeers th.bytesHead,.nodePeerTable th.bytesHead{padding-right:calc(3.3em + .42em + 8px)!important}
-.updateBranchField.updateMismatch,.updateBuildField.updateMismatch,.updateCommitField.updateMismatch{color:#b42318!important;font-weight:800}
+.updateBranchField.updateMismatch,.updateVersionField.updateMismatch,.updateBuildField.updateMismatch,.updateCommitField.updateMismatch{color:#b42318!important;font-weight:800}
 
 
 /* 0.27.0 exact table geometry from the supplied screenshots. */
@@ -359,3 +359,9 @@ body.authenticated #loginButton{background:#dff2e3;border-color:#6fa77b;color:#1
 .pc92Neighbour .pc92GroupHead{text-align:center!important;padding-left:4px!important;padding-right:4px!important}
 .pc92Neighbour .pc92IoHead,.pc92Neighbour .pc92CountCell{text-align:right!important;padding-left:4px!important;padding-right:7px!important}
 .pc92Neighbour .pc92CountCell .vu{display:grid;width:100%;justify-content:stretch}
+
+/* 0.35.0 Metrics */
+.metricsHead{align-items:flex-start;gap:18px}.metricsControls,.metricsMeta{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.segmented{display:flex;border:1px solid #98a2b3;border-radius:8px;overflow:hidden}.segmented button{border:0;border-right:1px solid #98a2b3;border-radius:0;padding:7px 10px}.segmented button:last-child{border-right:0}.segmented button.active{font-weight:800;background:rgba(100,120,180,.16)}#metricsPeer{min-width:150px;padding:7px}.metricsMeta{margin:8px 0 12px;font-size:.88rem}.metricsGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.metricChartCard{border:1px solid #d0d5dd;border-radius:10px;padding:10px 12px;min-width:0}.chartHead{display:flex;justify-content:space-between;align-items:baseline}.chartHead h3{margin:0;font-size:1rem}.chartHead span{font-size:.78rem;opacity:.65}.metricChart{min-height:250px}.metricChart svg{display:block;width:100%;height:220px}.chartGrid{stroke:currentColor;opacity:.10}.chartAxis{fill:currentColor;opacity:.58;font-size:10px}.chartSeries{fill:none;stroke:currentColor;stroke-width:2;vector-effect:non-scaling-stroke}.chartSeries.s2{opacity:.78;stroke-dasharray:7 3}.chartSeries.s3{opacity:.62;stroke-dasharray:2 2}.chartSeries.s4{opacity:.48;stroke-dasharray:10 3 2 3}.chartSeries.s5{opacity:.34;stroke-dasharray:1 4}.chartLegend{display:flex;gap:12px;flex-wrap:wrap;font-size:.76rem}.chartLegend span{display:inline-flex;align-items:center;gap:5px}.chartLegend i{width:15px;border-top:2px solid currentColor}.metricEmpty{min-height:220px;display:grid;place-items:center}@media(max-width:1050px){.metricsGrid{grid-template-columns:1fr}}
+
+/* 0.35.2 Users — uses existing Connections snapshot only */
+.userKpis{margin-bottom:12px}.userTable .callCell{font-weight:700}

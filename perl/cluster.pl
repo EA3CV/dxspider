@@ -662,7 +662,9 @@ sub setup_start
 	localdata_mv($motd);
 	$motd = localdata($motd);
 	localdata_mv("issue");
-	
+
+	# Install new DXReg template defaults without overwriting local customisations.
+	localdata_cp_missing("reg_templates");
 
 	# try to load XML::Simple
 	DXXml::init();
