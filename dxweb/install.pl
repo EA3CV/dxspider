@@ -1,4 +1,11 @@
 #!/usr/bin/env perl
+#
+# DXSpider Web installer
+#
+# Installs the DXSpider Web application while preserving the previous tree.
+#
+# Copyright (c) 2026 Dirk Koopman G1TLH
+#
 # DXSpider Web installer 2.6.0
 # Date: 2026-09-16
 use strict;use warnings;use File::Copy qw(move);

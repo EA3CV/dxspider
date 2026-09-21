@@ -1,4 +1,11 @@
 #!/bin/sh
+#
+# DXSpider Web launcher
+#
+# Starts the DXSpider Web service with its configured local DXSpider link.
+#
+# Copyright (c) 2026 Dirk Koopman G1TLH
+#
 set -eu
 : "${DXS_HOST:=127.0.0.1}"
 : "${DXS_PORT:=27754}"

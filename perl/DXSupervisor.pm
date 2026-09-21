@@ -4,6 +4,8 @@
 # Deliberately passive: no timers, no I/O, no persistence and no subprocesses.
 # Data is collected only when an authenticated dxweb-admin client requests it.
 #
+# Copyright (c) 2026 Dirk Koopman G1TLH
+#
 package DXSupervisor;
 
 use strict;
@@ -90,6 +92,21 @@ sub status {
     $o->{cpu_children_seconds} = _num($main::cldsecs);
     $o->{channels} = scalar @all;
     $o->{users} = $k{user}; $o->{nodes} = $k{node}; $o->{rbn} = $k{rbn}; $o->{web} = $k{web}; $o->{other} = $k{other};
+    # Route topology gauges are distinct from live DXChannel counts.  Keep the
+    # names explicit so the web never confuses direct peers with discovered
+    # network nodes, or local users with users advertised by the route tree.
+    my @route_nodes = eval { Route::Node::get_all() }; @route_nodes = () if $@;
+    my $network_users = 0;
+    for my $rn (@route_nodes) {
+        my @ru = eval { $rn->users }; @ru = () if $@;
+        $network_users += scalar @ru;
+    }
+    $o->{direct_nodes} = 0 + $k{node};
+    $o->{network_nodes} = 0 + scalar(@route_nodes);
+    $o->{network_users} = 0 + $network_users;
+    $o->{local_users} = 0 + $k{user};
+    $o->{network_nodes_source} = 'Route::Node::get_all';
+    $o->{network_users_source} = 'Route::Node::users';
     $o->{pending_connects} = scalar(@main::outstanding_connects);
     $o->{input_queue_total} = $qtotal; $o->{input_queue_max} = $qmax; $o->{input_queue_nonempty} = $qnonempty;
     return $o;

@@ -259,8 +259,9 @@ our @ISA = qw(DXCommandmode Exporter);
 our @EXPORT = qw(is_webcall find_next_webcall);
 
 our $maxssid = 64;
-our $web_hwm = 64 * 1024;
+our $web_hwm = 64 * 1024;          # disposable feed/backlog limit
 our $web_hwm_resume = 32 * 1024;
+our $web_control_max = 512 * 1024; # bounded single control response/socket HWM
 our $web_generation_seq = 0;
 our $web_user_generation_seq = 0;
 
@@ -333,7 +334,7 @@ sub _enable_webcluster_backpressure
 	my $sock = $conn && $conn->{sock};
 	return unless $sock;
 
-	$sock->high_water_mark($web_hwm) if $sock->can('high_water_mark');
+	$sock->high_water_mark($web_control_max) if $sock->can('high_water_mark');
 	$self->{web_feed_accepted} = 0;
 	$self->{web_feed_dropped} = 0;
 	$self->{web_feed_saturated} = 0;
@@ -394,7 +395,9 @@ sub _web_control_can_write
 	return 1 unless $self->is_webcluster;
 
 	my ($can_write, $waiting) = $self->_web_output_state($bytes);
-	return 1 if $can_write && $waiting + ($bytes || 0) <= $web_hwm;
+	$bytes ||= 0;
+	return 0 if $bytes > $web_control_max;
+	return 1 if $can_write && $waiting + $bytes <= $web_control_max;
 
 	LogDbg('DXCommand', sprintf(
 		'Web %s control output saturated waiting=%d; disconnecting #WEB',
@@ -558,10 +561,10 @@ sub _send_json
 	# A single oversized control response is a producer/protocol error, not
 	# backpressure.  Do not sacrifice the #WEB control channel (and all logical
 	# web sessions) for it.  Replace it with a small correlated error response.
-	if ($wire_bytes > $web_hwm && $data && ref($data) eq 'HASH' &&
+	if ($wire_bytes > $web_control_max && $data && ref($data) eq 'HASH' &&
 	    ($data->{type} || '') eq 'response') {
 		LogDbg('err', sprintf('Web %s oversized control response bytes=%d hwm=%d action=%s',
-			$self->{call}, $wire_bytes, $web_hwm, ($data->{action} || '')));
+			$self->{call}, $wire_bytes, $web_control_max, ($data->{action} || '')));
 		$s = _encode_protocol_object([
 			['type','response'], ['id',$data->{id}], ['status','error'],
 			['action',$data->{action}], ['error','response_too_large'],

@@ -1,3 +1,10 @@
+/*
+ * DXSpider Web Supervision
+ *
+ * Styles for the DXSpider web supervision and administration interface.
+ *
+ * Copyright (c) 2026 Dirk Koopman G1TLH
+ */
 /* DXSpider Web 2.7.0 - 2026-09-16 */
 
 :root{font-family:Arial,Helvetica,sans-serif;color:#172033;background:#eef3f8}
@@ -365,3 +372,134 @@ body.authenticated #loginButton{background:#dff2e3;border-color:#6fa77b;color:#1
 
 /* 0.35.2 Users — uses existing Connections snapshot only */
 .userKpis{margin-bottom:12px}.userTable .callCell{font-weight:700}
+
+/* 0.36.0 Historical / Event Timeline */
+.timelineTable{table-layout:auto}.timelineTable th:first-child,.timelineTable td:first-child{white-space:nowrap}.timelineTable td{vertical-align:top}.timelineField{display:block;opacity:.62;margin-top:2px;font-size:.78rem}.timelineTime{font-variant-numeric:tabular-nums}
+
+/* 0.40.0 Historical local_data maintenance */
+.historyMaintenance{margin-top:12px}.maintenanceActions{display:flex;gap:8px;flex-wrap:wrap}.historyMaintenanceTable th:first-child,.historyMaintenanceTable td:first-child{text-align:center;width:72px}.historyMaintenanceTable code{font-size:.82rem}.historyPeriodCheck{width:18px;height:18px}.historyMaintenance .noticeText{margin:6px 0 10px}
+
+/* 0.40.1 Historical tree browser */
+.historyBreadcrumb{margin:7px 0 10px;padding:8px 10px;border-left:3px solid currentColor;font-weight:700}.historyNav{border:0;background:transparent;padding:0;text-decoration:underline;cursor:pointer;font:inherit;font-weight:700;color:inherit}.historyLeaf{font-weight:600}.historyMaintenanceTable td:nth-child(2){word-break:break-word}.historyMaintenanceTable td{vertical-align:middle}
+
+
+/* 0.41.0 — responsive hardening. Desktop geometry remains unchanged. */
+@media(max-width:760px){
+  html,body{max-width:100%;overflow-x:hidden}
+  .topbar{height:auto;min-height:64px;grid-template-columns:1fr auto;padding:8px 10px;gap:8px}
+  .topbar>*{min-width:0}.topbar>*:nth-child(3){grid-column:1/-1}
+  .tabs{flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;padding:8px 10px}
+  .tabs button{flex:0 0 auto;white-space:nowrap}
+  main,.content,.panel,.superCard,.metricChartCard{min-width:0;max-width:100%}
+  .tableWrap{width:100%;max-width:100%;overflow-x:auto!important;-webkit-overflow-scrolling:touch}
+  table{max-width:none}
+  .connectionTable,.userTable,.nodePeerTable,.protocolPeers,.timelineTable,.historyMaintenanceTable{min-width:760px}
+  .protocolGlobal{min-width:620px}.pc92Totals{min-width:680px}.pc92Neighbour{min-width:620px!important}
+  .metricsControls,.metricsMeta,.maintenanceActions,.topologyTools,.filterBar{align-items:stretch}
+  .metricsControls select,.metricsControls button,.maintenanceActions button,.filterBar input,.filterBar select{max-width:100%}
+  .segmented{max-width:100%;overflow-x:auto}.segmented button{flex:0 0 auto}
+  .metricChart{overflow-x:auto}.metricChart svg{min-width:520px}
+  .topologySearch{min-width:0;width:100%}.topologySearch input{min-width:0;flex:1}
+  .topologyWorkspace .topologyStage{min-height:420px}
+  .topologyInspector{max-height:none}
+  .historyBreadcrumb{overflow-wrap:anywhere}
+  .historyMaintenanceTable td:nth-child(2){min-width:180px}
+  .chartLegend{row-gap:6px}
+}
+@media(max-width:480px){
+  .kpiGrid,.topologySummaryRow .topologyKpis{grid-template-columns:1fr!important}
+  .compactRow{grid-template-columns:1fr!important}
+  .brand,.nodeCall{font-size:18px}
+  .metricChart svg{min-width:460px}
+}
+/* 0.50.0: official DXSpider reference mismatches in direct-node table. */
+.nodePeerTable td.updateMismatch{color:#b42318!important;font-weight:800}
+
+/* 0.60.0 — Metrics visual leap: composed interactive charts */
+.metricsV2 .metricsGridV2{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.metricsV2 .metricChartWide{grid-column:1/-1}
+.metricsV2 .metricChartCard{padding:14px 16px;border-radius:12px}
+.metricsV2 .metricChart{min-height:360px;position:relative;overflow:hidden}
+.metricsV2 .metricChart svg{height:300px;min-width:0;touch-action:none;user-select:none}
+.chartZero{stroke:currentColor;opacity:.42;stroke-width:1.4;vector-effect:non-scaling-stroke}
+.chartArea{opacity:.14;fill:currentColor;stroke:none}.chartArea.s2{opacity:.10}.chartArea.s3{opacity:.11}
+.chartHit{fill:transparent;cursor:crosshair}.chartCursor{stroke:currentColor;opacity:0;stroke-width:1;stroke-dasharray:3 3;pointer-events:none}.chartBrush{fill:currentColor;opacity:0;pointer-events:none}
+.metricTooltip{display:none;position:absolute;z-index:4;top:42px;transform:translateX(-50%);min-width:150px;max-width:260px;padding:8px 10px;border:1px solid #98a2b3;border-radius:8px;background:Canvas;color:CanvasText;box-shadow:0 4px 16px rgba(0,0,0,.16);font-size:.76rem;pointer-events:none}
+.metricTooltip strong{display:block;margin-bottom:4px}.metricTooltip span{display:flex;justify-content:space-between;gap:16px}.metricTooltip span b{display:inline;margin:0}
+.chartLegend.interactive{margin-top:2px}.legendItem{border:0;background:transparent;color:inherit;padding:4px 6px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;font:inherit}.legendItem.off{opacity:.35;text-decoration:line-through}.legendItem i{width:18px;border-top:3px solid currentColor}
+.metricStats{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:7px;margin-top:9px}.metricStat{display:grid;grid-template-columns:auto repeat(4,minmax(0,1fr));gap:8px;align-items:baseline;padding:7px 8px;border-top:1px solid rgba(127,127,127,.25);font-size:.72rem}.metricStat>b{font-size:.76rem}.metricStat span{display:flex;flex-direction:column;gap:2px;opacity:.72}.metricStat strong{font-size:.78rem;opacity:1;font-variant-numeric:tabular-nums}
+@media(max-width:1050px){.metricsV2 .metricsGridV2{grid-template-columns:1fr}.metricsV2 .metricChartWide{grid-column:auto}}
+@media(max-width:760px){.metricsV2 .metricChart{min-height:350px;overflow-x:auto}.metricsV2 .metricChart svg{min-width:700px!important}.metricStats{min-width:700px}.metricStat{grid-template-columns:90px repeat(4,minmax(90px,1fr))}.metricsV2 .metricsControls .segmented{order:1;width:100%}}
+/* 0.61.0 — operational metrics console */
+.metricsV2 .metricsGridV3{display:block!important}
+.metricsV2 .metricsGridV3 .metricChartCard{margin:0 0 22px;min-width:0;overflow:visible}
+.metricsV2 .metricsGridV3 .metricChart{min-height:390px;overflow-x:auto;overflow-y:visible}
+.metricsV2 .metricsGridV3 .metricChart svg{height:300px;min-width:760px}
+.chartSeries.s1{stroke:#2563eb}.chartArea.s1{fill:#2563eb}.chartSeries.s2{stroke:#dc2626}.chartArea.s2{fill:#dc2626}.chartSeries.s3{stroke:#16a34a}.chartArea.s3{fill:#16a34a}.chartSeries.s4{stroke:#9333ea}.chartArea.s4{fill:#9333ea}.chartSeries.s5{stroke:#ea580c}.chartArea.s5{fill:#ea580c}.chartSeries.s6{stroke:#0891b2}.chartArea.s6{fill:#0891b2}.chartSeries.s7{stroke:#be123c}.chartArea.s7{fill:#be123c}.chartSeries.s8{stroke:#4f46e5}.chartArea.s8{fill:#4f46e5}.chartSeries.s9{stroke:#65a30d}.chartArea.s9{fill:#65a30d}.chartSeries.s10{stroke:#a16207}.chartArea.s10{fill:#a16207}
+.legendItem i.s1{border-color:#2563eb}.legendItem i.s2{border-color:#dc2626}.legendItem i.s3{border-color:#16a34a}.legendItem i.s4{border-color:#9333ea}.legendItem i.s5{border-color:#ea580c}.legendItem i.s6{border-color:#0891b2}.legendItem i.s7{border-color:#be123c}.legendItem i.s8{border-color:#4f46e5}.legendItem i.s9{border-color:#65a30d}.legendItem i.s10{border-color:#a16207}
+.metricStats{min-width:760px}
+@media(max-width:760px){.metricsV2 .metricsGridV3 .metricChart{overflow-x:auto!important}.metricsV2 .metricsGridV3 .metricChart svg{min-width:760px!important}.metricStats{min-width:760px}}
+/* 0.68.0 — compact operational metrics dashboard */
+#metrics.section.active{overflow-y:auto!important;overflow-x:hidden!important;min-height:0}
+.metricsV2{overflow:visible!important}
+.metricsV2 .metricsHead{position:sticky;top:0;z-index:12;background:Canvas;padding-top:6px;padding-bottom:6px}
+.metricsV2 .metricsMeta{position:sticky;top:52px;z-index:11;background:Canvas;padding:4px 0 6px;margin-bottom:6px}
+.metricsV2 .metricsGridV3{display:block!important}
+.metricsV2 .metricsGridV3 .metricChartCard{margin:0 0 10px;padding:8px 12px;border-radius:9px;min-width:0;overflow:visible}
+.metricsV2 .chartHead{margin-bottom:2px;min-height:22px}.metricsV2 .chartHead h3{font-size:.93rem;margin:0}.metricsV2 .chartHead span{font-size:.68rem}
+.metricsV2 .metricsGridV3 .metricChart{min-height:0!important;overflow-x:auto!important;overflow-y:visible!important;position:relative}
+.metricsV2 .metricsGridV3 .metricChart svg{display:block;width:100%;height:180px;min-width:760px!important;touch-action:none;user-select:none}
+.metricsV2 .chartLegend.interactive{display:flex;flex-wrap:wrap;gap:1px 8px;margin:0;padding:1px 0;line-height:1}
+.metricsV2 .legendItem{padding:2px 3px;font-size:.68rem;gap:4px}.metricsV2 .legendItem i{width:12px;border-top-width:2px}
+.metricsV2 .metricStats{display:block;min-width:760px!important;max-height:68px;overflow-y:auto;margin-top:1px;border-top:1px solid rgba(127,127,127,.18)}
+.metricsV2 .metricStat{display:grid;grid-template-columns:minmax(88px,1.2fr) repeat(4,minmax(72px,1fr));gap:5px;padding:2px 5px;border-top:0;border-bottom:1px solid rgba(127,127,127,.12);font-size:.65rem;line-height:1.05}
+.metricsV2 .metricStat>b{font-size:.67rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.metricsV2 .metricStat span{display:flex;flex-direction:row;justify-content:flex-start;gap:4px;opacity:.82;white-space:nowrap}.metricsV2 .metricStat em{font-style:normal;opacity:.62}.metricsV2 .metricStat strong{font-size:.67rem}
+.metricsV2 .metricTooltip{top:28px;padding:5px 7px;font-size:.68rem;max-width:230px}
+.metricsV2 .chartTime{font-size:10px}.chartTick{stroke:currentColor;opacity:.28;stroke-width:1;vector-effect:non-scaling-stroke}
+@media(max-width:760px){.metricsV2 .metricsHead{position:static}.metricsV2 .metricsMeta{position:static}.metricsV2 .metricsGridV3 .metricChart svg{height:170px;min-width:760px!important}.metricsV2 .metricStats{min-width:760px!important}}
+/* v0.63 metric semantics: no under-chart value tables; tooltip stays clear of cursor. */
+.metricsV2 .metricStats{display:none!important}
+.metricsV2 .metricTooltip{transform:none!important;min-width:180px;max-width:280px}
+.metricTooltip .tipSeries{display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:6px}
+.metricTooltip .tipSeries i{width:8px;height:8px;border-radius:50%;background:currentColor}
+.metricTooltip .tipSeries em{font-style:normal;color:CanvasText}
+.metricTooltip .tipSeries.s1{color:#2563eb}.metricTooltip .tipSeries.s2{color:#dc2626}.metricTooltip .tipSeries.s3{color:#16a34a}.metricTooltip .tipSeries.s4{color:#9333ea}.metricTooltip .tipSeries.s5{color:#ea580c}.metricTooltip .tipSeries.s6{color:#0891b2}.metricTooltip .tipSeries.s7{color:#be123c}.metricTooltip .tipSeries.s8{color:#4f46e5}.metricTooltip .tipSeries.s9{color:#65a30d}.metricTooltip .tipSeries.s10{color:#a16207}
+.manualUpdates{margin-top:12px}.updateButtons{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.updateOutput{min-height:44px;max-height:180px}
+/* v0.63 metric semantics */
+.metricsV2 .metricStats{display:none!important}
+.metricsV2 .metricTooltip{transform:none!important;min-width:180px;max-width:280px}
+.metricTooltip .tipSeries{display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:6px}
+.metricTooltip .tipSeries i{width:8px;height:8px;border-radius:50%;background:currentColor}
+.metricTooltip .tipSeries em{font-style:normal;color:CanvasText}
+.metricTooltip .tipSeries.s1{color:#2563eb}.metricTooltip .tipSeries.s2{color:#dc2626}.metricTooltip .tipSeries.s3{color:#16a34a}.metricTooltip .tipSeries.s4{color:#9333ea}.metricTooltip .tipSeries.s5{color:#ea580c}.metricTooltip .tipSeries.s6{color:#0891b2}.metricTooltip .tipSeries.s7{color:#be123c}.metricTooltip .tipSeries.s8{color:#4f46e5}.metricTooltip .tipSeries.s9{color:#65a30d}.metricTooltip .tipSeries.s10{color:#a16207}
+.manualUpdates{margin-top:12px}.updateButtons{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.updateOutput{min-height:44px;max-height:180px}
+/* v0.68.0 — compact daylight metrics dashboard */
+#metrics.section.active{overflow-y:auto!important;overflow-x:hidden!important;background:#f7fafc}
+.metricsV2{background:#f7fafc!important;color:#172033}
+.metricsV2 .metricsHead,.metricsV2 .metricsMeta{background:#f7fafc!important}
+.metricsV2 .metricsGridV4{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:0 2px 10px}
+.metricsV2 .metricsGridV4 .metricChartCard{margin:0!important;padding:8px 12px;border:1px solid #d8e2ec;border-radius:9px;background:#fff;min-width:0;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.025)}
+.metricsV2 .metricLarge{grid-column:auto}.metricsV2 .metricCompact{grid-column:auto}.metricsV2 .metricResources{grid-column:1/-1}
+.metricsV2 .metricPeerCard{display:none}.metricsV2 .metricPeerCard.hasPeer{display:block}
+.metricsV2 .chartHead{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:8px;min-height:25px;margin:0 0 2px}.metricsV2 .chartHead h3{font-size:.9rem}.metricsV2 .chartHead span{font-size:.66rem;color:#64748b;white-space:nowrap}
+.metricsV2 .metricExpand{border:1px solid #cbd8e6;border-radius:6px;background:#f8fbfe;color:#29445f;padding:3px 8px;font-size:.68rem;cursor:pointer}.metricsV2 .metricExpand:hover{background:#eef6ff}
+.metricsV2 .metricsGridV4 .metricChart{min-height:0!important;overflow-x:auto!important;overflow-y:hidden!important;position:relative}
+.metricsV2 .metricsGridV4 .metricChart svg{display:block;width:100%;height:145px;min-width:560px!important;touch-action:none;user-select:none}
+.metricsV2 .metricCompact .metricChart svg{height:132px;min-width:420px!important}
+.metricsV2 .chartLegend.interactive{display:flex;flex-wrap:wrap;gap:0 8px;margin:0;padding:0;line-height:1.05;max-height:31px;overflow:auto}.metricsV2 .legendItem{padding:2px 2px;font-size:.64rem;gap:4px}.metricsV2 .legendItem i{width:11px;border-top-width:2px}
+.metricsV2 .metricTooltip{top:30px;background:#fff!important;color:#172033!important;border-color:#b8c7d8!important;box-shadow:0 5px 18px rgba(15,23,42,.14)}
+.metricsV2 .chartGrid{opacity:.12}.metricsV2 .chartAxis{fill:#64748b}.metricsV2 .chartZero{opacity:.55}
+.resourceGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.resourcePane{border:1px solid #e1e8f0;border-radius:7px;padding:5px 7px;min-width:0}.miniHead{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;font-size:.7rem}.miniHead span{color:#64748b}.resourcePane .metricChart svg{height:112px!important;min-width:280px!important}.resourcePane .chartLegend{max-height:20px!important}
+.metricModal{display:none;position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.28);padding:4vh 4vw}.metricModal.open{display:block}.metricModalBox{height:92vh;background:#fff;border:1px solid #cbd8e6;border-radius:10px;box-shadow:0 20px 60px rgba(15,23,42,.25);padding:12px;display:flex;flex-direction:column}.metricModalHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.metricModalHead button{border:1px solid #cbd8e6;background:#f8fbfe;border-radius:6px;padding:5px 10px}.metricModal #metricModalChart{flex:1;min-height:0;position:relative}.metricModal #metricModalChart svg{height:calc(92vh - 90px)!important;min-width:900px!important;width:100%}
+@media(max-width:1100px){.metricsV2 .metricsGridV4{grid-template-columns:1fr}.metricsV2 .metricResources{grid-column:auto}.resourceGrid{grid-template-columns:1fr}.resourcePane .metricChart svg{height:125px!important}.metricsV2 .metricsGridV4 .metricChart svg{min-width:700px!important}}
+@media(max-width:760px){.metricsV2 .chartHead{grid-template-columns:1fr auto}.metricsV2 .chartHead span{grid-row:2;grid-column:1/-1}.metricsV2 .metricsGridV4 .metricChart svg{height:145px;min-width:700px!important}.metricModal{padding:1vh 1vw}.metricModalBox{height:98vh}}
+
+/* v0.70.0 — one grid contract for all metric cards, including empty charts. */
+.metricsV2 .metricsGridV4>.metricChartCard{height:205px!important;box-sizing:border-box;display:flex;flex-direction:column}
+.metricsV2 .metricsGridV4>.metricChartCard .metricChart{height:164px!important;min-height:164px!important;max-height:164px!important;flex:0 0 164px}
+.metricsV2 .metricsGridV4>.metricChartCard .metricChart svg{height:145px!important}
+.metricsV2 .metricsGridV4 .metricEmpty{margin:0!important;padding:0!important;height:145px!important;min-height:145px!important;max-height:145px!important;box-sizing:border-box;border-color:#d7e1eb;background:#f8fbfe}
+.metricsV2 .metricsGridV4>.metricResources{height:auto!important;display:block}
+.metricsV2 .metricsGridV4>.metricResources .metricChart{height:auto!important;min-height:0!important;max-height:none!important;flex:auto}
+.metricsV2 .metricsGridV4>.metricPeerCard:not(.hasPeer){display:none!important}
+@media(max-width:1100px){.metricsV2 .metricsGridV4{grid-template-columns:1fr}}

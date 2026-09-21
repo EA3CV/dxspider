@@ -1,4 +1,11 @@
 #!/usr/bin/env perl
+#
+# DXSpider Web
+#
+# Non-blocking web client gateway for DXSpider user access.
+#
+# Copyright (c) 2026 Dirk Koopman G1TLH
+#
 use strict;
 use warnings;
 use utf8;

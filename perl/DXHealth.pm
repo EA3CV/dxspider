@@ -5,6 +5,8 @@
 # Reuse existing DXSpider getters where they exist; do not duplicate them here.
 # No timers, no I/O, no persistence, no protocol generation. Counters reset with the process.
 #
+# Copyright (c) 2026 Dirk Koopman G1TLH
+#
 package DXHealth;
 
 use strict;

@@ -422,7 +422,7 @@ sub get_current
 sub get_all_calls
 {
 	if ($dbh) {
-		my $sql = "SELECT call FROM users";
+		my $sql = "SELECT call FROM users ORDER BY call";
 		dbg("DXUser get_all_calls: sql $sql") if isdbg('sql');
 		 my $sth = $dbh->prepare($sql);
 		return undef unless $sth->execute();
