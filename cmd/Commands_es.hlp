@@ -2190,6 +2190,32 @@ Ver también TYPE - para ver el contenido de un fichero.
 Muestra el contenido de todos los filtros que tengamos definidos.
 este comando nos da todos los que tengamos - de todos los tipos.
 
+=== 9^SHOW/HEALTH [status|connections|traffic|pc92|peers [CALL]|queues|web|rbn|topology|self_health|all]^Muestra el estado y la supervision local de DXSpider
+Muestra el estado operativo actual del nodo DXSpider local. Este comando
+es de solo lectura y requiere privilegio SYSOP 9. Sin argumentos muestra
+status. Los datos proceden de las capturas de DXSupervisor / DXHealth.
+
+Opciones:
+  status       Version, build, tiempo activo y resumen del nodo.
+  connections  Conexiones actuales y su estado.
+  traffic      Contadores fisicos de trafico de protocolo entrante y saliente.
+  pc92         Contadores de protocolo PC92 A, C, D y K.
+  peers [CALL] Trafico de peers directos; CALL selecciona uno concreto.
+  queues       Colas de entrada y conexiones pendientes.
+  web          Canales de transporte web y sus contadores.
+  rbn          Canales RBN y sus contadores.
+  topology     Nodos y usuarios de red conocidos por DXSpider.
+  self_health  Solicitudes, errores y tiempos de generacion de DXSupervisor.
+  all          Muestra todas las secciones anteriores.
+
+Ejemplos:
+  SH/HEALTH
+  SH/HEALTH TRAFFIC
+  SH/HEALTH PC92
+  SH/HEALTH PEERS EA3CV-2
+  SH/HEALTH SELF_HEALTH
+  SH/HEALTH ALL
+
 === 0^SHOW/HFSTATS^Muestra las estadísticas de los últimos 31 días en HF
 Muestra una lista día por día de los spots recibidos en los últimos
 31 días en cada banda de HF.

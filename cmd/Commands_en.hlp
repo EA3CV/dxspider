@@ -2574,6 +2574,32 @@ Upto 366 days can be checked both in the past and in the future.
 Please note that the times are given as the UT times of the requested
 UT day.
 	
+=== 9^SHOW/HEALTH [status|connections|traffic|pc92|peers [CALL]|queues|web|rbn|topology|self_health|all]^Show local DXSpider health and supervision information
+Show the current operational state of the local DXSpider node. This
+read-only command requires SYSOP privilege 9. Without arguments it shows
+status. Data is obtained from DXSupervisor / DXHealth snapshots.
+
+Options:
+  status       Node version, build, uptime and operational summary.
+  connections  Current connections and their state.
+  traffic      Physical incoming and outgoing protocol traffic counters.
+  pc92         PC92 A, C, D and K protocol counters.
+  peers [CALL] Traffic counters for direct peers; optionally select CALL.
+  queues       Input queues and pending connections.
+  web          Web transport channels and their counters.
+  rbn          RBN channels and counters.
+  topology     Network nodes and users currently known by DXSpider.
+  self_health  DXSupervisor request, error and generation-time counters.
+  all          Display all the above sections.
+
+Examples:
+  SH/HEALTH
+  SH/HEALTH TRAFFIC
+  SH/HEALTH PC92
+  SH/HEALTH PEERS EA3CV-2
+  SH/HEALTH SELF_HEALTH
+  SH/HEALTH ALL
+
 === 0^SHOW/HFSTATS [days] [date]^Show the HF DX Statistics 
 Show the HF DX spots breakdown by band for the last <days> no of days 
 (default is 31), starting from a <date> (default: today).

@@ -2086,6 +2086,32 @@ Voir aussi TYPE pour afficher le CONTENU d'un fichier.
 Affiche le contenu de tous les filtres qui sont définis.
 Cette commande affiche tous les filtres, de n'importe quelle catégorie.
 
+=== 9^SHOW/HEALTH [status|connections|traffic|pc92|peers [CALL]|queues|web|rbn|topology|self_health|all]^Affiche l'etat et la supervision du DXSpider local
+Affiche l'etat de fonctionnement actuel du noeud DXSpider local. Cette
+commande en lecture seule exige le privilege SYSOP 9. Sans argument,
+elle affiche status. Les donnees viennent de DXSupervisor / DXHealth.
+
+Options :
+  status       Version, build, duree de fonctionnement et resume du noeud.
+  connections  Connexions actuelles et leur etat.
+  traffic      Compteurs physiques du trafic entrant et sortant par protocole.
+  pc92         Compteurs PC92 pour les types A, C, D et K.
+  peers [CALL] Compteurs des pairs directs ; CALL selectionne un pair.
+  queues       Files d'entree et connexions en attente.
+  web          Canaux de transport web et leurs compteurs.
+  rbn          Canaux RBN et leurs compteurs.
+  topology     Noeuds et utilisateurs du reseau connus de DXSpider.
+  self_health  Requetes, erreurs et durees de generation de DXSupervisor.
+  all          Affiche toutes les sections ci-dessus.
+
+Exemples :
+  SH/HEALTH
+  SH/HEALTH TRAFFIC
+  SH/HEALTH PC92
+  SH/HEALTH PEERS EA3CV-2
+  SH/HEALTH SELF_HEALTH
+  SH/HEALTH ALL
+
 === 0^SHOW/HFSTATS [jours] [date]^Affiche les statistiques DX ondes courtes
 Affiche le nombre d'informations DX par bande, en ondes courtes, pour les
 <jours> derniers jours (par défaut: 31), en commençant à la <date>

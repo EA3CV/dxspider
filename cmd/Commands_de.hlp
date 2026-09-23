@@ -1526,6 +1526,32 @@ Siehe auch TYPE - um den Inhalt eines Files zu sehen.
 
 === 0^SHOW/FILTER^Zeigt den Inhalt aller Filter die gesetzt wurden
 
+=== 9^SHOW/HEALTH [status|connections|traffic|pc92|peers [CALL]|queues|web|rbn|topology|self_health|all]^Zeigt Zustand und Ueberwachung des lokalen DXSpider
+Zeigt den aktuellen Betriebszustand des lokalen DXSpider-Knotens. Dieser
+Nur-Lese-Befehl erfordert SYSOP-Privileg 9. Ohne Argumente wird status
+angezeigt. Die Daten stammen aus DXSupervisor / DXHealth-Snapshots.
+
+Optionen:
+  status       Version, Build, Laufzeit und Statusuebersicht.
+  connections  Aktuelle Verbindungen und deren Zustand.
+  traffic      Physische Ein- und Ausgangszaehler je Protokoll.
+  pc92         PC92-Protokollzaehler fuer A, C, D und K.
+  peers [CALL] Verkehrszaehler direkter Peers; optional fuer CALL.
+  queues       Eingangsqueues und ausstehende Verbindungen.
+  web          Web-Transportkanaele und deren Zaehler.
+  rbn          RBN-Kanaele und deren Zaehler.
+  topology     DXSpider bekannte Netzknoten und Benutzer.
+  self_health  Anfragen, Fehler und Erzeugungszeiten von DXSupervisor.
+  all          Zeigt alle oben genannten Bereiche.
+
+Beispiele:
+  SH/HEALTH
+  SH/HEALTH TRAFFIC
+  SH/HEALTH PC92
+  SH/HEALTH PEERS EA3CV-2
+  SH/HEALTH SELF_HEALTH
+  SH/HEALTH ALL
+
 === 0^SHOW/HFSTATS^Zeigt die DX Statistics fuer die letzten 31 Tage
 Die Statistik wird Bandweise ausgegeben.
 
