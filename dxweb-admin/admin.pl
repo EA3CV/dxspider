@@ -8,7 +8,7 @@
 #
 # Copyright (c) 2026 Dirk Koopman G1TLH
 #
-# DXSpider Web Supervision 0.60.0
+# DXSpider Web Admin 0.75.0
 # Date: 2026-09-16
 use strict;
 use warnings;
@@ -16,6 +16,7 @@ use utf8;
 use Mojolicious::Lite -signatures;
 use POSIX ();
 use Mojo::IOLoop;
+use Mojo::IOLoop::Subprocess;
 use Mojo::JSON qw(encode_json decode_json);
 use Time::HiRes qw(time);
 use FindBin;
@@ -24,6 +25,7 @@ use DXWebHistory;
 
 my $DXS_HOST = '127.0.0.1'; # security boundary: admin transport is local-only
 my $DXS_PORT = $ENV{DXS_PORT} // 27754;
+my $DXWEB_PORT = $ENV{DXWEB_PORT} // 7381; # definitive Admin UI port
 my $RECONNECT = $ENV{RECONNECT_SEC} // 3;
 my $MAX_INPUT_BYTES = $ENV{MAX_INPUT_BYTES} // 262144;
 my $MAX_HISTORY = $ENV{MAX_HISTORY} // 250;
@@ -45,14 +47,44 @@ my $HISTORY_INTERVAL = $ENV{DXWEB_HISTORY_INTERVAL_SEC} // 30;
 my @HISTORY_KINDS = qw(status traffic self_health);
 my ($history_timer,$history_inflight)=(undef,0);
 my $maintenance_action_inflight=0;
+my (%clients,%pending);
 
+
+my %MAINT_UPDATE_ACTION = (
+  download_usdb => ['wget','-N','-P','/spider/local_data','ftp://ftp.w1nr.net/usdbraw.gz'],
+  prepare_usdb  => ['/spider/perl/create_usdb.pl','/spider/local_data/usdbraw.gz'],
+  prepare_keps  => ['/spider/perl/convkeps.pl','-p','/spider/local_data/nasabare.txt'],
+  prepare_prefix=> ['/spider/perl/create_prefix.pl'],
+);
+sub maintenance_update_action($cid,$action){
+  my $cmd=$MAINT_UPDATE_ACTION{$action};
+  unless($cmd){ws_send_guarded($cid,encode_json({type=>'maintenance_update_action_result',status=>'error',action=>$action,error=>'invalid_action'}));return}
+  my @cmd=@$cmd;
+  my $sp=Mojo::IOLoop::Subprocess->new;
+  $sp->run(sub {
+    my $sub=shift;
+    my @out;
+    open my $fh, '-|', @cmd or die "exec failed: $!";
+    while(my $line=<$fh>){chomp $line;push @out,$line if length $line}
+    close $fh;
+    my $rc=$? >> 8;
+    return {rc=>$rc,output=>\@out};
+  }, sub {
+    my($sub,$err,$res)=@_;
+    return unless $clients{$cid}&&$clients{$cid}{authenticated};
+    my $ok=!$err&&ref($res)eq'HASH'&&($res->{rc}//1)==0;
+    my @out=$ok?@{$res->{output}||[]}:();
+    push @out, join(' ',@cmd) unless @out;
+    ws_send_guarded($cid,encode_json({type=>'maintenance_update_action_result',status=>$ok?'ok':'error',action=>$action,output=>\@out,error=>$ok?undef:($err||('exit '.($res->{rc}//'?')))}));
+  });
+}
 app->static->paths->[0] = app->home->rel_file('admin');
 app->secrets([$ENV{DXWEB_ADMIN_SECRET} // $ENV{DXWEB_SECRET} // 'dxspider-dxweb-admin-v1']);
 
 my %state=(state=>'disconnected',web_call=>undef,error=>undef,connected_since=>undef);
 my ($stream,$buffer,$reconnect_timer)=(undef,'',undef);
 my $request_id=1; my $next_client_id=1;
-my (%clients,%pending); my (@history,@fanout); my ($history_bytes,$fanout_bytes,$fanout_scheduled)=(0,0,0);
+my (@history,@fanout); my ($history_bytes,$fanout_bytes,$fanout_scheduled)=(0,0,0);
 my %counters=map {$_=>0} qw(human rbn ann wwv wcy wx total reconnects input_overflow fanout_dropped ws_sent ws_dropped ws_slow_disconnects auth_ok auth_failed commands);
 my $last_feed_at;
 my $history_store = DXWebHistory->new(path => $HISTORY_DB, local_data_root => '/spider/local_data');
@@ -372,8 +404,16 @@ sub update_status_async($cb) {
 
 hook before_server_start=>sub($server,$app){Mojo::IOLoop->next_tick(sub{connect_dxs()})};
 get '/'=>sub($c){$c->reply->static('index.html')};
+get '/admin-version.json'=>sub($c){$c->render(json=>{name=>'DXSpider Web Admin',version=>'0.75.0'})};
 get '/healthz'=>sub($c){$c->render(status=>$state{state}eq 'ready'?200:503,json=>public_status())};
 get '/update-status.json'=>sub($c){$c->render_later;update_status_async(sub($r){$c->render(json=>$r)})};
 any [qw(POST PUT PATCH DELETE)]=>'/*whatever'=>sub($c){$c->render(status=>405,json=>{error=>'websocket_api_only'})};
-websocket '/ws'=>sub($c){if(scalar(keys %clients)>=$MAX_CLIENTS){$c->finish(1013=>'server busy');return}my$id=$next_client_id++;my$tx=$c->tx;my$s=ws_stream($tx);unless($s&&$s->can('high_water_mark')&&$s->can('can_write')&&$s->can('bytes_waiting')){$c->finish(1011=>'backpressure unavailable');return}$s->high_water_mark($MAX_WS_MESSAGE_BYTES);my$ip=$tx->remote_address||'127.0.0.1';$ip=~s/^::ffff://i;$clients{$id}={tx=>$tx,ip=>$ip,authenticated=>0};$c->inactivity_timeout(0);ws_send_guarded($id,encode_json(client_status($id)));$c->on(message=>sub($c,$raw){if(length($raw)>$MAX_BROWSER_MESSAGE_BYTES){$counters{ws_dropped}++;$c->finish(1009=>'message too large');return}my$m;eval{$m=decode_json$raw};return if$@||ref$m ne 'HASH';my$t=lc($m->{type}//'');if($t eq 'auth'){return unless$state{state}eq 'ready';return if$clients{$id}{authenticated};my$call=$m->{call}//'';my$pass=exists$m->{password}?$m->{password}:undef;dxs_request($id,'auth',{type=>'auth',call=>$call,password=>$pass,ip=>$clients{$id}{ip}});return}if($t eq 'logout'){return unless$clients{$id}{authenticated};dxs_request($id,'logout',{type=>'user_del',call=>$clients{$id}{call}});return}return unless$clients{$id}{authenticated};if($t=~/^reg_(?:pending|history)$/){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call}});return}if($t eq 'reg_search'){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call},query=>$m->{query}//''});return}if($t=~/^reg_(?:accept|reject)$/){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call},request_id=>$m->{request_id},note=>$m->{note}//''});return}if($t eq 'reg_delete_user'){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call},target=>$m->{target}//'',note=>$m->{note}//'',ip=>$clients{$id}{ip}});return}if($t eq 'supervisor_overview'){send_overview_snapshot($id);return}if($t eq 'supervisor_history'){send_history_summary($id,$m->{window}//'15m');return}if($t eq 'history_metrics'){my$window=$m->{window}//'15m';$history_store->metrics_series_async(window=>$window,peer=>($m->{peer}//''),cb=>sub{my($err,$result)=@_;return unless$clients{$id}&&$clients{$id}{authenticated};my$o=$err?{type=>'history_metrics_result',status=>'error',error=>$err}:{type=>'history_metrics_result',status=>'ok',result=>$result};my$j=encode_json($o);$j=encode_json({type=>'history_metrics_result',status=>'error',error=>'response_too_large'}) if length($j)>$MAX_WS_MESSAGE_BYTES;ws_send_guarded($id,$j)});return}if($t eq 'history_timeline'){my$window=$m->{window}//'15m';$history_store->timeline_async(window=>$window,limit=>300,cb=>sub{my($err,$result)=@_;return unless$clients{$id}&&$clients{$id}{authenticated};my$o=$err?{type=>'history_timeline_result',status=>'error',error=>$err}:{type=>'history_timeline_result',status=>'ok',result=>$result};my$j=encode_json($o);$j=encode_json({type=>'history_timeline_result',status=>'error',error=>'response_too_large'}) if length($j)>$MAX_WS_MESSAGE_BYTES;ws_send_guarded($id,$j)});return}if($t eq 'maintenance_history_action'){my$action=lc($m->{action}//'');my$ids=$m->{ids};if($maintenance_action_inflight){ws_send_guarded($id,encode_json({type=>'maintenance_history_action_result',status=>'error',error=>'maintenance_action_busy'}));return}unless(($action eq'compress'||$action eq'delete')&&ref($ids)eq'ARRAY'&&@$ids&&@$ids<=100){ws_send_guarded($id,encode_json({type=>'maintenance_history_action_result',status=>'error',error=>'invalid_request'}));return}$maintenance_action_inflight=1;$history_store->history_maintenance_action_async(action=>$action,ids=>$ids,cb=>sub{my($err,$result)=@_;$maintenance_action_inflight=0;return unless$clients{$id}&&$clients{$id}{authenticated};my$o=$err?{type=>'maintenance_history_action_result',status=>'error',error=>$err}:{type=>'maintenance_history_action_result',status=>'ok',result=>$result};my$j=encode_json($o);$j=encode_json({type=>'maintenance_history_action_result',status=>'error',error=>'response_too_large'}) if length($j)>$MAX_WS_MESSAGE_BYTES;ws_send_guarded($id,$j)});return}if($t eq 'maintenance_snapshot'){$history_store->maintenance_async(history_path=>$m->{history_path},cb=>sub{my($err,$result)=@_;return unless$clients{$id}&&$clients{$id}{authenticated};if(!$err&&ref($result)eq'HASH'){$result->{system}=local_system_snapshot()}my$o=$err?{type=>'maintenance_snapshot_result',status=>'error',error=>$err}:{type=>'maintenance_snapshot_result',status=>'ok',result=>$result};my$j=encode_json($o);$j=encode_json({type=>'maintenance_snapshot_result',status=>'error',error=>'response_too_large'}) if length($j)>$MAX_WS_MESSAGE_BYTES;ws_send_guarded($id,$j)});return}if($t eq 'supervisor_system'){ws_send_guarded($id,encode_json({type=>'supervisor_system_result',status=>'ok',result=>local_system_snapshot()}));return}if($t=~/^supervisor_(status|connections|traffic|web|rbn|self_health|topology)$/){my$what=$1;dxs_request($id,$t,{type=>'supervisor',call=>$clients{$id}{call},what=>$what});return}if($t eq 'command'){my$cmd=$m->{command}//'';if(length($cmd)>$MAX_COMMAND_BYTES){ws_send_guarded($id,encode_json({type=>'command_result',status=>'error',error=>'command_too_large',messages=>[],final=>\1}));return}dxs_request($id,'command',{type=>'command',call=>$clients{$id}{call},command=>$cmd});return}});$c->on(finish=>sub{release_client($id,'browser_finish')})};
-app->start;
+websocket '/ws'=>sub($c){if(scalar(keys %clients)>=$MAX_CLIENTS){$c->finish(1013=>'server busy');return}my$id=$next_client_id++;my$tx=$c->tx;my$s=ws_stream($tx);unless($s&&$s->can('high_water_mark')&&$s->can('can_write')&&$s->can('bytes_waiting')){$c->finish(1011=>'backpressure unavailable');return}$s->high_water_mark($MAX_WS_MESSAGE_BYTES);my$ip=$tx->remote_address||'127.0.0.1';$ip=~s/^::ffff://i;$clients{$id}={tx=>$tx,ip=>$ip,authenticated=>0};$c->inactivity_timeout(0);ws_send_guarded($id,encode_json(client_status($id)));$c->on(message=>sub($c,$raw){if(length($raw)>$MAX_BROWSER_MESSAGE_BYTES){$counters{ws_dropped}++;$c->finish(1009=>'message too large');return}my$m;eval{$m=decode_json$raw};return if$@||ref$m ne 'HASH';my$t=lc($m->{type}//'');if($t eq 'auth'){return unless$state{state}eq 'ready';return if$clients{$id}{authenticated};my$call=$m->{call}//'';my$pass=exists$m->{password}?$m->{password}:undef;dxs_request($id,'auth',{type=>'auth',call=>$call,password=>$pass,ip=>$clients{$id}{ip}});return}if($t eq 'logout'){return unless$clients{$id}{authenticated};dxs_request($id,'logout',{type=>'user_del',call=>$clients{$id}{call}});return}return unless$clients{$id}{authenticated};if($t=~/^reg_(?:pending|history)$/){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call}});return}if($t eq 'reg_search'){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call},query=>$m->{query}//''});return}if($t=~/^reg_(?:accept|reject)$/){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call},request_id=>$m->{request_id},note=>$m->{note}//''});return}if($t eq 'reg_delete_user'){dxs_request($id,$t,{type=>$t,call=>$clients{$id}{call},target=>$m->{target}//'',note=>$m->{note}//'',ip=>$clients{$id}{ip}});return}if($t eq 'supervisor_overview'){send_overview_snapshot($id);return}if($t eq 'supervisor_history'){send_history_summary($id,$m->{window}//'15m');return}if($t eq 'history_metrics'){my$window=$m->{window}//'15m';$history_store->metrics_series_async(window=>$window,peer=>($m->{peer}//''),cb=>sub{my($err,$result)=@_;return unless$clients{$id}&&$clients{$id}{authenticated};my$o=$err?{type=>'history_metrics_result',status=>'error',error=>$err}:{type=>'history_metrics_result',status=>'ok',result=>$result};my$j=encode_json($o);$j=encode_json({type=>'history_metrics_result',status=>'error',error=>'response_too_large'}) if length($j)>$MAX_WS_MESSAGE_BYTES;ws_send_guarded($id,$j)});return}if($t eq 'history_timeline'){my$window=$m->{window}//'15m';$history_store->timeline_async(window=>$window,limit=>300,cb=>sub{my($err,$result)=@_;return unless$clients{$id}&&$clients{$id}{authenticated};my$o=$err?{type=>'history_timeline_result',status=>'error',error=>$err}:{type=>'history_timeline_result',status=>'ok',result=>$result};my$j=encode_json($o);$j=encode_json({type=>'history_timeline_result',status=>'error',error=>'response_too_large'}) if length($j)>$MAX_WS_MESSAGE_BYTES;ws_send_guarded($id,$j)});return}if($t eq 'maintenance_update_action'){maintenance_update_action($id,lc($m->{action}//''));return}if($t eq 'maintenance_history_action'){my$action=lc($m->{action}//'');my$ids=$m->{ids};if($maintenance_action_inflight){ws_send_guarded($id,encode_json({type=>'maintenance_history_action_result',status=>'error',error=>'maintenance_action_busy'}));return}unless(($action eq'compress'||$action eq'delete')&&ref($ids)eq'ARRAY'&&@$ids&&@$ids<=100){ws_send_guarded($id,encode_json({type=>'maintenance_history_action_result',status=>'error',error=>'invalid_request'}));return}$maintenance_action_inflight=1;$history_store->history_maintenance_action_async(action=>$action,ids=>$ids,cb=>sub{my($err,$result)=@_;$maintenance_action_inflight=0;return unless$clients{$id}&&$clients{$id}{authenticated};my$o=$err?{type=>'maintenance_history_action_result',status=>'error',error=>$err}:{type=>'maintenance_history_action_result',status=>'ok',result=>$result};my$j=encode_json($o);$j=encode_json({type=>'maintenance_history_action_result',status=>'error',error=>'response_too_large'}) if length($j)>$MAX_WS_MESSAGE_BYTES;ws_send_guarded($id,$j)});return}if($t eq 'maintenance_snapshot'){$history_store->maintenance_async(history_path=>$m->{history_path},cb=>sub{my($err,$result)=@_;return unless$clients{$id}&&$clients{$id}{authenticated};if(!$err&&ref($result)eq'HASH'){$result->{system}=local_system_snapshot()}my$o=$err?{type=>'maintenance_snapshot_result',status=>'error',error=>$err}:{type=>'maintenance_snapshot_result',status=>'ok',result=>$result};my$j=encode_json($o);$j=encode_json({type=>'maintenance_snapshot_result',status=>'error',error=>'response_too_large'}) if length($j)>$MAX_WS_MESSAGE_BYTES;ws_send_guarded($id,$j)});return}if($t eq 'supervisor_system'){ws_send_guarded($id,encode_json({type=>'supervisor_system_result',status=>'ok',result=>local_system_snapshot()}));return}if($t=~/^supervisor_(status|connections|traffic|web|rbn|self_health|topology)$/){my$what=$1;dxs_request($id,$t,{type=>'supervisor',call=>$clients{$id}{call},what=>$what});return}if($t eq 'command'){my$cmd=$m->{command}//'';if(length($cmd)>$MAX_COMMAND_BYTES){ws_send_guarded($id,encode_json({type=>'command_result',status=>'error',error=>'command_too_large',messages=>[],final=>\1}));return}dxs_request($id,'command',{type=>'command',call=>$clients{$id}{call},command=>$cmd});return}});$c->on(finish=>sub{release_client($id,'browser_finish')})};
+# DXWeb Admin uses 7381 by default when started directly without an
+# explicit Mojolicious command.  An explicit command line still wins, e.g.
+#   perl admin.pl daemon -l http://127.0.0.1:7310
+if (!@ARGV) {
+    app->start('daemon', '-l', "http://0.0.0.0:$DXWEB_PORT");
+} else {
+    app->start;
+}

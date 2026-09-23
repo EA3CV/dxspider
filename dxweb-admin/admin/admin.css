@@ -435,7 +435,7 @@ body.authenticated #loginButton{background:#dff2e3;border-color:#6fa77b;color:#1
 .metricsV2 .metricsGridV3 .metricChartCard{margin:0 0 22px;min-width:0;overflow:visible}
 .metricsV2 .metricsGridV3 .metricChart{min-height:390px;overflow-x:auto;overflow-y:visible}
 .metricsV2 .metricsGridV3 .metricChart svg{height:300px;min-width:760px}
-.chartSeries.s1{stroke:#2563eb}.chartArea.s1{fill:#2563eb}.chartSeries.s2{stroke:#dc2626}.chartArea.s2{fill:#dc2626}.chartSeries.s3{stroke:#16a34a}.chartArea.s3{fill:#16a34a}.chartSeries.s4{stroke:#9333ea}.chartArea.s4{fill:#9333ea}.chartSeries.s5{stroke:#ea580c}.chartArea.s5{fill:#ea580c}.chartSeries.s6{stroke:#0891b2}.chartArea.s6{fill:#0891b2}.chartSeries.s7{stroke:#be123c}.chartArea.s7{fill:#be123c}.chartSeries.s8{stroke:#4f46e5}.chartArea.s8{fill:#4f46e5}.chartSeries.s9{stroke:#65a30d}.chartArea.s9{fill:#65a30d}.chartSeries.s10{stroke:#a16207}.chartArea.s10{fill:#a16207}
+.chartSeries.s1{stroke:#2563eb}.chartArea.s1{fill:#2563eb}.chartSeries.s2{stroke:#dc2626}.chartArea.s2{fill:#dc2626}.chartSeries.s3{stroke:#7c3aed}.chartArea.s3{fill:#7c3aed}.chartSeries.s4{stroke:#9333ea}.chartArea.s4{fill:#9333ea}.chartSeries.s5{stroke:#ea580c}.chartArea.s5{fill:#ea580c}.chartSeries.s6{stroke:#0891b2}.chartArea.s6{fill:#0891b2}.chartSeries.s7{stroke:#be123c}.chartArea.s7{fill:#be123c}.chartSeries.s8{stroke:#4f46e5}.chartArea.s8{fill:#4f46e5}.chartSeries.s9{stroke:#c2410c}.chartArea.s9{fill:#c2410c}.chartSeries.s10{stroke:#a16207}.chartArea.s10{fill:#a16207}
 .legendItem i.s1{border-color:#2563eb}.legendItem i.s2{border-color:#dc2626}.legendItem i.s3{border-color:#16a34a}.legendItem i.s4{border-color:#9333ea}.legendItem i.s5{border-color:#ea580c}.legendItem i.s6{border-color:#0891b2}.legendItem i.s7{border-color:#be123c}.legendItem i.s8{border-color:#4f46e5}.legendItem i.s9{border-color:#65a30d}.legendItem i.s10{border-color:#a16207}
 .metricStats{min-width:760px}
 @media(max-width:760px){.metricsV2 .metricsGridV3 .metricChart{overflow-x:auto!important}.metricsV2 .metricsGridV3 .metricChart svg{min-width:760px!important}.metricStats{min-width:760px}}
@@ -503,3 +503,482 @@ body.authenticated #loginButton{background:#dff2e3;border-color:#6fa77b;color:#1
 .metricsV2 .metricsGridV4>.metricResources .metricChart{height:auto!important;min-height:0!important;max-height:none!important;flex:auto}
 .metricsV2 .metricsGridV4>.metricPeerCard:not(.hasPeer){display:none!important}
 @media(max-width:1100px){.metricsV2 .metricsGridV4{grid-template-columns:1fr}}
+
+/* ========================================================================== */
+/* DXSpider Web Supervision — UI v2 preview                                  */
+/* Interface-only layer. Existing IDs, data paths and behaviour are retained. */
+/* ========================================================================== */
+:root{
+ --ui-bg:#08111d;--ui-surface:#0d1928;--ui-surface-2:#112238;--ui-surface-3:#162a43;
+ --ui-border:#203b59;--ui-text:#e7f0f8;--ui-muted:#8ea4b9;--ui-accent:#4aa3ff;
+ --ui-accent-soft:rgba(74,163,255,.14);--ui-shadow:0 12px 30px rgba(0,0,0,.20);
+ --ui-radius:12px;--ui-top:52px;
+ color-scheme:dark;
+}
+html[data-theme="light"]{
+ --ui-bg:#eef3f8;--ui-surface:#ffffff;--ui-surface-2:#f7f9fc;--ui-surface-3:#e9f0f7;
+ --ui-border:#cfdae6;--ui-text:#172536;--ui-muted:#60758b;--ui-accent:#1769c2;
+ --ui-accent-soft:rgba(23,105,194,.10);--ui-shadow:0 10px 28px rgba(31,52,73,.10);
+ color-scheme:light;
+}
+@media(prefers-color-scheme:light){html[data-theme="auto"]{
+ --ui-bg:#eef3f8;--ui-surface:#ffffff;--ui-surface-2:#f7f9fc;--ui-surface-3:#e9f0f7;
+ --ui-border:#cfdae6;--ui-text:#172536;--ui-muted:#60758b;--ui-accent:#1769c2;
+ --ui-accent-soft:rgba(23,105,194,.10);--ui-shadow:0 10px 28px rgba(31,52,73,.10);color-scheme:light;
+}}
+body{background:var(--ui-bg)!important;color:var(--ui-text)!important;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif!important;letter-spacing:.005em}
+.topbar{min-height:var(--ui-top);background:color-mix(in srgb,var(--ui-surface) 94%,transparent)!important;border-bottom:1px solid var(--ui-border)!important;box-shadow:0 1px 0 rgba(255,255,255,.02);backdrop-filter:blur(14px);padding:0 18px!important;position:sticky;top:0;z-index:50}
+.brand{display:flex;align-items:center;gap:9px;font-weight:750}.brandMark{display:inline-grid;place-items:center;width:29px;height:29px;border-radius:8px;background:var(--ui-accent);color:white;font-size:11px;letter-spacing:-.03em}.v2Badge{font-size:10px;text-transform:uppercase;letter-spacing:.08em;border:1px solid var(--ui-border);background:var(--ui-accent-soft);color:var(--ui-accent);padding:3px 6px;border-radius:999px}.brandCopyright{opacity:.5;font-weight:500}
+.nodeIdentity{gap:8px}.adminLabel{border-radius:999px!important;background:var(--ui-accent-soft)!important;color:var(--ui-accent)!important;border:1px solid color-mix(in srgb,var(--ui-accent) 35%,var(--ui-border))!important}
+.topActions{gap:8px}.topActions button,.themeToggle{border:1px solid var(--ui-border)!important;background:var(--ui-surface-2)!important;color:var(--ui-text)!important;border-radius:8px!important;padding:7px 11px!important}.topActions button:hover,.themeToggle:hover{border-color:var(--ui-accent)!important;background:var(--ui-accent-soft)!important}
+.tabs.mainTabs{position:sticky;top:var(--ui-top);z-index:40;background:var(--ui-surface)!important;border-bottom:1px solid var(--ui-border)!important;padding:7px 14px!important;gap:5px!important;box-shadow:0 6px 18px rgba(0,0,0,.08)}
+.tabs.mainTabs button,.subtabs button{border-radius:8px!important;border:1px solid transparent!important;color:var(--ui-muted)!important;background:transparent!important;font-weight:600!important}.tabs.mainTabs button:hover,.subtabs button:hover{color:var(--ui-text)!important;background:var(--ui-surface-2)!important}.tabs.mainTabs button.active,.subtabs button.active{color:var(--ui-accent)!important;background:var(--ui-accent-soft)!important;border-color:color-mix(in srgb,var(--ui-accent) 28%,transparent)!important}
+.workspace{max-width:1720px;margin:0 auto;padding:18px!important}.section{animation:uiFade .15s ease-out}@keyframes uiFade{from{opacity:.55;transform:translateY(2px)}to{opacity:1;transform:none}}
+.subtabs{background:var(--ui-surface)!important;border:1px solid var(--ui-border)!important;border-radius:11px!important;padding:5px!important;margin-bottom:14px!important;gap:3px!important;box-shadow:var(--ui-shadow)}
+.panel,.superCard,.kpiCard,.timelinePanel,.metricsPanel{background:var(--ui-surface)!important;border:1px solid var(--ui-border)!important;border-radius:var(--ui-radius)!important;box-shadow:var(--ui-shadow)}
+.panelHead{border-color:var(--ui-border)!important}.panelHead h2,.panelHead h3,.cardTitle h3{letter-spacing:-.02em}.panelSub,.cardHint,.noticeText,.superNote,.metricsMeta{color:var(--ui-muted)!important}
+.kpiGrid{gap:10px!important}.kpiCard{padding:14px 16px!important;min-height:94px;position:relative;overflow:hidden}.kpiCard:before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--ui-accent);opacity:.75}.kpiLabel{color:var(--ui-muted)!important;text-transform:uppercase;letter-spacing:.07em;font-size:10px!important}.kpiCard strong{font-size:24px!important;letter-spacing:-.035em}.kpiCard small{color:var(--ui-muted)!important}
+.supervisionBanner{background:var(--ui-surface)!important;border:1px solid var(--ui-border)!important;border-radius:10px!important;padding:9px 12px!important;margin-bottom:10px!important;box-shadow:var(--ui-shadow)}
+.healthPill,.stateBadge{border-radius:999px!important}.supervisionGrid,.systemGrid,.metricsGrid{gap:12px!important}
+.superCard{overflow:hidden}.cardTitle{border-color:var(--ui-border)!important}
+.tableWrap,.regTableWrap,.resultArea{border-radius:10px!important;border-color:var(--ui-border)!important;background:var(--ui-surface)!important}.superTable,.regTable,.spotTable{background:var(--ui-surface)!important;color:var(--ui-text)!important}.superTable thead th,.regTable thead th,.spotTable thead th{position:sticky;top:0;background:var(--ui-surface-2)!important;color:var(--ui-muted)!important;border-color:var(--ui-border)!important;text-transform:uppercase;letter-spacing:.045em;font-size:10px!important;z-index:2}.superTable td,.regTable td,.spotTable td{border-color:color-mix(in srgb,var(--ui-border) 70%,transparent)!important}.superTable tbody tr:hover,.regTable tbody tr:hover,.spotTable tbody tr:hover{background:var(--ui-accent-soft)!important}
+input,select,textarea{background:var(--ui-surface-2)!important;color:var(--ui-text)!important;border:1px solid var(--ui-border)!important;border-radius:8px!important}button{transition:background .12s,border-color .12s,color .12s,transform .12s}button:active{transform:translateY(1px)}
+.metricsControls,.segmented{background:var(--ui-surface-2)!important;border-color:var(--ui-border)!important;border-radius:9px!important}.metricsGridV4>*,.chartCard{background:var(--ui-surface)!important;border-color:var(--ui-border)!important;border-radius:11px!important}.metricList dt{color:var(--ui-muted)!important}.metricList dd{color:var(--ui-text)!important}
+.commandOutput,.feedlog{background:#050b12!important;border-color:var(--ui-border)!important;color:#cce4f7!important;border-radius:9px!important}html[data-theme="light"] .commandOutput,html[data-theme="light"] .feedlog{background:#f5f8fb!important;color:#24384b!important}
+#status{padding:4px 8px;border-radius:999px;background:var(--ui-surface-2);border:1px solid var(--ui-border);font-size:11px}
+@media(max-width:900px){.brandCopyright{display:none}.workspace{padding:10px!important}.tabs.mainTabs{overflow-x:auto;white-space:nowrap}.subtabs{overflow-x:auto;white-space:nowrap}.kpiGrid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.supervisionGrid,.systemGrid,.metricsGrid{grid-template-columns:1fr!important}.topbar{padding:0 10px!important}.nodeIdentity{margin-left:auto}.topActions #status{display:none}}
+@media(max-width:560px){.kpiGrid{grid-template-columns:1fr!important}.nodeIdentity .adminLabel{display:none}.themeToggle{font-size:0}.themeToggle:after{content:"◐";font-size:14px}.workspace{padding:7px!important}.panel,.superCard{border-radius:9px!important}}
+
+/* DXWeb Admin v2 — structural redesign, 2026-09-22 */
+:root{--v2-side:238px;--v2-bg:#f4f7fb;--v2-surface:#fff;--v2-border:#dce3ec;--v2-muted:#6b778c;--v2-text:#172033;--v2-accent:#2563eb;--v2-accent-soft:#eaf1ff;--v2-shadow:0 8px 28px rgba(23,32,51,.07)}
+html[data-theme="dark"],body.theme-dark{--v2-bg:#0b1220;--v2-surface:#111a2b;--v2-border:#25324a;--v2-muted:#93a4bd;--v2-text:#e8eef8;--v2-accent:#60a5fa;--v2-accent-soft:#172b4d;--v2-shadow:0 10px 30px rgba(0,0,0,.22)}
+body.v2-shell{margin:0;background:var(--v2-bg);color:var(--v2-text);min-height:100vh;overflow:hidden}.v2Sidebar{position:fixed;inset:0 auto 0 0;width:var(--v2-side);box-sizing:border-box;background:#0d1627;color:#dbe6f7;border-right:1px solid #1f2c43;display:flex;flex-direction:column;padding:18px 14px;z-index:100}.v2Logo{height:54px;display:flex;align-items:center;gap:11px;padding:0 9px 17px;border-bottom:1px solid #233149;margin-bottom:14px}.v2LogoMark{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:#2563eb;color:#fff;font-weight:900;font-size:13px;letter-spacing:-.5px}.v2Logo strong{display:block;font-size:17px;letter-spacing:.2px}.v2Logo small{display:block;color:#8293ad;margin-top:2px;font-size:11px}.v2Nav{display:flex;flex-direction:column;gap:5px}.v2NavBtn{appearance:none;border:0;background:transparent;color:#9eacc2;border-radius:9px;display:flex;align-items:center;gap:12px;padding:10px 11px;text-align:left;font-size:13px;font-weight:650;cursor:pointer;transition:.16s}.v2NavBtn:hover{background:#16233a;color:#fff}.v2NavBtn.active{background:#1d4ed8;color:#fff;box-shadow:0 6px 18px rgba(37,99,235,.24)}.v2Icon{width:22px;text-align:center;font-size:16px;font-weight:500}.v2NavDivider{height:1px;background:#233149;margin:14px 8px}.v2NavSecondary .v2NavBtn{font-size:12px;padding-top:8px;padding-bottom:8px}.v2SidebarFoot{margin-top:auto;padding:12px 10px 2px;color:#7f91aa;font-size:11px;display:flex;align-items:center;gap:8px}.v2LiveDot{width:7px;height:7px;border-radius:50%;background:#38bdf8;box-shadow:0 0 0 4px rgba(56,189,248,.08)}.v2App{margin-left:var(--v2-side);height:100vh;display:flex;flex-direction:column;min-width:0}.v2Topbar{position:relative!important;inset:auto!important;height:68px;min-height:68px;box-sizing:border-box;background:var(--v2-surface)!important;border-bottom:1px solid var(--v2-border)!important;color:var(--v2-text)!important;padding:0 24px!important;display:flex!important;align-items:center;gap:22px;box-shadow:none!important}.v2PageTitle{min-width:230px;display:flex;flex-direction:column}.v2PageTitle strong{font-size:17px}.v2PageTitle span{font-size:11px;color:var(--v2-muted);margin-top:3px}.v2StatusStrip{display:flex;align-items:center;gap:8px;margin-left:auto}.v2StatusItem{border:1px solid var(--v2-border);background:var(--v2-bg);border-radius:8px;padding:6px 10px;min-width:72px}.v2StatusItem small{display:block;color:var(--v2-muted);font-size:8px;letter-spacing:.7px}.v2StatusItem b{display:block;font-size:11px;margin-top:2px}.v2Topbar .topActions{margin-left:0}.v2IconButton{width:34px;height:34px;padding:0!important;border-radius:8px!important;font-size:18px!important}.v2LegacyNav{display:none!important}.v2ContextBar{display:none;min-height:44px;background:var(--v2-surface);border-bottom:1px solid var(--v2-border);padding:0 24px;align-items:center;gap:5px;overflow-x:auto}.v2ContextBar.visible{display:flex}.v2ContextBar button{border:0;background:transparent;color:var(--v2-muted);padding:8px 11px;border-radius:7px;font-size:12px;font-weight:650;white-space:nowrap}.v2ContextBar button.active{background:var(--v2-accent-soft);color:var(--v2-accent)}body.v2-shell .workspace{position:relative!important;inset:auto!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;flex:1;min-height:0;overflow:auto!important;padding:22px 24px 34px!important;background:var(--v2-bg)!important}body.v2-shell .section.active{height:auto!important;min-height:100%;overflow:visible!important}body.v2-shell #supervision.section.active{display:block!important}body.v2-shell #supervisionTabs{display:none!important}body.v2-shell .supervisionBanner{border:1px solid var(--v2-border);background:var(--v2-surface);border-radius:10px;padding:9px 13px;margin:0 0 10px;box-shadow:var(--v2-shadow)}body.v2-shell .supervisionState{margin:0 0 12px;border-radius:9px}body.v2-shell .kpiGrid{grid-template-columns:repeat(6,minmax(125px,1fr));gap:10px}body.v2-shell .kpiCard,body.v2-shell .superCard,body.v2-shell .metricChartCard,body.v2-shell .panel,body.v2-shell .regPanel{background:var(--v2-surface)!important;border:1px solid var(--v2-border)!important;border-radius:12px!important;box-shadow:var(--v2-shadow)!important}body.v2-shell .kpiCard{padding:14px 15px!important;min-height:76px}body.v2-shell .kpiLabel{color:var(--v2-muted)!important;text-transform:uppercase;letter-spacing:.55px;font-size:9px!important}body.v2-shell .kpiCard strong{font-size:20px!important;margin-top:7px}body.v2-shell .overviewGrid{gap:12px}body.v2-shell .superCard{padding:15px!important}body.v2-shell .panelHead{border-bottom-color:var(--v2-border)!important}body.v2-shell table{border-collapse:separate;border-spacing:0}body.v2-shell th{font-size:9px!important;text-transform:uppercase;letter-spacing:.45px;color:var(--v2-muted)!important;background:var(--v2-bg)!important}body.v2-shell td{border-bottom-color:var(--v2-border)!important}body.v2-shell .tableWrap,body.v2-shell .supervisionTableWrap{border-radius:10px;border:1px solid var(--v2-border);overflow:auto}body.v2-shell button{transition:background .15s,border-color .15s,transform .08s}body.v2-shell button:active{transform:translateY(1px)}body.v2-shell .metricsGridV4{gap:12px!important}body.v2-shell .metricChartCard{padding:12px 14px!important;margin:0!important}body.v2-shell .chartHead h3{font-size:12px!important}body.v2-shell footer{display:none!important}
+@media(max-width:1180px){:root{--v2-side:74px}.v2Logo div,.v2NavBtn span:last-child,.v2SidebarFoot span:last-child{display:none}.v2Logo{justify-content:center;padding-left:0;padding-right:0}.v2NavBtn{justify-content:center;padding-left:0;padding-right:0}.v2Icon{width:auto}.v2Sidebar{padding-left:10px;padding-right:10px}.v2PageTitle{min-width:180px}body.v2-shell .kpiGrid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:760px){:root{--v2-side:0px}body.v2-shell{overflow:auto}.v2Sidebar{position:relative;width:100%;height:auto;display:block;padding:8px}.v2Logo{display:none}.v2Nav{flex-direction:row;overflow-x:auto}.v2NavDivider,.v2NavSecondary,.v2SidebarFoot{display:none}.v2NavBtn{min-width:48px;padding:9px}.v2NavBtn span:last-child{display:none}.v2App{margin-left:0;height:auto;min-height:100vh}.v2Topbar{padding:0 12px!important;height:58px;min-height:58px}.v2PageSubtitle,.v2DesktopOnly{display:none!important}.v2PageTitle{min-width:100px}.v2StatusStrip{display:none}.v2ContextBar{padding:0 10px}body.v2-shell .workspace{padding:12px!important}body.v2-shell .kpiGrid{grid-template-columns:repeat(2,1fr)}}
+
+/* DXWeb Admin v2.1 — approved interface corrections + ECharts theme */
+:root{--v2-chart-surface:#ffffff;--v2-chart-grid:rgba(100,116,139,.13)}
+html[data-theme="dark"]{--v2-chart-surface:#121e2e;--v2-chart-grid:rgba(148,163,184,.14)}
+@media(prefers-color-scheme:dark){html[data-theme="auto"]{--v2-chart-surface:#121e2e;--v2-chart-grid:rgba(148,163,184,.14)}}
+body.v2-shell .metricsGridV4{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-auto-rows:286px!important;align-items:stretch!important;gap:14px!important}
+body.v2-shell .metricsGridV4>.metricChartCard{height:286px!important;min-height:286px!important;max-height:286px!important;padding:12px 14px!important;display:flex!important;flex-direction:column!important;background:var(--v2-chart-surface)!important;overflow:hidden!important}
+body.v2-shell .metricsGridV4>.metricChartCard>.metricChart{height:236px!important;min-height:236px!important;max-height:236px!important;flex:1 1 auto!important}
+body.v2-shell .metricsGridV4 .metricChart canvas{background:transparent!important;border-radius:8px}
+body.v2-shell .metricResources{grid-column:1/-1!important;height:286px!important;min-height:286px!important;max-height:286px!important}
+body.v2-shell .metricResources .resourceGrid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:12px!important;min-height:0!important;flex:1!important}
+body.v2-shell .metricResources .resourcePane{height:226px!important;min-height:226px!important;max-height:226px!important;box-sizing:border-box!important;background:transparent!important}
+body.v2-shell .metricResources .resourcePane .metricChart{height:190px!important;min-height:190px!important;max-height:190px!important}
+body.v2-shell .chartHead{min-height:31px!important;align-items:flex-start!important;gap:10px}.chartHead h3{line-height:1.25!important}.chartHead span{color:var(--v2-muted)!important}.metricExpand{flex:0 0 auto!important}
+/* Console keeps the full operational canvas: no narrow card or artificial max-width. */
+body.v2-shell #operation.section.active,body.v2-shell #operation .operationGrid,body.v2-shell #console{width:100%!important;max-width:none!important;box-sizing:border-box!important}
+body.v2-shell #console{min-height:calc(100vh - 118px)!important;display:flex!important;flex-direction:column!important}
+body.v2-shell #consoleOutput{flex:1 1 auto!important;min-height:calc(100vh - 245px)!important;max-height:none!important;overflow:auto!important}
+/* Dark mode is a designed palette, never a black chart patch. */
+html[data-theme="dark"] body.v2-shell,html[data-theme="dark"] body.v2-shell .workspace{background:#0b1421!important}html[data-theme="dark"] body.v2-shell .v2Topbar,html[data-theme="dark"] body.v2-shell .v2ContextBar{background:#0f1a29!important;border-color:#26364b!important}html[data-theme="dark"] body.v2-shell .metricChartCard,html[data-theme="dark"] body.v2-shell .panel,html[data-theme="dark"] body.v2-shell .superCard,html[data-theme="dark"] body.v2-shell .kpiCard{background:#121e2e!important;border-color:#26364b!important;box-shadow:0 8px 24px rgba(0,0,0,.16)!important}html[data-theme="dark"] body.v2-shell .tableWrap,html[data-theme="dark"] body.v2-shell .supervisionTableWrap{border-color:#26364b!important;background:#121e2e!important}html[data-theme="dark"] body.v2-shell th{background:#0f1a29!important;color:#93a4ba!important}html[data-theme="dark"] body.v2-shell td{border-bottom-color:#223247!important}
+@media(prefers-color-scheme:dark){html[data-theme="auto"] body.v2-shell,html[data-theme="auto"] body.v2-shell .workspace{background:#0b1421!important}html[data-theme="auto"] body.v2-shell .metricChartCard,html[data-theme="auto"] body.v2-shell .panel,html[data-theme="auto"] body.v2-shell .superCard,html[data-theme="auto"] body.v2-shell .kpiCard{background:#121e2e!important;border-color:#26364b!important}}
+@media(max-width:1050px){body.v2-shell .metricsGridV4{grid-template-columns:1fr!important}.metricResources{grid-column:auto!important}}
+@media(max-width:760px){body.v2-shell .metricResources .resourceGrid{grid-template-columns:1fr!important}.metricResources{height:auto!important;max-height:none!important}.resourcePane{height:226px!important}}
+
+/* DXWeb Admin v2.2 — approved full UI pass */
+:root{--dx-card-h:350px;--dx-chart-h:282px}
+body.v2-shell .workspace{max-width:none!important;width:100%!important;box-sizing:border-box!important;margin:0!important}
+body.v2-shell #operation.section.active{min-height:calc(100vh - 126px)!important}
+body.v2-shell #operation .operationGrid{width:100%!important;max-width:none!important;min-height:calc(100vh - 148px)!important}
+body.v2-shell #console.panel.active{display:flex!important;flex-direction:column!important;width:100%!important;max-width:none!important;height:calc(100vh - 158px)!important;min-height:620px!important;margin:0!important}
+body.v2-shell #console .consoleOutput{flex:1!important;min-height:0!important;max-height:none!important;width:100%!important;box-sizing:border-box!important}
+body.v2-shell #console .commandBar{width:100%!important;box-sizing:border-box!important}
+
+/* Every peer card/window inside a view uses the same visual geometry. */
+body.v2-shell .metricsGridV4{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:14px!important;align-items:stretch!important}
+body.v2-shell .metricsGridV4>.metricChartCard:not(.metricResources){height:var(--dx-card-h)!important;min-height:var(--dx-card-h)!important;max-height:var(--dx-card-h)!important;display:flex!important;flex-direction:column!important;overflow:hidden!important}
+body.v2-shell .metricsGridV4>.metricChartCard:not(.metricResources) .chartHead{min-height:42px!important;align-items:flex-start!important;gap:10px!important}
+body.v2-shell .metricsGridV4>.metricChartCard:not(.metricResources) .metricChart{height:var(--dx-chart-h)!important;min-height:var(--dx-chart-h)!important;max-height:var(--dx-chart-h)!important;flex:1!important}
+body.v2-shell .metricLarge,body.v2-shell .metricDense,body.v2-shell .metricCompact{grid-column:auto!important}
+body.v2-shell .metricResources{grid-column:1/-1!important;min-height:390px!important}
+body.v2-shell .resourceGrid{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:14px!important}
+body.v2-shell .resourcePane{min-width:0!important;height:320px!important;display:flex!important;flex-direction:column!important}
+body.v2-shell .resourcePane .metricChart{height:270px!important;min-height:270px!important;flex:1!important}
+body.v2-shell .metricExpand{border:1px solid var(--v2-border)!important;background:transparent!important;color:var(--v2-muted)!important;border-radius:7px!important;padding:5px 8px!important}
+body.v2-shell .metricExpand:hover{color:var(--v2-accent)!important;background:var(--v2-accent-soft)!important}
+
+/* Approved light metrics surface. */
+html[data-theme="light"] body.v2-shell #metrics.section.active{background:#f5f8fc!important}
+html[data-theme="light"] body.v2-shell .metricsV2{background:transparent!important;color:#172033!important}
+html[data-theme="light"] body.v2-shell .metricChartCard{background:#fff!important;border-color:#dce5ef!important;box-shadow:0 5px 16px rgba(15,23,42,.055)!important}
+html[data-theme="light"] body.v2-shell .metricsHead,html[data-theme="light"] body.v2-shell .metricsMeta{background:transparent!important}
+
+/* Approved dark metrics surface — never pure black. */
+html[data-theme="dark"] body.v2-shell #metrics.section.active{background:#0b1421!important}
+html[data-theme="dark"] body.v2-shell .metricsV2{background:transparent!important;color:#dbe7f5!important}
+html[data-theme="dark"] body.v2-shell .metricChartCard{background:#121e2e!important;border-color:#26384e!important;box-shadow:0 7px 20px rgba(2,8,23,.22)!important}
+html[data-theme="dark"] body.v2-shell .metricsHead,html[data-theme="dark"] body.v2-shell .metricsMeta{background:transparent!important;color:#dbe7f5!important}
+html[data-theme="dark"] body.v2-shell .chartHead span,html[data-theme="dark"] body.v2-shell .miniHead span{color:#8fa2ba!important;opacity:1!important}
+html[data-theme="dark"] body.v2-shell .segmented{border-color:#33465d!important}
+html[data-theme="dark"] body.v2-shell .segmented button,html[data-theme="dark"] body.v2-shell #metricsPeer,html[data-theme="dark"] body.v2-shell #metricsResetZoom,html[data-theme="dark"] body.v2-shell #metricsRefresh{background:#0f1a29!important;color:#c8d5e5!important;border-color:#33465d!important}
+html[data-theme="dark"] body.v2-shell .segmented button.active{background:#1756c9!important;color:#fff!important}
+
+/* Auto theme gets the same dark palette when the OS is dark. */
+@media(prefers-color-scheme:dark){html[data-theme="auto"] body.v2-shell #metrics.section.active{background:#0b1421!important}html[data-theme="auto"] body.v2-shell .metricsV2{background:transparent!important;color:#dbe7f5!important}html[data-theme="auto"] body.v2-shell .metricChartCard{background:#121e2e!important;border-color:#26384e!important;box-shadow:0 7px 20px rgba(2,8,23,.22)!important}html[data-theme="auto"] body.v2-shell .metricsHead,html[data-theme="auto"] body.v2-shell .metricsMeta{background:transparent!important;color:#dbe7f5!important}}
+
+/* Correct old legend fallback palette: no green and same series colors as charts. */
+.metricTooltip .tipSeries.s1{color:#3b82f6!important}.metricTooltip .tipSeries.s2{color:#8b5cf6!important}.metricTooltip .tipSeries.s3{color:#f97316!important}.metricTooltip .tipSeries.s4{color:#ef4444!important}.metricTooltip .tipSeries.s5{color:#06b6d4!important}.metricTooltip .tipSeries.s6{color:#e879f9!important}.metricTooltip .tipSeries.s7{color:#f59e0b!important}.metricTooltip .tipSeries.s8{color:#6366f1!important}.metricTooltip .tipSeries.s9{color:#ec4899!important}.metricTooltip .tipSeries.s10{color:#94a3b8!important}
+.legendItem i.s1{border-color:#3b82f6!important}.legendItem i.s2{border-color:#8b5cf6!important}.legendItem i.s3{border-color:#f97316!important}.legendItem i.s4{border-color:#ef4444!important}.legendItem i.s5{border-color:#06b6d4!important}.legendItem i.s6{border-color:#e879f9!important}.legendItem i.s7{border-color:#f59e0b!important}.legendItem i.s8{border-color:#6366f1!important}.legendItem i.s9{border-color:#ec4899!important}.legendItem i.s10{border-color:#94a3b8!important}
+
+@media(max-width:1050px){body.v2-shell .metricsGridV4{grid-template-columns:1fr!important}body.v2-shell .metricResources{grid-column:auto!important}.resourceGrid{grid-template-columns:1fr!important}.resourcePane{height:300px!important}}
+/* Console gets the whole application workspace; sidebar remains navigation, not an inner column. */
+body.v2-console-wide .v2PageTitle{min-width:180px}
+body.v2-console-wide .workspace{padding:12px 16px 16px!important}
+body.v2-console-wide #operation.section.active{height:100%!important;min-height:100%!important}
+body.v2-console-wide #operation .subtabs{margin-bottom:8px}
+body.v2-console-wide #console.panel.active{height:calc(100vh - 150px)!important;border-radius:10px!important}
+
+/* UI v2.2 — preserve original navigation/functionality inside the new shell. */
+body.v2-shell #operationTabs,
+body.v2-shell #registrationTabs,
+body.v2-shell #supervisionTabs{
+ display:flex!important;
+ min-height:46px;
+ align-items:center;
+ gap:6px;
+ margin:0 0 12px;
+ padding:6px;
+ border:1px solid var(--v2-border);
+ border-radius:11px;
+ background:var(--v2-surface);
+ box-shadow:var(--v2-shadow);
+ overflow-x:auto;
+}
+body.v2-shell #operationTabs button,
+body.v2-shell #registrationTabs button,
+body.v2-shell #supervisionTabs button{
+ white-space:nowrap;
+ border:0;
+ border-radius:8px;
+ background:transparent;
+ color:var(--v2-muted);
+ padding:8px 12px;
+ font-weight:650;
+}
+body.v2-shell #operationTabs button.active,
+body.v2-shell #registrationTabs button.active,
+body.v2-shell #supervisionTabs button.active{
+ background:var(--v2-accent-soft);
+ color:var(--v2-accent);
+}
+body.v2-shell #supervisionTabs .supervisionRefresh{margin-left:auto;border:1px solid var(--v2-border)!important;background:var(--v2-bg)!important}
+body.v2-shell #operation.section.active{height:100%!important;min-height:0!important;display:flex!important;flex-direction:column}
+body.v2-shell #operation>.panel{height:auto!important;min-height:0;flex:1;width:100%;box-sizing:border-box;overflow:hidden}
+body.v2-shell #operation>.panel.active{display:flex!important;flex-direction:column}
+body.v2-shell #operation .resultArea{flex:1;min-height:0;overflow:auto}
+body.v2-shell #operation .commandBar{margin-top:auto;flex:0 0 auto;width:100%;box-sizing:border-box}
+body.v2-shell #operation .commandBar input{min-width:0;flex:1}
+body.v2-shell #registration.section.active{height:100%!important;min-height:0!important;display:flex!important;flex-direction:column}
+body.v2-shell #registration>.regPanel{height:auto!important;min-height:0;flex:1;width:100%;box-sizing:border-box}
+body.v2-shell #supervision.section.active{height:auto!important;min-height:100%!important}
+body.v2-shell .metricModal{z-index:10000!important}
+body.v2-shell .metricModal.open{display:flex!important}
+body.v2-shell .metricModalBox{width:min(1500px,94vw)!important;height:min(820px,90vh)!important;max-width:none!important;box-sizing:border-box;background:var(--v2-surface)!important;border:1px solid var(--v2-border)!important}
+body.v2-shell #metricModalChart{height:calc(100% - 52px)!important;min-height:500px!important;width:100%!important}
+body.v2-shell .metricExpand{position:relative;z-index:3;pointer-events:auto!important}
+body.v2-shell .metricChart{cursor:crosshair}
+body.v2-shell .metricChartCard,body.v2-shell .resourcePane{overflow:visible}
+html[data-theme="dark"] body.v2-shell #operationTabs,
+html[data-theme="dark"] body.v2-shell #registrationTabs,
+html[data-theme="dark"] body.v2-shell #supervisionTabs{background:#121e2e!important;border-color:#26364b!important}
+@media(prefers-color-scheme:dark){html[data-theme="auto"] body.v2-shell #operationTabs,html[data-theme="auto"] body.v2-shell #registrationTabs,html[data-theme="auto"] body.v2-shell #supervisionTabs{background:#121e2e!important;border-color:#26364b!important}}
+
+/* UI v2.3 — viewport, hierarchy and readability corrections from live screenshots. */
+:root{--v2-side:230px;--dx-card-h:330px;--dx-chart-h:270px}
+body.v2-shell{height:100vh!important;min-height:100vh!important;overflow:hidden!important}
+.v2App{height:100vh!important;min-height:0!important;overflow:hidden!important}
+.v2Topbar{height:64px!important;min-height:64px!important;padding:0 20px!important}
+.v2NodeIdentity{display:flex;align-items:center;gap:14px;min-width:0}
+.v2NodeIdentity #nodeCall{font-size:21px!important;line-height:1;font-weight:800;letter-spacing:-.02em;color:var(--v2-text)}
+.v2NodeIdentity #status{font-size:13px!important;font-weight:750;padding:6px 11px!important;min-width:auto;border-radius:999px!important}
+.v2Topbar .topActions{margin-left:auto!important;display:flex;gap:8px;align-items:center}
+.v2Logo{height:62px!important}.v2Logo strong{font-size:19px!important}.v2Logo small{font-size:12px!important;color:#91a3bd!important}
+.v2NavBtn{font-size:15px!important;padding:12px 12px!important;gap:12px!important}.v2Icon{font-size:17px!important}
+.v2SidebarFoot{display:block!important;padding:12px 8px 4px!important;font-size:10px!important;line-height:1.35;color:#8192aa!important}
+.v2SideReady{display:flex;align-items:center;gap:8px;margin-bottom:8px}.v2SideVersion{color:#a7b6ca;font-weight:650;margin-bottom:3px}.v2SideCopyright{font-size:9px;color:#71839c}
+body.v2-shell footer{display:none!important}
+
+/* The workspace never grows beyond the browser viewport. Each view owns its scrolling. */
+body.v2-shell .workspace{flex:1!important;min-height:0!important;height:auto!important;overflow:hidden!important;padding:14px 16px 16px!important;box-sizing:border-box!important}
+body.v2-shell .section.active{height:100%!important;min-height:0!important;max-height:100%!important;overflow:auto!important;box-sizing:border-box!important}
+
+/* Operation: original model, new shell. Tabs + one full remaining panel, command bar at bottom. */
+body.v2-shell #operation.section.active{display:flex!important;flex-direction:column!important;overflow:hidden!important}
+body.v2-shell #operationTabs{flex:0 0 auto!important;margin-bottom:10px!important;min-height:50px!important}
+body.v2-shell #operationTabs button{font-size:15px!important;padding:9px 14px!important}
+body.v2-shell #operation>.panel{flex:1 1 auto!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:hidden!important;padding:12px!important}
+body.v2-shell #operation>.panel.active{display:flex!important;flex-direction:column!important}
+body.v2-shell #operation .panelHead{flex:0 0 auto!important}.panelHead h2{font-size:21px!important}
+body.v2-shell #operation .resultArea{flex:1 1 auto!important;min-height:0!important;overflow:auto!important}
+body.v2-shell #operation .commandBar{flex:0 0 auto!important;margin-top:10px!important}
+body.v2-shell #console.panel.active{height:auto!important;min-height:0!important;max-height:none!important}
+
+/* Registration / Supervision / Timeline controls must be readable, not miniature tags. */
+body.v2-shell #registrationTabs button,body.v2-shell #supervisionTabs button{font-size:14px!important;padding:9px 13px!important;font-weight:700!important}
+body.v2-shell #supervisionTabs{min-height:52px!important;margin-bottom:10px!important}
+body.v2-shell .segmented button{font-size:13px!important;padding:7px 11px!important;font-weight:700!important}
+body.v2-shell .healthPill,body.v2-shell .stateBadge{font-size:12px!important;padding:4px 9px!important}
+body.v2-shell .panelSub{font-size:12px!important}
+body.v2-shell #timeline .panelHead h2,body.v2-shell #metrics .panelHead h2{font-size:22px!important}
+body.v2-shell #timeline .metricsMeta,body.v2-shell #metrics .metricsMeta{font-size:12px!important;gap:10px!important}
+
+/* Metrics: no card/chart may paint into the next row. */
+body.v2-shell .metricsGridV4{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:14px!important;align-items:start!important}
+body.v2-shell .metricsGridV4>.metricChartCard:not(.metricResources){height:var(--dx-card-h)!important;min-height:var(--dx-card-h)!important;max-height:var(--dx-card-h)!important;overflow:hidden!important;padding:12px 14px!important;box-sizing:border-box!important}
+body.v2-shell .metricsGridV4>.metricChartCard:not(.metricResources) .metricChart{height:var(--dx-chart-h)!important;min-height:0!important;max-height:var(--dx-chart-h)!important;overflow:hidden!important}
+body.v2-shell .metricChartCard,body.v2-shell .resourcePane{overflow:hidden!important}
+body.v2-shell .chartHead{min-height:42px!important;flex:0 0 42px!important;align-items:center!important}
+body.v2-shell .chartHead h3{font-size:15px!important;line-height:1.2!important;font-weight:750!important;color:var(--v2-text)!important}
+body.v2-shell .chartHead span{font-size:11px!important}
+body.v2-shell .metricExpand{font-size:12px!important;padding:6px 9px!important}
+body.v2-shell .metricResources{overflow:hidden!important}
+body.v2-shell .resourcePane{height:300px!important}.resourcePane .metricChart{height:250px!important;min-height:0!important}
+
+/* Keep tables readable without making the entire page wider/taller than the viewport. */
+body.v2-shell th{font-size:10px!important}body.v2-shell td{font-size:13px!important}
+body.v2-shell .tableWrap,body.v2-shell .supervisionTableWrap,body.v2-shell .regTableWrap{max-width:100%!important;overflow:auto!important}
+
+@media(max-width:1180px){:root{--v2-side:210px}.v2Logo div,.v2NavBtn span:last-child,.v2SidebarFoot{display:block!important}.v2NavBtn{justify-content:flex-start!important}.v2Icon{width:22px!important}.v2Sidebar{padding-left:12px!important;padding-right:12px!important}}
+@media(max-width:980px){body.v2-shell .metricsGridV4{grid-template-columns:1fr!important}.v2NodeIdentity #nodeCall{font-size:18px!important}}
+/* Final geometry guard: header + plot + card padding always fit inside 330px. */
+:root{--dx-chart-h:260px}
+
+/* UI v2.4 — live screenshot corrections. Keep new shell, preserve original information hierarchy. */
+:root{--v2-side:220px;--dx-card-h:300px;--dx-chart-h:236px}
+/* No redundant DX badge and no duplicate ready indicator in sidebar. */
+.v2Logo{padding-left:10px!important}.v2Logo>div{display:block}.v2SideReady,.v2LogoMark{display:none!important}
+.v2SidebarFoot{font-size:12px!important;line-height:1.45!important}.v2SideVersion{font-size:12px!important}.v2SideCopyright{font-size:11px!important}
+/* Restore original-scale typography. */
+body.v2-shell{font-size:14px!important}
+.v2NavBtn{font-size:15px!important;font-weight:700!important}
+body.v2-shell .subtabs button,body.v2-shell #operationTabs button,body.v2-shell #registrationTabs button,body.v2-shell #supervisionTabs button{font-size:15px!important;padding:9px 14px!important;font-weight:700!important}
+body.v2-shell .healthPill,body.v2-shell .stateBadge{font-size:13px!important;padding:4px 9px!important}
+body.v2-shell .segmented button{font-size:14px!important;padding:7px 11px!important}
+body.v2-shell th{font-size:13px!important;letter-spacing:0!important;text-transform:none!important;padding:8px 10px!important}
+body.v2-shell td{font-size:14px!important;padding:8px 10px!important}
+body.v2-shell .kpiLabel{font-size:12px!important;letter-spacing:.03em!important}
+body.v2-shell .panelSub,body.v2-shell .metricsMeta{font-size:13px!important}
+/* Active subtab is already the title: remove repeated inner headings, keep actions/subtitles. */
+body.v2-shell #registration .regPanel>.panelHead h2{display:none!important}
+body.v2-shell #registration .regPanel>.panelHead{min-height:42px!important;justify-content:flex-end!important}
+body.v2-shell #supervision .superPanel>.panelHead h2{display:none!important}
+body.v2-shell #supervision .superPanel>.panelHead{min-height:42px!important}
+/* Metrics and Timeline already have a left navigation title: don't repeat it inside content. */
+body.v2-shell #metrics>.panel>.panelHead h2,body.v2-shell #timeline>.panel>.panelHead h2{display:none!important}
+/* Console is its own section, never an Operation child. */
+body.v2-shell #consoleSection.section.active{display:flex!important;flex-direction:column!important;overflow:hidden!important}
+body.v2-shell #consoleSection #console{display:flex!important;flex:1!important;min-height:0!important;height:100%!important;flex-direction:column!important}
+body.v2-shell #consoleSection .consoleOutput{flex:1!important;min-height:0!important;overflow:auto!important}
+/* Metrics: 3 columns on desktop, strict card clipping and enough vertical room for axis labels + slider. */
+body.v2-shell .metricsGridV4{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:14px!important;align-items:start!important}
+body.v2-shell .metricsGridV4>.metricChartCard:not(.metricResources){height:var(--dx-card-h)!important;min-height:var(--dx-card-h)!important;max-height:var(--dx-card-h)!important;overflow:hidden!important;padding:12px 14px!important}
+body.v2-shell .metricsGridV4>.metricChartCard:not(.metricResources) .metricChart{height:var(--dx-chart-h)!important;min-height:var(--dx-chart-h)!important;max-height:var(--dx-chart-h)!important;overflow:hidden!important}
+body.v2-shell .chartHead{height:40px!important;min-height:40px!important;flex:0 0 40px!important}
+body.v2-shell .chartHead h3{font-size:16px!important;font-weight:750!important;line-height:1.2!important}
+body.v2-shell .chartHead span{font-size:12px!important}
+body.v2-shell .metricExpand{font-size:13px!important;padding:6px 9px!important}
+body.v2-shell .metricResources{grid-column:1/-1!important;overflow:hidden!important}
+body.v2-shell .resourceGrid{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+body.v2-shell .resourcePane{overflow:hidden!important}
+/* Never allow page/card width to exceed viewport. */
+body.v2-shell .workspace,body.v2-shell .section,body.v2-shell .panel,body.v2-shell .regPanel,body.v2-shell .superPanel{max-width:100%!important;box-sizing:border-box!important}
+@media(max-width:1450px){body.v2-shell .metricsGridV4{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:950px){body.v2-shell .metricsGridV4{grid-template-columns:1fr!important}}
+
+
+/* UI v2.5 — source-of-truth typography and screenshot fixes. */
+body.v2-shell{font-family:Arial,Helvetica,sans-serif!important;font-size:16px!important}
+/* Brand and node are primary identity, intentionally prominent. */
+body.v2-shell .v2Logo{height:82px!important;padding:4px 10px 18px!important;align-items:center!important}
+body.v2-shell .v2Logo strong{font-family:Arial,Helvetica,sans-serif!important;font-size:28px!important;line-height:1.05!important;font-weight:800!important;letter-spacing:0!important;color:#f3f7ff!important}
+body.v2-shell .v2Logo small{font-family:Arial,Helvetica,sans-serif!important;font-size:17px!important;line-height:1.2!important;margin-top:5px!important;color:#aabbd2!important}
+body.v2-shell .v2NodeIdentity #nodeCall{font-family:Arial,Helvetica,sans-serif!important;font-size:30px!important;line-height:1!important;font-weight:800!important;letter-spacing:0!important}
+body.v2-shell .v2NodeIdentity #status{font-family:Arial,Helvetica,sans-serif!important;font-size:16px!important;padding:7px 13px!important}
+/* Original UI scale: stop miniaturising labels, tabs, tables and controls. */
+body.v2-shell .v2NavBtn{font-family:Arial,Helvetica,sans-serif!important;font-size:16px!important;padding:11px 12px!important}
+body.v2-shell #operationTabs button,body.v2-shell #registrationTabs button,body.v2-shell #supervisionTabs button,
+body.v2-shell .segmented button,body.v2-shell button,body.v2-shell input,body.v2-shell select{font-family:Arial,Helvetica,sans-serif!important;font-size:16px!important}
+body.v2-shell #operationTabs button,body.v2-shell #registrationTabs button,body.v2-shell #supervisionTabs button{padding:8px 12px!important;font-weight:600!important}
+body.v2-shell th,body.v2-shell td{font-family:Arial,Helvetica,sans-serif!important;font-size:16px!important;letter-spacing:0!important;text-transform:none!important}
+body.v2-shell .panelSub,body.v2-shell .metricsMeta,body.v2-shell .supervisionState{font-size:14px!important}
+body.v2-shell .healthPill,body.v2-shell .stateBadge{font-size:14px!important}
+body.v2-shell .chartHead{min-height:48px!important;flex-basis:48px!important}
+body.v2-shell .chartHead h3{font-family:Arial,Helvetica,sans-serif!important;font-size:18px!important;line-height:1.2!important;font-weight:700!important}
+body.v2-shell .chartHead span{font-size:14px!important}
+body.v2-shell .metricExpand{font-size:14px!important;padding:7px 10px!important}
+/* Delete user is a real framed action, like every other button. */
+body.v2-shell #deleteUserOpen{border:1px solid #b94a4a!important;background:var(--v2-surface)!important;color:#a32626!important;border-radius:6px!important;padding:7px 12px!important}
+body.v2-shell #deleteUserOpen:hover{background:rgba(185,74,74,.10)!important}
+/* Bottom command entry in every Operation pane. */
+body.v2-shell #operation .opCommandForm{display:flex!important;width:100%!important;gap:8px!important;margin-top:8px!important;padding-top:8px!important;flex:0 0 auto!important}
+body.v2-shell #operation .opCommandForm input{flex:1!important;min-width:0!important;height:40px!important}
+body.v2-shell #operation .opCommandForm button{flex:0 0 auto!important;min-width:86px!important;height:40px!important}
+/* Metrics: all resources are independent normal cards. 3 columns only when there is real room. */
+body.v2-shell .metricsGridV4{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:16px!important;align-items:start!important}
+body.v2-shell .metricsGridV4>.metricChartCard{height:390px!important;min-height:390px!important;max-height:390px!important;overflow:hidden!important;padding:12px 14px!important;box-sizing:border-box!important}
+body.v2-shell .metricsGridV4>.metricChartCard .metricChart{height:318px!important;min-height:318px!important;max-height:318px!important;overflow:hidden!important;background:transparent!important}
+/* Empty chart must use card/theme background in dark mode too. */
+body.v2-shell .metricEmpty,body.v2-shell .metricChart .emptyState{height:100%!important;display:flex!important;align-items:center!important;justify-content:center!important;background:transparent!important;color:var(--v2-muted)!important;border:0!important}
+body.v2-shell .metricChart{background:transparent!important}
+body.v2-shell .v2SidebarFoot{font-family:Arial,Helvetica,sans-serif!important;font-size:13px!important;line-height:1.45!important;color:#91a3bd!important}
+body.v2-shell .v2SideVersion{font-size:13px!important;font-weight:600!important}
+body.v2-shell .v2SideCopyright{font-size:12px!important;margin-top:3px!important}
+@media(max-width:1500px){body.v2-shell .metricsGridV4{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:980px){body.v2-shell .metricsGridV4{grid-template-columns:1fr!important}.v2NodeIdentity #nodeCall{font-size:24px!important}}
+
+/* UI v2.6 — exact cleanup requested after live review. */
+/* The supervision status banner is redundant; snapshot lives on the tab row, left of Refresh. */
+body.v2-shell .supervisionBannerHidden{display:none!important}
+body.v2-shell #supervisionTabs .supervisionSnapshotInline{margin-left:auto;font-size:14px;color:var(--v2-muted);white-space:nowrap}
+body.v2-shell #supervisionTabs .supervisionRefresh{margin-left:0!important}
+/* Search starts directly with its search box: no reserved blank heading row. */
+body.v2-shell #registration #search{padding-top:0!important}
+body.v2-shell #registration #search .searchBar{margin-top:0!important}
+/* Metrics metadata/coverage strips and timeline metadata are intentionally gone. */
+body.v2-shell #metrics .metricsGridV4{margin-top:14px!important;row-gap:22px!important;column-gap:16px!important}
+/* A little more air between chart rows, without increasing card overlap risk. */
+body.v2-shell .metricsGridV4>.metricChartCard{margin-bottom:0!important}
+
+/* UI v2.7 requested refinements */
+body.v2-shell .v2BrandMain{font-size:32px!important;line-height:1.05!important;font-weight:800!important;}
+body.v2-shell .v2BrandSub{font-size:19px!important;line-height:1.2!important;margin-top:5px!important;}
+body.v2-shell .v2Topbar{position:relative!important;justify-content:flex-end!important;}
+body.v2-shell .v2NodeIdentity{position:absolute!important;left:50%!important;transform:translateX(-50%)!important;gap:16px!important;white-space:nowrap!important;}
+body.v2-shell .v2NodeIdentity #nodeCall{font-size:34px!important;}
+body.v2-shell .v2NodeIdentity #status{font-size:17px!important;padding:8px 14px!important;}
+body.v2-shell .infoTip{cursor:help;text-decoration:underline dotted;text-underline-offset:3px;}
+@media(max-width:760px){body.v2-shell .v2NodeIdentity{position:static!important;transform:none!important;margin-right:auto!important;}body.v2-shell .v2NodeIdentity #nodeCall{font-size:24px!important;}}
+
+/* v2.9 requested layout */
+.connectionControls{display:flex;flex-direction:column;align-items:flex-end;gap:8px}.connectionFilterButtons{width:auto}.connectionSearch{width:min(340px,100%);min-width:260px}.updateMatrix{display:grid;gap:10px;margin-top:8px}.updateRow{display:grid;grid-template-columns:minmax(150px,1fr) auto;gap:16px;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:8px}.updateRow>div{display:flex;gap:8px}.updateOutput{min-height:180px;max-height:340px;overflow:auto;margin-top:12px;white-space:pre-wrap}.historyMaintenance .noticeText:empty{display:none}@media(max-width:760px){.connectionControls{align-items:stretch}.connectionSearch{width:100%;min-width:0}.updateRow{grid-template-columns:1fr}.updateRow>div{justify-content:flex-start}}
+
+/* v3.1 compact supervision toolbar and independent maintenance result window */
+body.v2-shell .superToolbar{display:flex;align-items:center;gap:12px;margin-bottom:12px;min-width:0;flex-wrap:wrap}
+body.v2-shell .superToolbar>.kpiGrid{flex:1 1 650px;min-width:0;margin:0!important}
+body.v2-shell .superToolbar .connectionControls{display:flex;flex-direction:row;align-items:center;gap:10px;flex:0 1 auto;flex-wrap:wrap}
+body.v2-shell .superToolbar .connectionFilterButtons,body.v2-shell .superToolbar .filterBar{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+body.v2-shell .superToolbar input{min-width:150px;width:190px;max-width:100%;margin:0}
+body.v2-shell .superToolbar-maintenance>button{flex:0 0 auto}
+body.v2-shell #traffic>.kpiGrid{margin-top:0!important}
+body.v2-shell #traffic>.panelHead{display:none!important}
+body.v2-shell .manualUpdates{display:flex;flex-direction:column;gap:16px;margin-top:14px}
+body.v2-shell .updateMatrix{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+body.v2-shell .updateRow{display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:14px;min-width:0}
+body.v2-shell .updateRow>strong{text-align:center;font-size:17px}
+body.v2-shell .updateRow>div{display:flex;justify-content:center;gap:8px;flex-wrap:wrap}
+body.v2-shell .updateResultsCard .updateOutput{margin-top:12px;min-height:220px;max-height:420px;overflow-y:auto;overflow-x:auto}
+@media(max-width:1100px){body.v2-shell .updateMatrix{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){body.v2-shell .updateMatrix{grid-template-columns:1fr}}
+
+/* v3.2: Diagnostics toolbar and consistent dark Supervision surfaces. */
+body.v2-shell #diagnostics .diagnosticsToolbar{display:flex;align-items:center;gap:12px;margin:0 0 14px;min-width:0}
+body.v2-shell #diagnostics .diagnosticsToolbar>.kpiGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));flex:0 1 1088px;min-width:0;gap:10px}
+body.v2-shell #diagnostics .diagnosticsToolbar>.healthPill{flex:0 0 auto;white-space:nowrap;margin-left:4px}
+body.v2-shell .v2SideCopyright{font-weight:800!important;color:#c4d3e8!important}
+/* Apply the theme to the whole Supervision hierarchy, not just the cards. */
+html[data-theme="dark"] body.v2-shell #supervision .superPanel{background:#0b1421!important;color:#dbe7f5!important}
+html[data-theme="dark"] body.v2-shell #supervision .superCard,
+html[data-theme="dark"] body.v2-shell #supervision .kpiCard,
+html[data-theme="dark"] body.v2-shell #supervision .tableWrap,
+html[data-theme="dark"] body.v2-shell #supervision .supervisionTableWrap{background:#142335!important;border-color:#34485f!important;color:#e5edf7!important;box-shadow:none!important}
+html[data-theme="dark"] body.v2-shell #supervision th{background:#1d3044!important;color:#c4d3e4!important;border-color:#34485f!important}
+html[data-theme="dark"] body.v2-shell #supervision td{background:#142335!important;color:#e5edf7!important;border-color:#34485f!important}
+html[data-theme="dark"] body.v2-shell #supervision .metricRow,
+html[data-theme="dark"] body.v2-shell #supervision .metricRow dt,
+html[data-theme="dark"] body.v2-shell #supervision .metricRow dd{color:#e5edf7!important;border-color:#40546a!important}
+html[data-theme="dark"] body.v2-shell #supervision .metricRow dt,
+html[data-theme="dark"] body.v2-shell #supervision .kpiLabel,
+html[data-theme="dark"] body.v2-shell #supervision .kpiCard small{color:#aebfd2!important}
+html[data-theme="dark"] body.v2-shell #supervision input:not([type="checkbox"]),
+html[data-theme="dark"] body.v2-shell #supervision select{background:#23374d!important;color:#f2f7fc!important;border:1px solid #58718b!important;box-shadow:none!important}
+html[data-theme="dark"] body.v2-shell #supervision input::placeholder{color:#b6c6d6!important}
+html[data-theme="dark"] body.v2-shell #supervision button:not(.active){background:#21354b!important;color:#e6f0fa!important;border-color:#57708a!important}
+html[data-theme="dark"] body.v2-shell #supervision button.active{background:#17619c!important;color:#fff!important}
+html[data-theme="dark"] body.v2-shell #supervision .healthPill.ok{background:#173d35!important;border-color:#529785!important;color:#d5f5e9!important}
+/* Dialogs must use their own readable, coordinated input palette. */
+html[data-theme="dark"] body.v2-shell dialog .dialogCard{background:#18293b!important;color:#eef4fc!important;border:1px solid #49627b!important}
+html[data-theme="dark"] body.v2-shell dialog .dialogCard h2{color:#eaf3ff!important}
+html[data-theme="dark"] body.v2-shell dialog .dialogCard .loginHint{color:#bbcadb!important}
+html[data-theme="dark"] body.v2-shell dialog .dialogCard input,
+html[data-theme="dark"] body.v2-shell dialog .dialogCard textarea,
+html[data-theme="dark"] body.v2-shell dialog .dialogCard select{background:#edf3fa!important;color:#162b40!important;border:1px solid #8ba4bd!important;box-shadow:inset 0 1px 2px rgba(15,35,55,.07)!important}
+html[data-theme="dark"] body.v2-shell dialog .dialogCard input::placeholder,
+html[data-theme="dark"] body.v2-shell dialog .dialogCard textarea::placeholder{color:#60758b!important;opacity:1}
+html[data-theme="dark"] body.v2-shell dialog .dialogCard button:not(.dangerButton){background:#e9f2fb!important;color:#173d62!important;border-color:#9cb6d0!important}
+@media(max-width:1050px){body.v2-shell #diagnostics .diagnosticsToolbar{flex-wrap:wrap}body.v2-shell #diagnostics .diagnosticsToolbar>.kpiGrid{flex-basis:100%;grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(prefers-color-scheme:dark){html[data-theme="auto"] body.v2-shell #supervision .superPanel{background:#0b1421!important;color:#dbe7f5!important}html[data-theme="auto"] body.v2-shell #supervision .superCard,html[data-theme="auto"] body.v2-shell #supervision .kpiCard,html[data-theme="auto"] body.v2-shell #supervision .tableWrap{background:#142335!important;border-color:#34485f!important;color:#e5edf7!important}html[data-theme="auto"] body.v2-shell dialog .dialogCard{background:#18293b!important;color:#eef4fc!important}html[data-theme="auto"] body.v2-shell dialog .dialogCard input,html[data-theme="auto"] body.v2-shell dialog .dialogCard textarea{background:#edf3fa!important;color:#162b40!important}}
+
+/* v3.3 — coherent dark palette for all supervision views; scoped to dark only. */
+html[data-theme="dark"] body.v2-shell{--v2-bg:#0c1623;--v2-surface:#17283a;--v2-border:#354b62;--v2-muted:#b8c9d9;--v2-accent:#67b9f2;color:#eaf2fa!important}
+html[data-theme="dark"] body.v2-shell #supervision,
+html[data-theme="dark"] body.v2-shell #supervision.section.active,
+html[data-theme="dark"] body.v2-shell #supervision .superPanel,
+html[data-theme="dark"] body.v2-shell #supervision .superPanel.active{background:#0c1623!important;color:#eaf2fa!important}
+html[data-theme="dark"] body.v2-shell #supervision .superPanel{min-height:0!important;height:auto!important;overflow:visible!important}
+html[data-theme="dark"] body.v2-shell #supervision .superCard,
+html[data-theme="dark"] body.v2-shell #supervision .kpiCard,
+html[data-theme="dark"] body.v2-shell #supervision .rbnCard,
+html[data-theme="dark"] body.v2-shell #supervision .topologyInspector,
+html[data-theme="dark"] body.v2-shell #supervision .tableWrap,
+html[data-theme="dark"] body.v2-shell #supervision .supervisionTableWrap{background:#17283a!important;border:1px solid #354b62!important;color:#eaf2fa!important;box-shadow:none!important}
+html[data-theme="dark"] body.v2-shell #supervision .kpiCard strong,
+html[data-theme="dark"] body.v2-shell #supervision .rbnHead strong,
+html[data-theme="dark"] body.v2-shell #supervision .topologyInspector h3,
+html[data-theme="dark"] body.v2-shell #supervision .topologyInspector .topologyInspectorTitle .topoType,
+html[data-theme="dark"] body.v2-shell #supervision .superCard strong{color:#f2f7fd!important}
+html[data-theme="dark"] body.v2-shell #supervision .kpiLabel,
+html[data-theme="dark"] body.v2-shell #supervision .kpiCard small,
+html[data-theme="dark"] body.v2-shell #supervision .rbnHead span,
+html[data-theme="dark"] body.v2-shell #supervision .topologyLegend,
+html[data-theme="dark"] body.v2-shell #supervision .topologyInspector dt,
+html[data-theme="dark"] body.v2-shell #supervision .topologyInspector .topoType{color:#b8c9d9!important}
+html[data-theme="dark"] body.v2-shell #supervision .kpiCard strong{color:#80c9fa!important}
+html[data-theme="dark"] body.v2-shell #supervision .superCard td,
+html[data-theme="dark"] body.v2-shell #supervision .rbnCard td,
+html[data-theme="dark"] body.v2-shell #supervision .topologyInspector dd{color:#eaf2fa!important}
+html[data-theme="dark"] body.v2-shell #supervision table,
+html[data-theme="dark"] body.v2-shell #supervision tbody,
+html[data-theme="dark"] body.v2-shell #supervision tr{background:#17283a!important;color:#eaf2fa!important}
+html[data-theme="dark"] body.v2-shell #supervision th{background:#22394e!important;color:#d1dfed!important;border-color:#425970!important}
+html[data-theme="dark"] body.v2-shell #supervision td{background:transparent!important;border-color:#354b62!important}
+html[data-theme="dark"] body.v2-shell #supervision tbody tr:hover{background:#233c52!important}
+html[data-theme="dark"] body.v2-shell #supervision .topologyStage{background:#152638!important;border-color:#425970!important}
+html[data-theme="dark"] body.v2-shell #supervision .topoNode text{fill:#e6eff9!important;stroke:#152638!important}
+html[data-theme="dark"] body.v2-shell #supervision .topoNode.self text,
+html[data-theme="dark"] body.v2-shell #supervision .topoNode.direct text{fill:#ffffff!important}
+html[data-theme="dark"] body.v2-shell #supervision .topoEdge{stroke:#7183a1;opacity:.5}
+html[data-theme="dark"] body.v2-shell #supervision .topoEdge.pc92{stroke:#a28bc7}
+html[data-theme="dark"] body.v2-shell #supervision .topoEdge.direct{stroke:#5ac5c5;opacity:.85}
+html[data-theme="dark"] body.v2-shell #supervision .topologyInspector .topoRelations{border-color:#425970!important}
+html[data-theme="dark"] body.v2-shell #supervision .topoRelation{background:#22394e!important;border-color:#506c86!important;color:#eaf2fa!important}
+html[data-theme="dark"] body.v2-shell #supervision .topologyHint{background:#22394e!important;color:#c9d9e9!important}
+html[data-theme="dark"] body.v2-shell #supervision .topologyEmpty{color:#c9d9e9!important}
+html[data-theme="dark"] body.v2-shell #supervision input:not([type="checkbox"]),
+html[data-theme="dark"] body.v2-shell #supervision select{background:#22394e!important;color:#f3f8ff!important;border-color:#5d7892!important}
+html[data-theme="dark"] body.v2-shell #supervision input::placeholder{color:#bbccdc!important;opacity:1}
+html[data-theme="dark"] body.v2-shell #supervision .supervisionTabs{background:#17283a!important;border-color:#354b62!important}
+html[data-theme="dark"] body.v2-shell #supervision .supervisionTabs button{background:#22394e!important;border-color:#4a627a!important;color:#e5f0fb!important}
+html[data-theme="dark"] body.v2-shell #supervision .supervisionTabs button.active{background:#12669d!important;border-color:#318ac0!important;color:#fff!important}
+html[data-theme="dark"] body.v2-shell #supervision .healthPill.ok{background:#173e38!important;color:#b8f4d8!important;border-color:#529f8b!important}
+html[data-theme="dark"] body.v2-shell #supervision .updateResultsCard .updateOutput{background:#101f2e!important;color:#e7f0fa!important;border-color:#425970!important}
+html[data-theme="dark"] body.v2-shell #supervision .updateRow{background:#1c3043!important;border-color:#425970!important}
+html[data-theme="dark"] body.v2-shell #supervision .updateRow button{background:#28465f!important;color:#eff7ff!important;border-color:#65829d!important}
+/* The same palette applies when Auto resolves to dark. */
+@media(prefers-color-scheme:dark){html[data-theme="auto"] body.v2-shell #supervision,html[data-theme="auto"] body.v2-shell #supervision .superPanel{background:#0c1623!important;color:#eaf2fa!important}html[data-theme="auto"] body.v2-shell #supervision .rbnCard,html[data-theme="auto"] body.v2-shell #supervision .topologyInspector{background:#17283a!important;color:#eaf2fa!important;border-color:#354b62!important}html[data-theme="auto"] body.v2-shell #supervision .rbnHead strong,html[data-theme="auto"] body.v2-shell #supervision .topologyInspector h3{color:#f2f7fd!important}html[data-theme="auto"] body.v2-shell #supervision .topologyStage{background:#152638!important}html[data-theme="auto"] body.v2-shell #supervision .kpiCard strong{color:#80c9fa!important}}
+
+/* v0.75.0: compact, accessible login in both themes. */
+#loginDialog{width:min(400px,calc(100vw - 32px));max-width:400px;border-radius:16px;overflow:hidden}
+#loginDialog .loginCard{box-sizing:border-box;min-width:0;max-width:none;width:100%;padding:26px 28px}
+#loginDialog .loginCard label{max-width:320px;margin:16px auto;font-size:15px}
+#loginDialog .loginCard input{box-sizing:border-box;width:100%;max-width:320px;min-height:42px;padding:9px 12px;border-radius:9px}
+#loginDialog .dialogActions{max-width:320px;margin:20px auto 0}
+html[data-theme="dark"] #loginDialog{background:#17283a;border:1px solid #50677e;box-shadow:0 22px 70px #0009}
+html[data-theme="dark"] #loginDialog .loginCard{background:#17283a!important;color:#ecf4ff!important}
+html[data-theme="dark"] #loginDialog .loginCard input{background:#243a50!important;color:#f5f9ff!important;border:1px solid #708aa3!important;box-shadow:none!important}
+html[data-theme="dark"] #loginDialog .loginCard input:focus{border-color:#83c5f5!important;outline:2px solid #4d9bd655;outline-offset:1px}
+html[data-theme="dark"] #loginDialog .loginCard button{background:#2778b6!important;color:#fff!important;border-color:#5ba9df!important}
+@media(prefers-color-scheme:dark){html[data-theme="auto"] #loginDialog .loginCard{background:#17283a!important;color:#ecf4ff!important}html[data-theme="auto"] #loginDialog .loginCard input{background:#243a50!important;color:#f5f9ff!important;border:1px solid #708aa3!important}}
