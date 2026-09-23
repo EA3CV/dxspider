@@ -1,0 +1,41 @@
+DXSPIDER USER WEB - INSTALLATION
+================================
+
+This procedure installs DXWeb only. DXWeb Admin is optional and has a
+separate installation guide in dxweb-admin/INSTALL.txt.
+
+Prerequisite: DXSpider and its standard dependencies are already installed.
+The local DXSpider IntMsg listener must accept the #WEB transport on
+127.0.0.1:27754 (or the address and port configured for this deployment).
+Ensure that DXSpider has the matching Web.pm/#WEB protocol implementation.
+
+The Git checkout must contain /spider/dxweb/app.pl, start.sh and public/.
+The service definition is supplied as /spider/dxweb.service.
+
+Install and start the service (run as root):
+
+    cd /spider
+    install -m 0644 dxweb.service /etc/systemd/system/dxweb.service
+    systemctl daemon-reload
+    systemctl enable --now dxweb.service
+
+The service starts /spider/dxweb/start.sh from /spider/dxweb and uses:
+
+    DXS_HOST=127.0.0.1
+    DXS_PORT=27754
+    HTTP_PORT=7380
+
+Edit the unit and run systemctl daemon-reload if these defaults differ.
+Do not run dxweb/install.pl against the same Git checkout: that installer
+moves and copies entire trees and is intended for separate distributions.
+
+Verify only this service:
+
+    systemctl status dxweb.service --no-pager
+    curl -i http://127.0.0.1:7380/healthz
+
+When the DXSpider link is established, /healthz should return HTTP 200
+and state=ready. A disconnected backend may return HTTP 503. Open the
+browser UI and test anonymous reception, Login and registration.
+
+DXWeb Admin does not need to be installed for DXWeb to operate.

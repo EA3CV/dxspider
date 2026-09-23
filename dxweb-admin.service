@@ -1,0 +1,16 @@
+[Unit]
+Description=DXSpider Web Admin
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/spider/dxweb-admin
+Environment=DXWEB_PORT=7381
+ExecStart=/usr/bin/perl /spider/dxweb-admin/admin.pl
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
