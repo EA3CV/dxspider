@@ -1,3 +1,16 @@
+24Sep26======================================================================
+1. Introducing a new user registration system. 
+
+   See /spider/README_DXReg.txt for more information.
+23Sep26======================================================================
+1. Add show/health
+2. Add comprehensive web components for remote user access as well as 
+   administration which are both now considered ready for wider testing.
+ 
+   Please look at the installation instructions in /spider/dxweb and 
+   /spider/dxweb-admin directories.
+
+   All written by Kin EA3CV
 18Sep26======================================================================
 1. Added SIGHUP protector on dxweb and dxweb-admin start routines
 17Sep26======================================================================
