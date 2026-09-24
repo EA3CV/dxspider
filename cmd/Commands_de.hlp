@@ -855,6 +855,182 @@ Nachrichten die von einem selbst geschrieben bzw. an einen adressiert sind.
 === 5^READ-^
 Als Sysop kann man alle Nachrichten lesen.
 
+=== 0^REGISTER/REQUEST <email> <sprache> [ssid-liste]^Beantragt die Registrierung eines Users
+Ermoeglicht einem User, seine Registrierung in DXSpider zu beantragen.
+
+Das Rufzeichen wird immer aus der verbundenen Sitzung uebernommen und darf
+nicht im Kommando angegeben werden.
+
+Der Parameter <sprache> waehlt die Sprache fuer Benachrichtigungen zu diesem
+Antrag. Er wird als zweistelliger Sprachcode angegeben, zum Beispiel:
+
+  EN    Englisch
+  ES    Spanisch
+  DE    Deutsch
+  FR    Franzoesisch
+
+Der Sprachcode wird immer in Grossbuchstaben gespeichert. Ist fuer die
+gewaehlte Sprache keine Vorlage installiert, wird automatisch die englische
+Vorlage (.EN) verwendet.
+
+Im Web-Registrierungsformular ist EN die Standardsprache.
+
+Mit der optionalen [ssid-liste] kann auch die Registrierung eines oder
+mehrerer SSIDs des Basisrufzeichens beantragt werden.
+
+Gueltige SSIDs sind 1 bis 99. Sie koennen einzeln, durch Kommas getrennt oder
+mit "-" als inklusiver SSID-Bereich angegeben werden.
+
+Zum Beispiel:
+
+  1          SSID 1
+  1,2,5      SSID 1, 2 und 5
+  1-5        SSID-Bereich 1 bis 5, einschliesslich
+  1,3-5,9    SSID 1, 3 bis 5 und 9
+
+SSID 0 und mit Null aufgefuellte Formen wie 01 bis 09 sind ungueltig.
+
+Beispiele:
+
+  REGISTER/REQUEST user@example.net ES
+  REGISTER/REQUEST user@example.net EN 1,2,5
+  REGISTER/REQUEST user@example.net DE 1-5
+  REGISTER/REQUEST user@example.net FR 1,3-5,9
+
+Pro Rufzeichen kann nur ein PENDING-Antrag existieren. Fruehere ACCEPTED-,
+REJECTED- oder REMOVED-Antraege bleiben in der Historie erhalten.
+
+Ein SYSOP kann einen Antrag fuer ein anderes Rufzeichen erstellen, indem er
+das Rufzeichen als ersten Parameter angibt:
+
+  REGISTER/REQUEST <rufzeichen> <email> <sprache> [ssid-liste]
+
+SYSOP-Beispiele:
+
+  REGISTER/REQUEST EA0XYZ user@example.net ES
+  REGISTER/REQUEST EA0XYZ user@example.net EN 1,2,5
+  REGISTER/REQUEST EA0XYZ user@example.net DE 1-5
+  REGISTER/REQUEST EA0XYZ user@example.net FR 1,3-5,9
+
+=== 9^REGISTER/SHOW [<rufzeichen>|<id>]^Zeigt Registrierungsantraege
+Zeigt Antraege und die Registrierungshistorie.
+
+Ohne Argumente werden alle Antraege im Status PENDING angezeigt.
+
+Beispiel:
+
+  REGISTER/SHOW
+
+Wird ein Rufzeichen angegeben, wird die vollstaendige Registrierungshistorie
+fuer dieses Rufzeichen angezeigt.
+
+Beispiel:
+
+  REGISTER/SHOW EA0XYZ
+
+Es kann auch direkt die Kennung eines Antrags angegeben werden.
+
+Beispiel:
+
+  REGISTER/SHOW 20260924-0001
+
+Suchen nach CALL und CALL-SSID werden nach dem Basisrufzeichen gruppiert und
+die neuesten Antraege zuerst angezeigt.
+
+=== 9^REGISTER/ACCEPT <id|rufzeichen> [notiz]^Akzeptiert einen Registrierungsantrag
+Akzeptiert einen Antrag im Status PENDING.
+
+Der Antrag kann ueber seine ID angegeben werden.
+
+Beispiel:
+
+  REGISTER/ACCEPT 20260924-0001
+
+Er kann auch ueber das Rufzeichen angegeben werden.
+
+Beispiel:
+
+  REGISTER/ACCEPT EA0XYZ
+
+Bei Angabe des Rufzeichens muss genau ein PENDING-Antrag fuer dieses
+Rufzeichen existieren.
+
+Optional kann eine administrative Notiz hinzugefuegt werden.
+
+Beispiel:
+
+  REGISTER/ACCEPT EA0XYZ Registrierung geprueft
+
+Beim Akzeptieren eines Antrags:
+
+- bleiben bereits registrierte SSIDs erhalten;
+- werden neu beantragte SSIDs hinzugefuegt;
+- bedeutet das Fehlen von SSIDs niemals deren Entfernung;
+- wird ein vorhandenes Passwort des Basisrufzeichens wiederverwendet;
+- wird andernfalls ein neues Passwort erzeugt;
+- wird dasselbe Passwort fuer das Basisrufzeichen und alle registrierten SSIDs
+  verwendet;
+- werden beantragte und akzeptierte SSIDs getrennt in der Historie gespeichert.
+
+Das Passwort wird niemals in registration.json oder Debug-Logs gespeichert.
+
+=== 9^REGISTER/REJECT <id|rufzeichen> [notiz]^Lehnt einen Registrierungsantrag ab
+Lehnt einen Antrag im Status PENDING ab.
+
+Der Antrag kann ueber seine ID angegeben werden.
+
+Beispiel:
+
+  REGISTER/REJECT 20260924-0001
+
+Er kann auch ueber das Rufzeichen angegeben werden.
+
+Beispiel:
+
+  REGISTER/REJECT EA0XYZ
+
+Bei Angabe des Rufzeichens muss genau ein PENDING-Antrag fuer dieses
+Rufzeichen existieren.
+
+Optional kann eine administrative Notiz hinzugefuegt werden.
+
+Beispiel:
+
+  REGISTER/REJECT EA0XYZ Rufzeichen nicht verifiziert
+
+Der Antrag bleibt mit dem Status REJECTED in der Historie erhalten.
+
+Die Ablehnung verhindert nicht, dass spaeter ein neuer Antrag fuer dasselbe
+Rufzeichen erstellt wird.
+
+=== 9^REGISTER/REMOVE <rufzeichen> [notiz]^Entfernt die Registrierung eines Users
+Entfernt den Registrierungsstatus eines Users.
+
+Die Operation betrifft das Basisrufzeichen und alle vorhandenen DXUser-
+Eintraege CALL-1 bis CALL-99 fuer dieses Rufzeichen.
+
+Beispiel:
+
+  REGISTER/REMOVE EA0XYZ
+
+Optional kann eine administrative Notiz hinzugefuegt werden.
+
+Beispiel:
+
+  REGISTER/REMOVE EA0XYZ Registrierung durch SYSOP entfernt
+
+Beim Entfernen der Registrierung:
+
+- bleiben die DXUser-Eintraege erhalten;
+- wird registered auf 0 gesetzt;
+- wird das Passwort entfernt;
+- wird ein REMOVED-Eintrag mit den betroffenen SSIDs in der Historie erstellt;
+- werden betroffene verbundene Sitzungen getrennt, damit beim naechsten Login
+  der neue Status geladen wird.
+
+Ein Fehler beim Trennen einer Sitzung wird protokolliert, macht aber eine
+bereits gespeicherte Entfernung der Registrierung nicht rueckgaengig.
+
 === 0^REJECT/ANNOUNCE [0-9] <Muster>^Setzt eine 'reject' Filter Zeile fuer announce
 Erzeugt ein 'lehne dieses announce ab' Filter.
 

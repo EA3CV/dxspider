@@ -1312,6 +1312,181 @@ message either sent by or sent to your callsign.
 === 5^READ-^
 As a sysop you may read any message on the system
 
+=== 0^REGISTER/REQUEST <email> <language> [ssid-list]^Request user registration
+Allows a user to request registration in DXSpider.
+
+The callsign is always taken from the connected session and must not be
+specified in the command.
+
+The <language> parameter selects the language used for notifications related
+to the request. It is specified as a two-letter language code, for example:
+
+  EN    English
+  ES    Spanish
+  DE    German
+  FR    French
+
+The language code is always stored in uppercase. If a template for the
+selected language is not installed, the English (.EN) template is used
+automatically.
+
+The default language in the Web registration form is EN.
+
+The optional [ssid-list] also requests registration of one or more SSIDs
+associated with the base callsign.
+
+Valid SSIDs are 1 to 99. They can be specified individually, separated by
+commas, or "-" can be used to specify an inclusive SSID range.
+
+For example:
+
+  1          SSID 1
+  1,2,5      SSIDs 1, 2 and 5
+  1-5        SSID range 1 through 5, inclusive
+  1,3-5,9    SSIDs 1, 3 through 5, and 9
+
+SSID 0 and zero-padded forms such as 01 through 09 are not valid.
+
+Examples:
+
+  REGISTER/REQUEST user@example.net ES
+  REGISTER/REQUEST user@example.net EN 1,2,5
+  REGISTER/REQUEST user@example.net DE 1-5
+  REGISTER/REQUEST user@example.net FR 1,3-5,9
+
+Only one PENDING request can exist for a callsign. Previous ACCEPTED,
+REJECTED or REMOVED requests are retained in the history.
+
+A SYSOP can create a request for another callsign by specifying the callsign
+as the first parameter:
+
+  REGISTER/REQUEST <callsign> <email> <language> [ssid-list]
+
+SYSOP examples:
+
+  REGISTER/REQUEST EA0XYZ user@example.net ES
+  REGISTER/REQUEST EA0XYZ user@example.net EN 1,2,5
+  REGISTER/REQUEST EA0XYZ user@example.net DE 1-5
+  REGISTER/REQUEST EA0XYZ user@example.net FR 1,3-5,9
+
+=== 9^REGISTER/SHOW [<callsign>|<id>]^Show registration requests
+Shows requests and registration history.
+
+With no arguments, shows all requests currently in PENDING state.
+
+Example:
+
+  REGISTER/SHOW
+
+If a callsign is specified, shows the complete registration history for that
+callsign.
+
+Example:
+
+  REGISTER/SHOW EA0XYZ
+
+A request identifier can also be specified directly.
+
+Example:
+
+  REGISTER/SHOW 20260924-0001
+
+CALL and CALL-SSID searches are grouped by base callsign and the history is
+shown with the newest requests first.
+
+=== 9^REGISTER/ACCEPT <id|callsign> [note]^Accept a registration request
+Accepts a request that is in PENDING state.
+
+The request can be identified by its ID.
+
+Example:
+
+  REGISTER/ACCEPT 20260924-0001
+
+It can also be identified by callsign.
+
+Example:
+
+  REGISTER/ACCEPT EA0XYZ
+
+When a callsign is used, there must be exactly one PENDING request for that
+callsign.
+
+An administrative note can optionally be added.
+
+Example:
+
+  REGISTER/ACCEPT EA0XYZ Registration checked
+
+When a request is accepted:
+
+- existing registered SSIDs are preserved;
+- newly requested SSIDs are added;
+- omitted SSIDs are never interpreted as removals;
+- if the base callsign already has a password, it is reused;
+- otherwise a new password is generated;
+- the same password is used for the base callsign and all registered SSIDs;
+- requested and accepted SSIDs are stored separately in the history.
+
+The password is never stored in registration.json or written to debug logs.
+
+=== 9^REGISTER/REJECT <id|callsign> [note]^Reject a registration request
+Rejects a request that is in PENDING state.
+
+The request can be identified by its ID.
+
+Example:
+
+  REGISTER/REJECT 20260924-0001
+
+It can also be identified by callsign.
+
+Example:
+
+  REGISTER/REJECT EA0XYZ
+
+When a callsign is used, there must be exactly one PENDING request for that
+callsign.
+
+An administrative note can optionally be added.
+
+Example:
+
+  REGISTER/REJECT EA0XYZ Callsign not verified
+
+The request is retained in the history with REJECTED status.
+
+Rejection does not prevent a later request from being created for the same
+callsign.
+
+=== 9^REGISTER/REMOVE <callsign> [note]^Remove a user registration
+Removes the registration state of a user.
+
+The operation acts on the base callsign and every existing CALL-1 through
+CALL-99 DXUser record for that callsign.
+
+Example:
+
+  REGISTER/REMOVE EA0XYZ
+
+An administrative note can optionally be added.
+
+Example:
+
+  REGISTER/REMOVE EA0XYZ Registration removed by SYSOP
+
+When registration is removed:
+
+- DXUser records are preserved;
+- registered is set to 0;
+- the password is removed;
+- a REMOVED history record is created with the affected SSIDs;
+- any affected connected sessions are disconnected so the new state is loaded
+  on the next login.
+
+A disconnect failure is logged but does not roll back a registration removal
+that has already been persisted.
+
 === 0^REJECT^Set a filter to reject something
 Create a filter to reject something
 
