@@ -29,62 +29,107 @@ use DXUser;
 use DXUtil;
 use DXDebug;
 
+sub _dxcss_member_node
+{
+    # DXCSS: enable preservation only for a node explicitly configured as a
+    # member of this DxCSS cluster. A normal DXSpider installation therefore
+    # retains the upstream update_sysop behaviour unchanged.
+    return 0 unless defined $main::cluster_id && length $main::cluster_id;
+    return 0 unless @main::cluster_nodes;
+    my $call = uc($main::mycall || '');
+    return scalar grep { uc($_) eq $call } @main::cluster_nodes;
+}
+
+sub _dxcss_refresh_existing
+{
+    my ($self, $is_alias) = @_;
+
+    # DXCSS: refresh only identity/configuration owned by update_sysop/DXVars.
+    # Preserve administrative/authentication and runtime state (including
+    # lockout, registered, passwd, passphrase, lastin, lastseen and connlist).
+    $self->{alias} = uc $myalias unless $is_alias;
+    $self->{name} = $myname;
+    $self->{qth} = $myqth;
+    $self->{qra} = uc $mylocator;
+    $self->{lat} = $mylatitude;
+    $self->{long} = $mylongitude;
+    $self->{email} = $myemail;
+    $self->{bbsaddr} = $mybbsaddr;
+    $self->{homenode} = uc $mycall;
+    $self->{sort} = $is_alias ? 'U' : 'S';
+    $self->{priv} = 9;
+    $self->put(preserve_lastseen => 1);
+}
+
 sub create_it
 {
-	my $ref;
-	
-	if ($ref = DXUser::get(uc $mycall)) {
-		dbg"old call $mycall deleted";
-		$ref->del();
-	}
-	
-	my $self = DXUser->new(uc $mycall);
-	$self->{alias} = uc $myalias;
-	$self->{name} = $myname;
-	$self->{qth} = $myqth;
-	$self->{qra} = uc $mylocator;
-	$self->{lat} = $mylatitude;
-	$self->{long} = $mylongitude;
-	$self->{email} = $myemail;
-	$self->{bbsaddr} = $mybbsaddr;
-	$self->{homenode} = uc $mycall;
-	$self->{sort} = 'S';		# C - Console user, S - Spider cluster, A - AK1A, U - User, B - BBS
-	$self->{priv} = 9;			# 0 - 9 - with 9 being the highest
-	$self->{lastin} = time;
-	$self->{dxok} = 1;
-	$self->{annok} = 1;
+    my $ref;
+    my $dxcss = _dxcss_member_node();
 
-	# write it away
-	$self->close();
-	dbg   "new call $mycall added";
+    if ($ref = DXUser::get(uc $mycall)) {
+        if ($dxcss) {
+            # DXCSS: do not delete an existing cluster-member DXUser record.
+            _dxcss_refresh_existing($ref, 0);
+            dbg "existing call $mycall preserved and refreshed for DxCSS";
+        } else {
+            dbg "old call $mycall deleted";
+            $ref->del();
+            $ref = undef;
+        }
+    }
 
-	# now do one for the alias
-	if ($ref = DXUser::get($myalias)) {
-		dbg "old call $myalias deleted";
-		$ref->del();
-	}
+    unless ($ref && $dxcss) {
+        my $self = DXUser->new(uc $mycall);
+        $self->{alias} = uc $myalias;
+        $self->{name} = $myname;
+        $self->{qth} = $myqth;
+        $self->{qra} = uc $mylocator;
+        $self->{lat} = $mylatitude;
+        $self->{long} = $mylongitude;
+        $self->{email} = $myemail;
+        $self->{bbsaddr} = $mybbsaddr;
+        $self->{homenode} = uc $mycall;
+        $self->{sort} = 'S';
+        $self->{priv} = 9;
+        $self->{lastin} = time;
+        $self->{dxok} = 1;
+        $self->{annok} = 1;
+        $self->close();
+        dbg "new call $mycall added";
+    }
 
-	$self = DXUser->new(uc $myalias);
-	$self->{name} = $myname;
-	$self->{qth} = $myqth;
-	$self->{qra} = uc $mylocator;
-	$self->{lat} = $mylatitude;
-	$self->{long} = $mylongitude;
-	$self->{email} = $myemail;
-	$self->{bbsaddr} = $mybbsaddr;
-	$self->{homenode} = uc $mycall;
-	$self->{sort} = 'U';		# C - Console user, S - Spider cluster, A - AK1A, U - User, B - BBS
-	$self->{priv} = 9;			# 0 - 9 - with 9 being the highest
-	$self->{lastin} = time;
-	$self->{dxok} = 1;
-	$self->{annok} = 1;
-	$self->{lang} = 'en';
-	$self->{group} = [qw(local #9000)];
-  
-	# write it away
-	$self->close();
-	dbg "new call $myalias added";
+    if ($ref = DXUser::get(uc $myalias)) {
+        if ($dxcss) {
+            # DXCSS: preserve the existing SYSOP alias record as well.
+            _dxcss_refresh_existing($ref, 1);
+            dbg "existing call $myalias preserved and refreshed for DxCSS";
+        } else {
+            dbg "old call $myalias deleted";
+            $ref->del();
+            $ref = undef;
+        }
+    }
 
+    unless ($ref && $dxcss) {
+        my $self = DXUser->new(uc $myalias);
+        $self->{name} = $myname;
+        $self->{qth} = $myqth;
+        $self->{qra} = uc $mylocator;
+        $self->{lat} = $mylatitude;
+        $self->{long} = $mylongitude;
+        $self->{email} = $myemail;
+        $self->{bbsaddr} = $mybbsaddr;
+        $self->{homenode} = uc $mycall;
+        $self->{sort} = 'U';
+        $self->{priv} = 9;
+        $self->{lastin} = time;
+        $self->{dxok} = 1;
+        $self->{annok} = 1;
+        $self->{lang} = 'en';
+        $self->{group} = [qw(local #9000)];
+        $self->close();
+        dbg "new call $myalias added";
+    }
 }
 
 die "\$myalias \& \$mycall are the same ($mycall)!, they must be different (hint: make \$mycall = '${mycall}-2';).\n" if $mycall eq $myalias;
@@ -106,4 +151,3 @@ DXUser::finish();
 dbg "Update of $myalias on cluster $mycall successful";
 dbgclose();
 exit(0);
-
