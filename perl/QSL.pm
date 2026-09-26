@@ -17,14 +17,18 @@ use DBI;
 use Fcntl qw(O_RDONLY);
 use Data::Structure::Util qw(unbless);
 
-use vars qw($qslfn $dbm $maxentries);
-$qslfn = 'dxqsl';
-$dbm = undef;
+our $qslfn;
+our $dbh;
+our $maxentries;
+our $dsn;
+
+$qslfn ||= 'dxqsl';
+
 $maxentries = 50;
 
 my $json;
 my $readonly;
-my $dsn;
+
 my ($get_sth, $put_sth);
 
 localdata_mv("$qslfn.v1j");
@@ -41,6 +45,16 @@ sub _sqlite_path
     my ($path) = $d =~ /dbname=([^;]+)/i;
     die "QSL: cannot determine SQLite path from '$d'" unless defined $path && length $path;
     return $path;
+}
+
+sub begin_work
+{
+	$dbh->begin_work;
+}
+
+sub commit
+{
+	$dbh->commit;
 }
 
 sub _dsn_for_path
@@ -83,58 +97,56 @@ sub _integrity_ok
 
 sub _migrate_legacy
 {
-    my ($legacy, $dest_dsn) = @_;
-    my $dest = _sqlite_path($dest_dsn);
-    return 0 if -e $dest;
-    return 0 unless -e $legacy;
 
-    # DB_File is required only for the one-time migration. Normal SQLite
-    # operation does not load or depend on Berkeley DB.
-    eval { require DB_File; 1 }
-        or die "QSL: DB_File is required to migrate $legacy: $@";
+	
+    # my ($legacy, $dest_dsn) = @_;
+    # my $dest = _sqlite_path($dest_dsn);
+    # return 0 if -e $dest;
+    # return 0 unless -e $legacy;
 
-    my $tmp = "$dest.new";
-    unlink $tmp if -e $tmp;
+    # # DB_File is required only for the one-time migration. Normal SQLite
+    # # operation does not load or depend on Berkeley DB.
+    # eval { require DB_File; 1 }
+    #     or die "QSL: DB_File is required to migrate $legacy: $@";
 
-    my %old;
-    tie %old, 'DB_File', $legacy, O_RDONLY, 0, $DB_File::DB_BTREE
-        or die "QSL: cannot open legacy database $legacy: $!";
+    # my $tmp = "$dest.new";
+    # unlink $tmp if -e $tmp;
 
-    my $tdsn = _dsn_for_path($dest_dsn, $tmp);
-    my $dbh = _connect($tdsn, 0);
-    _create_schema($dbh);
-    my $sth = $dbh->prepare(q{INSERT INTO kv (key,value) VALUES (?,?)});
-    my $count = 0;
+    # my $tdsn = _dsn_for_path($dest_dsn, $tmp);
+    # my $dbh = _connect($tdsn, 0);
+    # _create_schema($dbh);
+    # my $sth = $dbh->prepare(q{INSERT INTO kv (key,value) VALUES (?,?)});
+    # my $count = 0;
 
-    my $ok = eval {
-        $dbh->begin_work;
-        while (my ($key, $value) = each %old) {
-            $sth->execute($key, $value);
-            ++$count;
-        }
-        $dbh->commit;
-        1;
-    };
-    unless ($ok) {
-        my $err = $@ || 'unknown migration error';
-        eval { $dbh->rollback };
-        $sth = undef;
-        $dbh->disconnect;
-        untie %old;
-        unlink $tmp;
-        die "QSL: migration failed: $err";
-    }
+    # my $ok = eval {
+    #     $dbh->begin_work;
+    #     while (my ($key, $value) = each %old) {
+    #         $sth->execute($key, $value);
+    #         ++$count;
+    #     }
+    #     $dbh->commit;
+    #     1;
+    # };
+    # unless ($ok) {
+    #     my $err = $@ || 'unknown migration error';
+    #     eval { $dbh->rollback };
+    #     $sth = undef;
+    #     $dbh->disconnect;
+    #     untie %old;
+    #     unlink $tmp;
+    #     die "QSL: migration failed: $err";
+    # }
 
-    untie %old;
-    my ($sql_count) = $dbh->selectrow_array('SELECT COUNT(*) FROM kv');
-    die "QSL: migration count mismatch ($count != $sql_count)"
-        unless $count == $sql_count;
-    die "QSL: SQLite integrity_check failed for $tmp" unless _integrity_ok($dbh);
-    $sth = undef;
-    $dbh->disconnect;
+    # untie %old;
+    # my ($sql_count) = $dbh->selectrow_array('SELECT COUNT(*) FROM kv');
+    # die "QSL: migration count mismatch ($count != $sql_count)"
+    #     unless $count == $sql_count;
+    # die "QSL: SQLite integrity_check failed for $tmp" unless _integrity_ok($dbh);
+    # $sth = undef;
+    # $dbh->disconnect;
 
-    rename $tmp, $dest or die "QSL: cannot rename $tmp to $dest: $!";
-    return $count;
+    # rename $tmp, $dest or die "QSL: cannot rename $tmp to $dest: $!";
+    # return $count;
 }
 
 sub init
@@ -143,7 +155,7 @@ sub init
     $json = DXJSON->new;
 
     Prefix::load() unless Prefix::loaded();
-    finish() if $dbm;
+    finish() if $dbh;
 
     $readonly = !$mode;
     $dsn = _dsn();
@@ -164,12 +176,12 @@ sub init
         $dbh->disconnect;
     }
 
-    $dbm = _connect($dsn, $readonly);
-    my ($table) = $dbm->selectrow_array(
+    $dbh = _connect($dsn, $readonly);
+    my ($table) = $dbh->selectrow_array(
         q{SELECT name FROM sqlite_master WHERE type='table' AND name='kv'}
     );
     die "QSL: missing kv table in $path" unless defined $table;
-    return $dbm;
+    return $dbh;
 }
 
 sub finish
@@ -177,8 +189,8 @@ sub finish
     dbg("DXQSL finished");
     $get_sth = undef;
     $put_sth = undef;
-    $dbm->disconnect if $dbm;
-    undef $dbm;
+    $dbh->disconnect if $dbh;
+    undef $dbh;
 }
 
 sub new
@@ -192,7 +204,7 @@ sub new
 # the format of each entry is [manager, times found, last time, last reporter]
 sub update
 {
-    return unless $dbm && !$readonly;
+    return unless $dbh && !$readonly;
     my $self = shift;
     my $line = shift;
     my $t = shift;
@@ -238,9 +250,9 @@ sub update
 
 sub get
 {
-    return undef unless $dbm;
+    return undef unless $dbh;
     my $key = uc shift;
-    $get_sth ||= $dbm->prepare(q{SELECT value FROM kv WHERE key = ?});
+    $get_sth ||= $dbh->prepare(q{SELECT value FROM kv WHERE key = ?});
     $get_sth->execute($key);
     my ($value) = $get_sth->fetchrow_array;
     return undef unless defined $value;
@@ -249,17 +261,17 @@ sub get
 
 sub put
 {
-    return unless $dbm && !$readonly;
+    return unless $dbh && !$readonly;
     my $self = shift;
     my $key = $self->[0];
     my $value = encode($self);
-    $put_sth ||= $dbm->prepare(q{INSERT OR REPLACE INTO kv (key,value) VALUES (?,?)});
+    $put_sth ||= $dbh->prepare(q{INSERT OR REPLACE INTO kv (key,value) VALUES (?,?)});
     return $put_sth->execute($key, $value);
 }
 
 sub remove_files
 {
-    finish() if $dbm;
+    finish() if $dbh;
     unlink "$main::data/$qslfn.v1j";
     unlink "$main::local_data/$qslfn.v1j";
 
@@ -283,7 +295,7 @@ sub encode
 
 sub END
 {
-    if ($dbm) {
+    if ($dbh) {
         dbg "DXQSL ENDing";
         finish();
     }
