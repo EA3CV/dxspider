@@ -37,7 +37,7 @@ my $qslfn = "dxqsl";
 $main::systime = time;
 
 QSL::remove_files();
-QSL::init(1) or die "cannot open QSL file";
+my $dbh = QSL::init(1) or die "cannot open QSL file";
 
 my $base = localdata("spots");
 
@@ -54,6 +54,7 @@ foreach my $year (sort readdir YEAR) {
 		my $fn = "$baseyear/$day";
 		my $f = new IO::File $fn  or die "$fn ($!)"; 
 		print "doing: $fn\n";
+		$dbh->start_work;
 		while (<$f>) {
 			last if $end;
 			if (/(QSL|VIA)/i) {
@@ -64,6 +65,7 @@ foreach my $year (sort readdir YEAR) {
 			}
 		}
 		$f->close;
+		$dbh->commit;
 		last if $end;
 	}
 	last if $end;
