@@ -1,3 +1,6 @@
+27Sep26======================================================================
+1. Fixed small bug in DXProtout when generating PC92 sentences which caused
+   an unnecessary empty field to be emitted on A and D messages.
 26Sep26======================================================================
 1. Fix show/dxsql and connect to the new database version fixed by Kin EA3CV.
 18Sep26======================================================================

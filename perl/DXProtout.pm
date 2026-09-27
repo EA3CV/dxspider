@@ -403,7 +403,7 @@ sub _gen_pc92
 	my $s = "PC92^$main::mycall^" . gen_pc9x_t() . "^$sort";
 	if ($pc9x_nodupe_first_slot && ($sort eq 'A' || $sort eq 'D') && $_[0]->call eq $main::mycall) {
 		shift;
-		$s .= '^';
+#		$s .= '^';
 	}
 	for (@_) {
 		$s .= '^' . _encode_pc92_call($_, $ext);
@@ -422,7 +422,7 @@ sub gen_pc92_with_time
 	my $s = "PC92^$call^$t^$sort";
 	if ($pc9x_nodupe_first_slot && ($sort eq 'A' || $sort eq 'D') && $_[0]->call eq $main::mycall) {
 		shift;
-		$s .= '^';
+#		$s .= '^';
 	}
 	for (@_) {
 		$s .= "^" . _encode_pc92_call($_, $ext);
