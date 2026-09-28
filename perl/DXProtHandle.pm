@@ -35,6 +35,7 @@ use Script;
 use DXCIDR;
 
 use strict;
+use DXHealth;
 use warnings qw(all);
 no warnings qw(uninitialized);
 
@@ -570,8 +571,13 @@ sub handle_11
 	# DON'T be silly and send on PC26s!
 	return if $pcno == 26;
 
-	# send out the filtered spots
-	send_dx_spot($self, $line, @spot) if @spot;
+	# Accepted semantic event: survived spot validation/local hook.
+	DXHealth::protocol_logical_line('accepted', $line) if @spot && $self != $main::me;
+
+	# send out the filtered spots. Forwarded is one logical event if at least
+	# one protocol neighbour really received an egress after filtering/hops.
+	my $sent = @spot ? send_dx_spot($self, $line, @spot) : 0;
+	DXHealth::protocol_logical_line('forwarded', $line) if $sent && $self != $main::me;
 
 	# cancel any recursion as we have now processed it
 	my $count =  $pc11_to_61+$rpc11_to_61;
@@ -1387,8 +1393,11 @@ sub handle_23
 	# DON'T be silly and send on PC27s!
 	return if $pcno == 27;
 
+	DXHealth::protocol_logical_line('accepted', $line) if $self != $main::me;
+
 	# broadcast to the eager world
-	send_wwv_spot($self, $line, $d, $pc->[2], $sfi, $k, $i, @$pc[6..8]);
+	my $sent = send_wwv_spot($self, $line, $d, $pc->[2], $sfi, $k, $i, @$pc[6..8]);
+	DXHealth::protocol_logical_line('forwarded', $line) if $sent && $self != $main::me;
 }
 
 # set here status
@@ -1414,8 +1423,10 @@ sub handle_24
 	$uref->here($pc->[2]) if $uref;
 	my $ref = $nref || $uref;
 	return unless $self->in_filter_route($ref);
+	DXHealth::protocol_logical_line('accepted', $line) if $self != $main::me;
 
-	$self->route_pc24($origin, $line, $ref, $pc->[3]);
+	my $sent = $self->route_pc24($origin, $line, $ref, $pc->[3]);
+	DXHealth::protocol_logical_line('forwarded', $line) if $sent && $self != $main::me;
 }
 
 # merge request
@@ -1725,8 +1736,11 @@ sub handle_51
 
 	# is it for us?
 	if ($to eq $main::mycall) {
+		DXHealth::protocol_logical_line('accepted', $line) if $self != $main::me;
 		if ($flag == 1) {
-			$self->send(pc51($from, $to, '0'));
+			my $reply = pc51($from, $to, '0');
+			DXHealth::protocol_logical_line('reply', $reply);
+			$self->send($reply);
 		} else {
 			DXXml::Ping::handle_ping_reply($self, $from);
 		}
@@ -1734,8 +1748,10 @@ sub handle_51
 		if (eph_dup($line)) {
 			return;
 		}
+		DXHealth::protocol_logical_line('accepted', $line) if $self != $main::me;
 		# route down an appropriate thingy
-		$self->route($to, $line);
+		my $sent = $self->route($to, $line);
+		DXHealth::protocol_logical_line('forwarded', $line) if $sent && $self != $main::me;
 	}
 }
 
@@ -1790,8 +1806,11 @@ sub handle_73
 		return if $rep;
 	}
 
+	DXHealth::protocol_logical_line('accepted', $line) if $self != $main::me;
+
 	# broadcast to the eager world
-	send_wcy_spot($self, $line, $d, @$pc[2..12]);
+	my $sent = send_wcy_spot($self, $line, $d, @$pc[2..12]);
+	DXHealth::protocol_logical_line('forwarded', $line) if $sent && $self != $main::me;
 }
 
 # remote commands (incoming)
@@ -2199,6 +2218,10 @@ sub handle_92
 	my $sort = $pc->[3];
 	my $hops = $pc->[-1];
 
+	# Physical transport accounting is deliberately before logical validation:
+	# it records an A/D/C/K PC92 that really arrived on this direct channel.
+	DXHealth::pc92_physical_in($self->{call}, $sort, length($line));
+
 	# this catches loops of A/Ds
 #	if (eph_dup($line, $pc9x_dupe_age)) {
 #		return;
@@ -2299,6 +2322,10 @@ sub handle_92
 			
 			push @radd, $add if $add;
 			$parent->reset_obs;
+			# PC92K fields 5/6 are the remote node's advertised node/user
+			# counts (DXProtout::pc92k).  Keep them only in bounded DXHealth
+			# telemetry; do not alter Route::Node/DXUser/routing semantics.
+			DXHealth::pc92k_advertised($parent->call, $pc->[5], $pc->[6]);
 			my $call = $parent->call;
 			my $version = $ent[4] || 0;
 			my $build = $ent[5] ||  0;
@@ -2308,6 +2335,10 @@ sub handle_92
 			my $user = check_add_user($parent->call, 'S');
 			my $oldsort = $user->sort // '';
 			my $ipaddr = @ent > 10 ? $ent[9] : '';
+			my ($gitbranch, $gitversion);
+			if (defined $pc->[8] && length $pc->[8] && $pc->[8] =~ m{^(.+)/([^/]+)$}) {
+				($gitbranch, $gitversion) = ($1, $2);
+			}
 
 			dbg("PCPROT: PC92 K v: $version ov: $oldversion b: $build ob: $oldbuild pk: " . ($parent->K || '0') . " uk: " . ($user->K || 0)) if isdbg('pc92k');
 				
@@ -2319,6 +2350,11 @@ sub handle_92
 					$user->build($parent->build($build));
 					++$changed;
 				}
+
+				# PC92 K already carries gitbranch/gitversion in field 8. Keep it
+				# as live route metadata; do not persist it into DXUser.
+				$parent->gitbranch($gitbranch);
+				$parent->gitversion($gitversion);
 
 				unless ($user->is_spider || $user->is_ccluster) {
 					$user->sort('S');
@@ -2469,11 +2505,15 @@ sub handle_92
 		$self->route_pc16($pcall, undef, $parent, @pc16) if @pc16;
 	}
 
+	# Reaching here means an A/D/C/K survived the logical handling above.
+	DXHealth::pc92_received($sort, length($line));
+
 	# broadcast it if we get here (but not if it's an A or D record and pc92_ad_enabled isn't set;
 	if ($sort eq 'A' || $sort eq 'D') {
 		return unless $pc92_ad_enabled;
 	}
-	$self->broadcast_route_pc9x($pcall, undef, $line, 0);
+	my $sent = $self->broadcast_route_pc9x($pcall, undef, $line, 0);
+	DXHealth::pc92_forwarded($sort, length($line)) if $sent;
 }
 
 # get all the routes for a thing, bearing in mind that the thing (e.g. a user)
@@ -2596,6 +2636,12 @@ sub handle_93
 			dbg("PCPROT: Badwords: '$bw', dropped");
 			return;
 		}
+	}
+
+	if ($self == $main::me) {
+		DXHealth::protocol_logical_line('generated', $line);
+	} else {
+		DXHealth::protocol_logical_line('accepted', $line);
 	}
 
 	$self->populate_routing_table($onode, $from, $ipaddr) if $pc61_extract_route;

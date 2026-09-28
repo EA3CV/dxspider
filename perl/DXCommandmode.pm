@@ -18,6 +18,7 @@ use 5.10.1;
 use POSIX qw(:math_h);
 use DXUtil;
 use DXChannel;
+use DXHealth;
 use DXUser;
 use DXVars;
 use DXDebug;
@@ -201,6 +202,7 @@ sub start
 	}
 	
 	$self->tell_login('loginu');
+	DXHealth::connection_up($self, 'user');
 	$self->tell_buddies('loginb');
 
 	# is this a bad ip address?
@@ -508,6 +510,10 @@ sub send_ans
 sub run_cmd
 {
 	my $self = shift;
+
+	# DXCSS: transient result used only by run_cmd_with_status() during committed replay.
+	# Existing run_cmd() callers and its return value remain unchanged.
+	delete $self->{_dxcss_last_cmd_ok};
 	my $user = $self->{user};
 	my $call = $self->{call};
 	my $dcall = $self->{dcall};
@@ -560,7 +566,9 @@ sub run_cmd
 				my $t0 = [gettimeofday];
 #                eval { @ans = &{"${package}::handle"}($self, $args) };
 
-                # DXCSS CRCMD hook v1
+                # DXCSS: intercept synchronised administrative commands after normal
+                # DXSpider command resolution and before the handler mutates local state.
+                # If DxCSS does not handle the command, normal DXSpider execution continues.
                 my $dxc_handled = 0;
                 if (defined &DXCluster::command) {
                     my @dxc = DXCluster::command($self, $fcmd, $args);
@@ -576,6 +584,8 @@ sub run_cmd
                 }
 #				eval { @ans = &{"${package}::handle"}($self, $args) };
 				if ($@) {
+					# DXCSS: a handler exception is an unsuccessful committed command result.
+					$self->{_dxcss_last_cmd_ok} = 0;
 					DXDebug::dbgprintring(25);
 					return (DXDebug::shortmess($@));
 				}
@@ -595,6 +605,9 @@ sub run_cmd
 	}
 	
 	my $ok = shift @ans;
+	# DXCSS: preserve the handler status for run_cmd_with_status(); run_cmd() still
+	# returns only the normal DXSpider response lines.
+	$self->{_dxcss_last_cmd_ok} = $ok ? 1 : 0;
 	if ($ok) {
 		delete $self->{errors};
 	} else {
@@ -605,6 +618,17 @@ sub run_cmd
 		} 
 	}
 	return map {s/([^\s])\s+$/$1/; $_} @ans;
+}
+
+# DXCSS: status-preserving wrapper used exclusively when DxCSS applies a
+# committed command. Normal DXSpider callers continue to use run_cmd().
+sub run_cmd_with_status
+{
+	my ($self, $line) = @_;
+	delete $self->{_dxcss_last_cmd_ok};
+	my @out = run_cmd($self, $line);
+	my $ok = exists $self->{_dxcss_last_cmd_ok} ? $self->{_dxcss_last_cmd_ok} : undef;
+	return ($ok, @out);
 }
 
 #
@@ -688,6 +712,7 @@ sub disconnect
 		
 	# send info to all logged in thingies
 	$self->tell_login('logoutu');
+	DXHealth::connection_down($self, 'user');
 	$self->tell_buddies('logoutb');
 
 	LogDbg('DXCommand', "$self->{dcall} disconnected");

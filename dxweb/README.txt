@@ -1,0 +1,27 @@
+DXSPIDER USER WEB - OPERATIONAL OVERVIEW
+=======================================
+
+DXWeb is the normal user-facing web application for DXSpider. It runs
+independently of DXWeb Admin and normally listens on TCP port 7380.
+
+The server code in this tree is dxweb/app.pl. It connects to the local
+DXSpider IntMsg listener (default 127.0.0.1:27754) using a dynamically
+assigned #WEB-n technical channel and the dxweb protocol-v2 role.
+
+The browser can receive public spots and other feed information without
+logging in. Authentication enables permitted user operations; the normal
+Web actor does not inherit SYSOP privileges from a DXUser record.
+Registration requests are also available to anonymous visitors.
+
+The server exposes /healthz, reporting the connection state and counters.
+The endpoint returns HTTP 200 when ready, otherwise HTTP 503.
+
+Version: dxweb/VERSION in this snapshot declares 0.7.0. The historical
+CHANGES.txt contains later 0.8.2/0.8.3 entries.
+Those entries are historical notes, not proof of the installed application
+version. Do not tag a new release without checking its release history. The
+installer header 2.6.0 is its installer version, not
+proof of the current DXWeb application release.
+
+For installation see INSTALL.txt. For historical test and protocol records
+see VALIDATION.txt, PROTOCOL.txt, PROTOCOL-v2.txt and CHANGES.txt.

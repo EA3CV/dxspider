@@ -1,3 +1,10 @@
+/*
+ * DXSpider Web
+ *
+ * Client-side application for DXSpider web user access.
+ *
+ * Copyright (c) 2026 Dirk Koopman G1TLH
+ */
 // DXSpider Web 2.8.7
 // Date: 2026-09-16
 'use strict';
@@ -128,7 +135,12 @@ document.querySelectorAll('.clearBtn').forEach(b=>b.onclick=()=>{
  if(logs[k]){logs[k]=[];renderLog(k);return}
  const out=document.querySelector(`#${k} .commandOutput`);if(out)out.textContent='';
 });
-$('showHuman').onchange=renderSpots;$('showRbn').onchange=renderSpots;
+function spotFilterChanged(k){
+ spotCounts[k]=0;
+ spotItems=spotItems.filter(x=>x.type!==k);
+ renderSpots();
+}
+$('showHuman').onchange=()=>spotFilterChanged('human');$('showRbn').onchange=()=>spotFilterChanged('rbn');
 
 function renderSpots(){
  const human=$('showHuman').checked,rbn=$('showRbn').checked;
@@ -159,6 +171,8 @@ function acceptFeed(m){
  if(k==='human'||k==='rbn'){
    const p=parseCC11(m.payload);
    if(!p)return;
+   const enabled=k==='human'?$('showHuman').checked:$('showRbn').checked;
+   if(!enabled)return;
    spotItems.push({...p,type:k});
    spotCounts[k]=(spotCounts[k]||0)+1;
    if(spotItems.length>1000)spotItems.shift();

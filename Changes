@@ -1,3 +1,16 @@
+28Sep26======================================================================
+1. There are a lot of changes that need testing, please look at the dxweb,
+   dxweb-admin directories for information on the new web interfaces. There
+   is also a new registration system. Please read /spider/README_DXReg.txt
+   for more information. This has all be provided by Kin EA3CV for which I
+   am very (very) grateful.
+27Sep26======================================================================
+1. Fixed small bug in DXProtout when generating PC92 sentences which caused
+   an unnecessary empty field to be emitted on A and D messages.
+26Sep26======================================================================
+1. Fix show/dxsql and connect to the new database version fixed by Kin EA3CV.
+18Sep26======================================================================
+1. Added SIGHUP protector on dxweb and dxweb-admin start routines
 17Sep26======================================================================
 1. Improved web interface, started an experimental registration system - if
    you want to try the registration system install libemail-sender-perl.

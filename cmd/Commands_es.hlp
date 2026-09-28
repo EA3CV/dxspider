@@ -1076,6 +1076,189 @@ y también cualquier mensaje enviado por o recibido para tu indicativo.
 === 5^READ-^
 Como sysop puedes leer cualquier mensaje en el sistema
 
+=== 0^REGISTER/REQUEST <email> <idioma> [ssid-list]^Solicita el registro de usuario
+Permite a un usuario solicitar su registro en el sistema DXSpider.
+
+El indicativo se obtiene siempre de la sesion conectada y no debe
+especificarse en el comando.
+
+El parametro <idioma> selecciona el idioma que se utilizara para las
+notificaciones relacionadas con la solicitud. Se especifica mediante
+un codigo de idioma de dos letras, por ejemplo:
+
+  EN    Ingles
+  ES    Espanol
+  DE    Aleman
+  FR    Frances
+
+El codigo de idioma se almacena siempre en mayusculas. Si no existe
+una plantilla para el idioma seleccionado, se utiliza automaticamente
+la plantilla inglesa (.EN).
+
+En el formulario de registro Web el idioma predeterminado es EN.
+
+La lista opcional [ssid-list] permite solicitar tambien el registro de
+uno o varios SSID asociados al indicativo base.
+
+Los SSID validos son 1 a 99. Pueden especificarse individualmente,
+separados por comas, o utilizando "-" para indicar un rango inclusivo
+de SSID.
+
+Por ejemplo:
+
+  1          SSID 1
+  1,2,5      SSID 1, 2 y 5
+  1-5        rango de SSID 1 a 5, ambos incluidos
+  1,3-5,9    SSID 1, del 3 al 5, y 9
+
+SSID 0 y las formas con cero inicial, como 01 a 09, no son validos.
+
+Ejemplos:
+
+  REGISTER/REQUEST usuario@example.net ES
+  REGISTER/REQUEST usuario@example.net EN 1,2,5
+  REGISTER/REQUEST usuario@example.net DE 1-5
+  REGISTER/REQUEST usuario@example.net FR 1,3-5,9
+
+Solo puede existir una solicitud PENDING para un indicativo. Las
+solicitudes anteriores ACCEPTED, REJECTED o REMOVED se conservan
+en el historico.
+
+Un SYSOP puede crear una solicitud para otro indicativo especificando
+el indicativo como primer parametro:
+
+  REGISTER/REQUEST <indicativo> <email> <idioma> [ssid-list]
+
+Ejemplos para SYSOP:
+
+  REGISTER/REQUEST EA0XYZ usuario@example.net ES
+  REGISTER/REQUEST EA0XYZ usuario@example.net EN 1,2,5
+  REGISTER/REQUEST EA0XYZ usuario@example.net DE 1-5
+  REGISTER/REQUEST EA0XYZ usuario@example.net FR 1,3-5,9
+
+=== 9^REGISTER/SHOW [<indicativo>|<id>]^Muestra solicitudes de registro
+Muestra las solicitudes y el historico del sistema de registro.
+
+Sin argumentos muestra todas las solicitudes que se encuentran
+actualmente en estado PENDING.
+
+Ejemplo:
+
+  REGISTER/SHOW
+
+Si se especifica un indicativo, muestra el historico completo de
+registro correspondiente a ese indicativo.
+
+Ejemplo:
+
+  REGISTER/SHOW EA0XYZ
+
+Tambien puede especificarse directamente el identificador de una
+solicitud para mostrar esa solicitud.
+
+Ejemplo:
+
+  REGISTER/SHOW 20260924-0001
+
+Las busquedas por CALL y CALL-SSID se agrupan por el indicativo base
+y el historico se presenta comenzando por las solicitudes mas recientes.
+
+=== 9^REGISTER/ACCEPT <id|indicativo> [nota]^Acepta una solicitud de registro
+Acepta una solicitud que se encuentre en estado PENDING.
+
+La solicitud puede identificarse mediante su ID.
+
+Ejemplo:
+
+  REGISTER/ACCEPT 20260924-0001
+
+Tambien puede identificarse mediante el indicativo.
+
+Ejemplo:
+
+  REGISTER/ACCEPT EA0XYZ
+
+Cuando se utiliza el indicativo debe existir una unica solicitud
+PENDING correspondiente a ese indicativo.
+
+Puede anadirse opcionalmente una nota administrativa.
+
+Ejemplo:
+
+  REGISTER/ACCEPT EA0XYZ Registro comprobado
+
+Al aceptar una solicitud:
+
+- se conservan los SSID que ya estuvieran registrados;
+- se anaden los nuevos SSID solicitados;
+- la ausencia de SSID en la solicitud nunca significa eliminarlos;
+- si el indicativo base ya tiene contrasena, se reutiliza;
+- si no existe contrasena, se genera una nueva;
+- se utiliza la misma contrasena para el indicativo base y todos sus
+  SSID registrados;
+- los SSID solicitados y aceptados quedan registrados separadamente
+  en el historico.
+
+La contrasena nunca se almacena en registration.json ni aparece en
+los logs de debug.
+
+=== 9^REGISTER/REJECT <id|indicativo> [nota]^Rechaza una solicitud de registro
+Rechaza una solicitud que se encuentre en estado PENDING.
+
+La solicitud puede identificarse mediante su ID.
+
+Ejemplo:
+
+  REGISTER/REJECT 20260924-0001
+
+Tambien puede identificarse mediante el indicativo.
+
+Ejemplo:
+
+  REGISTER/REJECT EA0XYZ
+
+Cuando se utiliza el indicativo debe existir una unica solicitud
+PENDING correspondiente a ese indicativo.
+
+Puede anadirse opcionalmente una nota administrativa.
+
+Ejemplo:
+
+  REGISTER/REJECT EA0XYZ Indicativo no verificado
+
+La solicitud queda almacenada en el historico con estado REJECTED.
+
+El rechazo no impide que posteriormente se cree una nueva solicitud
+para el mismo indicativo.
+
+=== 9^REGISTER/REMOVE <indicativo> [nota]^Elimina el registro de un usuario
+Elimina el estado de registro de un usuario.
+
+La operacion actua sobre el indicativo base y sobre todos los registros
+CALL-1 a CALL-99 que existan para ese indicativo.
+
+Ejemplo:
+
+  REGISTER/REMOVE EA0XYZ
+
+Puede anadirse opcionalmente una nota administrativa.
+
+Ejemplo:
+
+  REGISTER/REMOVE EA0XYZ Registro eliminado por el SYSOP
+
+Al eliminar el registro:
+
+- los registros DXUser se conservan;
+- registered se establece a 0;
+- se elimina la contrasena;
+- se registra en el historico una entrada REMOVED con los SSID afectados;
+- las sesiones afectadas que esten conectadas son desconectadas para
+  que la siguiente conexion cargue el nuevo estado.
+
+Un fallo al desconectar una sesion se registra en el log, pero no
+revierte una eliminacion que ya haya sido almacenada.
+
 === 0^REJECT^ Define un filtro para rechazar algún dato, DX, WWV, WCY, etc.
 Crea un filtro con el que rechazamos algo
 
@@ -2189,6 +2372,32 @@ Ver también TYPE - para ver el contenido de un fichero.
 === 0^SHOW/FILTER^Muestra qué filtros tenemos activos
 Muestra el contenido de todos los filtros que tengamos definidos.
 este comando nos da todos los que tengamos - de todos los tipos.
+
+=== 9^SHOW/HEALTH [status|connections|traffic|pc92|peers [CALL]|queues|web|rbn|topology|self_health|all]^Muestra el estado y la supervision local de DXSpider
+Muestra el estado operativo actual del nodo DXSpider local. Este comando
+es de solo lectura y requiere privilegio SYSOP 9. Sin argumentos muestra
+status. Los datos proceden de las capturas de DXSupervisor / DXHealth.
+
+Opciones:
+  status       Version, build, tiempo activo y resumen del nodo.
+  connections  Conexiones actuales y su estado.
+  traffic      Contadores fisicos de trafico de protocolo entrante y saliente.
+  pc92         Contadores de protocolo PC92 A, C, D y K.
+  peers [CALL] Trafico de peers directos; CALL selecciona uno concreto.
+  queues       Colas de entrada y conexiones pendientes.
+  web          Canales de transporte web y sus contadores.
+  rbn          Canales RBN y sus contadores.
+  topology     Nodos y usuarios de red conocidos por DXSpider.
+  self_health  Solicitudes, errores y tiempos de generacion de DXSupervisor.
+  all          Muestra todas las secciones anteriores.
+
+Ejemplos:
+  SH/HEALTH
+  SH/HEALTH TRAFFIC
+  SH/HEALTH PC92
+  SH/HEALTH PEERS EA3CV-2
+  SH/HEALTH SELF_HEALTH
+  SH/HEALTH ALL
 
 === 0^SHOW/HFSTATS^Muestra las estadísticas de los últimos 31 días en HF
 Muestra una lista día por día de los spots recibidos en los últimos

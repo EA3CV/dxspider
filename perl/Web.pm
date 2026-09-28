@@ -16,8 +16,10 @@ use DXUtil;
 use DXUser;
 use DXCIDR;
 use DXReg;
+use DXSupervisor;
 use Route;
 use Route::User;
+use DXSubprocess;
 
 
 # One-request execution context for a logical WebCluster user.
@@ -39,6 +41,12 @@ sub peerhost { return $_[0]->{peerhost}; }
 sub sockhost { return $_[0]->{sockhost}; }
 
 package Web::Actor;
+
+use Time::HiRes qw(gettimeofday);
+use DXUtil;
+use DXDebug;
+use DXLog;
+use DXSubprocess;
 
 our @ISA = qw(DXCommandmode);
 
@@ -132,6 +140,118 @@ sub output
 	return @{$self->{_output} || []};
 }
 
+# Web::Actor is deliberately not a registered DXChannel.  Long-running
+# commands must therefore keep DXCommandmode's subprocess isolation without
+# relying on DXChannel::get($call) when the child completes.
+sub set_async_completion
+{
+	my ($self, $cb) = @_;
+	$self->{_async_completion} = $cb;
+	return;
+}
+
+sub async_pending
+{
+	my $self = shift;
+	return $self->{_async_pending} || 0;
+}
+
+sub _async_finished
+{
+	my $self = shift;
+	$self->{_async_pending}-- if ($self->{_async_pending} || 0) > 0;
+	return if $self->{_async_pending};
+
+	my $cb = $self->{_async_completion};
+	if ($cb) {
+		eval { $cb->($self); };
+		LogDbg('err', "Web::Actor async completion failed for $self->{dcall}: $@") if $@;
+	}
+	$self->disconnect;
+	return;
+}
+
+sub spawn_cmd
+{
+	my $self = shift;
+	my $line = shift;
+	my $cmdref = shift;
+	my %opts = @_;
+	my @out;
+
+	my $cb = delete $opts{cb};
+	my $prefix = delete $opts{prefix};
+	my $progress = delete $opts{progress};
+	my $args = delete $opts{args} || [];
+	my $t0 = [gettimeofday];
+
+	no strict 'refs';
+
+	# Keep the standard one-shot behaviour where it is explicitly requested.
+	if ($self->{_nospawn} || $main::is_win == 1) {
+		eval { @out = $cmdref->(@$args); };
+		if ($@) {
+			DXDebug::dbgprintring(25);
+			push @out, DXDebug::shortmess($@);
+		}
+		return @out;
+	}
+
+	$self->{_async_pending} = ($self->{_async_pending} || 0) + 1;
+	my $fc = DXSubprocess->new;
+	$fc->run(
+		sub {
+			my $subpro = shift;
+			if (isdbg('progress')) {
+				my $s = qq{$self->{dcall} line: "$line"};
+				$s .= ", args: " . join(', ', map { defined $_ ? qq{'$_'} : q{'undef'} } @$args)
+					if $args && @$args;
+				dbg($s);
+			}
+			eval {
+				++$self->{_in_sub_process};
+				@out = $cmdref->(@$args);
+				--$self->{_in_sub_process} if $self->{_in_sub_process} > 0;
+			};
+			if ($@) {
+				DXDebug::dbgprintring(25);
+				push @out, DXDebug::shortmess($@);
+			}
+			return @out;
+		},
+		sub {
+			my ($fc, $err, @res) = @_;
+
+			if ($err) {
+				my $s = "Web::Actor::spawn_cmd: call $self->{dcall} error $err";
+				dbg($s) if isdbg('chan');
+				$self->send($s) unless $self->{_disconnected};
+				$self->_async_finished;
+				return;
+			}
+
+			if ($cb && !$self->{_disconnected}) {
+				my $ok = eval { @res = $cb->($self, @res); 1; };
+				unless ($ok) {
+					DXDebug::dbgprintring(25);
+					@res = (DXDebug::shortmess($@));
+				}
+			}
+			if (@res && !$self->{_disconnected}) {
+				if (defined $prefix) {
+					$self->send(map {"$prefix$_"} @res);
+				} else {
+					$self->send(@res);
+				}
+			}
+			diffms("by Web::Actor $self->{dcall}", $line, $t0, scalar @res) if isdbg('progress');
+			$self->_async_finished;
+		}
+	);
+
+	return @out;
+}
+
 package Web;
 
 require Exporter;
@@ -139,8 +259,11 @@ our @ISA = qw(DXCommandmode Exporter);
 our @EXPORT = qw(is_webcall find_next_webcall);
 
 our $maxssid = 64;
-our $web_hwm = 64 * 1024;
+our $web_hwm = 64 * 1024;          # disposable feed/backlog limit
 our $web_hwm_resume = 32 * 1024;
+our $web_control_max = 512 * 1024; # bounded single control response/socket HWM
+our $web_generation_seq = 0;
+our $web_user_generation_seq = 0;
 
 my $json = DXJSON->new;
 
@@ -171,6 +294,7 @@ sub new
 	$self->{priv} = 0;
 
 	$self->{web_role} = '';
+	$self->{web_generation} = ++$web_generation_seq;
 	$self->{web_version} = 0;
 	$self->{web_users} = {};
 	$self->{web_feed_ann} = 1;
@@ -210,7 +334,7 @@ sub _enable_webcluster_backpressure
 	my $sock = $conn && $conn->{sock};
 	return unless $sock;
 
-	$sock->high_water_mark($web_hwm) if $sock->can('high_water_mark');
+	$sock->high_water_mark($web_control_max) if $sock->can('high_water_mark');
 	$self->{web_feed_accepted} = 0;
 	$self->{web_feed_dropped} = 0;
 	$self->{web_feed_saturated} = 0;
@@ -271,7 +395,9 @@ sub _web_control_can_write
 	return 1 unless $self->is_webcluster;
 
 	my ($can_write, $waiting) = $self->_web_output_state($bytes);
-	return 1 if $can_write && $waiting + ($bytes || 0) <= $web_hwm;
+	$bytes ||= 0;
+	return 0 if $bytes > $web_control_max;
+	return 1 if $can_write && $waiting + $bytes <= $web_control_max;
 
 	LogDbg('DXCommand', sprintf(
 		'Web %s control output saturated waiting=%d; disconnecting #WEB',
@@ -431,8 +557,23 @@ sub _send_json
 	}
 
 	my $wire_bytes = length($s) + length($self->{call} || '') + 4;
-	return unless $self->_web_control_can_write($wire_bytes);
 
+	# A single oversized control response is a producer/protocol error, not
+	# backpressure.  Do not sacrifice the #WEB control channel (and all logical
+	# web sessions) for it.  Replace it with a small correlated error response.
+	if ($wire_bytes > $web_control_max && $data && ref($data) eq 'HASH' &&
+	    ($data->{type} || '') eq 'response') {
+		LogDbg('err', sprintf('Web %s oversized control response bytes=%d hwm=%d action=%s',
+			$self->{call}, $wire_bytes, $web_control_max, ($data->{action} || '')));
+		$s = _encode_protocol_object([
+			['type','response'], ['id',$data->{id}], ['status','error'],
+			['action',$data->{action}], ['error','response_too_large'],
+		]);
+		return unless defined $s;
+		$wire_bytes = length($s) + length($self->{call} || '') + 4;
+	}
+
+	return unless $self->_web_control_can_write($wire_bytes);
 	$self->send_now('D', $s);
 }
 
@@ -694,6 +835,7 @@ sub _user_add
 		registered    => $authmeta ? ($authmeta->{registered} || 0) : 0,
 		password_used => $authmeta ? ($authmeta->{password_used} || 0) : 0,
 		auth_source   => $authmeta ? ($authmeta->{auth_source} || 'dxspider') : 'external',
+		generation    => ++$web_user_generation_seq,
 	};
 
 	$self->tell_login('loginu', $call);
@@ -981,6 +1123,33 @@ sub _registration_admin
 	return ($call, undef);
 }
 
+sub _supervisor_request
+{
+	my ($self, $req) = @_;
+	my $id = $req->{id};
+	my $what = lc($req->{what} || 'status');
+	# Only the internal dxweb-admin sampler may take these three read-only
+	# snapshots without a logical browser user.  Any request carrying a call,
+	# and every other supervisor snapshot, keeps the existing priv>=9 check.
+	my $technical = (($self->{web_role} || '') eq 'dxweb-admin' &&
+	                 !defined($req->{call}) &&
+	                 $what =~ /^(?:status|traffic|self_health)$/) ? 1 : 0;
+	unless ($technical) {
+		my ($call, $err) = $self->_registration_admin($req);
+		unless ($call) { $self->_error($id, 'supervisor', $err); return; }
+	}
+	unless ($what =~ /^(?:status|connections|traffic|web|rbn|self_health|topology)$/) {
+		$self->_error($id, 'supervisor', 'unsupported_snapshot');
+		return;
+	}
+	my ($ok, $result) = DXSupervisor::snapshot($what);
+	unless ($ok) {
+		$self->_error($id, 'supervisor', $result->{error} || 'snapshot_failed');
+		return;
+	}
+	$self->_response($id, 'ok', 'supervisor', {what => $what, result => $result});
+}
+
 sub _registration_request
 {
 	my ($self, $req) = @_;
@@ -1074,10 +1243,46 @@ sub _command_request
 	unless ($actor) { $self->_error($id, 'command', $err, $call ? {call => $call} : undef); return; }
 	my $command = _wc_text($req->{command}, 0);
 	unless (defined $command) { $self->_error($id, 'command', 'bad_arguments', {call => $call}); return; }
+
+	# A Web::Actor can outlive this request while DXSubprocess is running.  Do
+	# not retain the #WEB channel object itself and do not address completion by
+	# the logical user's callsign.  Re-resolve only the technical #WEB channel
+	# and require the same per-connection generation before replying.
+	my $webcall = $self->{call};
+	my $generation = $self->{web_generation};
+	my $user_generation = $self->{web_users}{$call}{generation};
+	$actor->set_async_completion(sub {
+		my ($done_actor) = @_;
+		my $web = DXChannel::get($webcall);
+		return unless $web && $web->isa('Web');
+		return unless defined $web->{web_generation} && $web->{web_generation} == $generation;
+		return unless $web->is_webcluster;
+		my $owned = $web->{web_users}{$call};
+		return unless $owned && $owned->{authenticated};
+		return unless defined $owned->{generation} && defined $user_generation &&
+			$owned->{generation} == $user_generation;
+
+		my @messages = grep { defined $_ && length $_ }
+			(@{$done_actor->{_command_returned} || []}, $done_actor->output);
+		$web->_response($id, 'ok', 'command', {call => $call, messages => \@messages});
+	});
+
 	my (@returned, $ok);
 	$ok = eval { @returned = $actor->run_cmd($command); 1 };
-	unless ($ok) { LogDbg('err', "Web $self->{call}: command failed: $@"); $self->_error($id, 'command', 'internal_error', {call => $call}); return; }
+	unless ($ok) {
+		LogDbg('err', "Web $self->{call}: command failed: $@");
+		$actor->disconnect;
+		$self->_error($id, 'command', 'internal_error', {call => $call});
+		return;
+	}
+
+	if ($actor->async_pending) {
+		$actor->{_command_returned} = [@returned];
+		return;
+	}
+
 	my @messages = grep { defined $_ && length $_ } (@returned, $actor->output);
+	$actor->disconnect;
 	$self->_response($id, 'ok', 'command', {call => $call, messages => \@messages});
 }
 
@@ -1289,6 +1494,7 @@ sub normal
 		return;
 	}
 
+	if ($type eq 'supervisor') { $self->_supervisor_request($req); return; }
 	if ($type eq 'reg_request') { $self->_registration_request($req); return; }
 	if ($type eq 'reg_pending') { $self->_registration_pending($req); return; }
 	if ($type eq 'reg_history') { $self->_registration_history($req); return; }

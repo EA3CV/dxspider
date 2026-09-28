@@ -1,4 +1,11 @@
 #!/usr/bin/env perl
+#
+# DXSpider Web
+#
+# Non-blocking web client gateway for DXSpider user access.
+#
+# Copyright (c) 2026 Dirk Koopman G1TLH
+#
 use strict;
 use warnings;
 use utf8;
@@ -6,6 +13,8 @@ use Mojolicious::Lite -signatures;
 use Mojo::IOLoop;
 use Mojo::JSON qw(encode_json decode_json);
 use Time::HiRes qw(time);
+
+$SIG{HUP}='IGNORE';
 
 my $DXS_HOST = $ENV{DXS_HOST} // '127.0.0.1';
 my $DXS_PORT = $ENV{DXS_PORT} // 27754;

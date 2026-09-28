@@ -129,6 +129,7 @@ use DXLog;
 use DXLogPrint;
 use DXUtil;
 use DXChannel;
+use DXHealth;
 use DXUser;
 use DXM;
 use DXCommandmode;
@@ -400,6 +401,7 @@ sub new_channel
 			if ($v && @n >= $v+$allowmultiple) {
 				my $nodes = join ',', @n;
 				LogDbg('', "$call has too many connections ($v) at $nodes - disconnected");
+				DXHealth::connection_too_many($call, eval { $conn->peerhost } || '', $v, scalar(@n));
 				already_conn($conn, $call, DXM::msg($lang, 'contomany', $call, $v, $nodes));
 				return;
 			}
@@ -660,7 +662,9 @@ sub setup_start
 	localdata_mv($motd);
 	$motd = localdata($motd);
 	localdata_mv("issue");
-	
+
+	# Install new DXReg template defaults without overwriting local customisations.
+	localdata_cp_missing("reg_templates");
 
 	# try to load XML::Simple
 	DXXml::init();

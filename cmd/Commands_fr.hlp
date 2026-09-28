@@ -1087,6 +1087,185 @@ les messages dont vous êtes l'expéditeur ou le destinataire.
 === 5^READ-^
 En tant que sysop, vous pouvez lire n'importe quel message sur le système.
 
+=== 0^REGISTER/REQUEST <email> <langue> [liste-ssid]^Demande l'enregistrement d'un utilisateur
+Permet a un utilisateur de demander son enregistrement dans DXSpider.
+
+L'indicatif est toujours obtenu depuis la session connectee et ne doit pas
+etre indique dans la commande.
+
+Le parametre <langue> selectionne la langue utilisee pour les notifications
+liees a la demande. Il est indique par un code de langue de deux lettres,
+par exemple :
+
+  EN    Anglais
+  ES    Espagnol
+  DE    Allemand
+  FR    Francais
+
+Le code de langue est toujours enregistre en majuscules. Si aucun modele
+n'est installe pour la langue selectionnee, le modele anglais (.EN) est
+utilise automatiquement.
+
+Dans le formulaire Web d'enregistrement, la langue par defaut est EN.
+
+La [liste-ssid] facultative permet egalement de demander l'enregistrement
+d'un ou plusieurs SSID associes a l'indicatif de base.
+
+Les SSID valides vont de 1 a 99. Ils peuvent etre indiques individuellement,
+separes par des virgules, ou "-" peut etre utilise pour definir une plage
+inclusive de SSID.
+
+Par exemple :
+
+  1          SSID 1
+  1,2,5      SSID 1, 2 et 5
+  1-5        plage de SSID 1 a 5, bornes incluses
+  1,3-5,9    SSID 1, de 3 a 5, et 9
+
+Le SSID 0 et les formes avec zero initial, comme 01 a 09, ne sont pas valides.
+
+Exemples :
+
+  REGISTER/REQUEST user@example.net ES
+  REGISTER/REQUEST user@example.net EN 1,2,5
+  REGISTER/REQUEST user@example.net DE 1-5
+  REGISTER/REQUEST user@example.net FR 1,3-5,9
+
+Une seule demande PENDING peut exister pour un indicatif. Les demandes
+precedentes ACCEPTED, REJECTED ou REMOVED restent conservees dans l'historique.
+
+Un SYSOP peut creer une demande pour un autre indicatif en indiquant cet
+indicatif comme premier parametre :
+
+  REGISTER/REQUEST <indicatif> <email> <langue> [liste-ssid]
+
+Exemples SYSOP :
+
+  REGISTER/REQUEST EA0XYZ user@example.net ES
+  REGISTER/REQUEST EA0XYZ user@example.net EN 1,2,5
+  REGISTER/REQUEST EA0XYZ user@example.net DE 1-5
+  REGISTER/REQUEST EA0XYZ user@example.net FR 1,3-5,9
+
+=== 9^REGISTER/SHOW [<indicatif>|<id>]^Affiche les demandes d'enregistrement
+Affiche les demandes et l'historique d'enregistrement.
+
+Sans argument, affiche toutes les demandes actuellement a l'etat PENDING.
+
+Exemple :
+
+  REGISTER/SHOW
+
+Si un indicatif est indique, affiche l'historique complet d'enregistrement
+pour cet indicatif.
+
+Exemple :
+
+  REGISTER/SHOW EA0XYZ
+
+L'identifiant d'une demande peut egalement etre indique directement.
+
+Exemple :
+
+  REGISTER/SHOW 20260924-0001
+
+Les recherches CALL et CALL-SSID sont regroupees par indicatif de base et
+l'historique est affiche en commencant par les demandes les plus recentes.
+
+=== 9^REGISTER/ACCEPT <id|indicatif> [note]^Accepte une demande d'enregistrement
+Accepte une demande qui se trouve a l'etat PENDING.
+
+La demande peut etre identifiee par son ID.
+
+Exemple :
+
+  REGISTER/ACCEPT 20260924-0001
+
+Elle peut egalement etre identifiee par l'indicatif.
+
+Exemple :
+
+  REGISTER/ACCEPT EA0XYZ
+
+Lorsque l'indicatif est utilise, il doit exister exactement une demande
+PENDING pour cet indicatif.
+
+Une note administrative peut etre ajoutee facultativement.
+
+Exemple :
+
+  REGISTER/ACCEPT EA0XYZ Enregistrement verifie
+
+Lorsqu'une demande est acceptee :
+
+- les SSID deja enregistres sont conserves ;
+- les nouveaux SSID demandes sont ajoutes ;
+- l'absence de SSID dans la demande ne signifie jamais leur suppression ;
+- si l'indicatif de base possede deja un mot de passe, il est reutilise ;
+- sinon, un nouveau mot de passe est genere ;
+- le meme mot de passe est utilise pour l'indicatif de base et tous les SSID
+  enregistres ;
+- les SSID demandes et acceptes sont stockes separement dans l'historique.
+
+Le mot de passe n'est jamais stocke dans registration.json ni ecrit dans les
+logs de debug.
+
+=== 9^REGISTER/REJECT <id|indicatif> [note]^Rejette une demande d'enregistrement
+Rejette une demande qui se trouve a l'etat PENDING.
+
+La demande peut etre identifiee par son ID.
+
+Exemple :
+
+  REGISTER/REJECT 20260924-0001
+
+Elle peut egalement etre identifiee par l'indicatif.
+
+Exemple :
+
+  REGISTER/REJECT EA0XYZ
+
+Lorsque l'indicatif est utilise, il doit exister exactement une demande
+PENDING pour cet indicatif.
+
+Une note administrative peut etre ajoutee facultativement.
+
+Exemple :
+
+  REGISTER/REJECT EA0XYZ Indicatif non verifie
+
+La demande reste conservee dans l'historique avec l'etat REJECTED.
+
+Le rejet n'empeche pas la creation ulterieure d'une nouvelle demande pour le
+meme indicatif.
+
+=== 9^REGISTER/REMOVE <indicatif> [note]^Supprime l'enregistrement d'un utilisateur
+Supprime l'etat d'enregistrement d'un utilisateur.
+
+L'operation agit sur l'indicatif de base et sur tous les enregistrements
+DXUser CALL-1 a CALL-99 existants pour cet indicatif.
+
+Exemple :
+
+  REGISTER/REMOVE EA0XYZ
+
+Une note administrative peut etre ajoutee facultativement.
+
+Exemple :
+
+  REGISTER/REMOVE EA0XYZ Enregistrement supprime par le SYSOP
+
+Lors de la suppression de l'enregistrement :
+
+- les enregistrements DXUser sont conserves ;
+- registered est mis a 0 ;
+- le mot de passe est supprime ;
+- une entree REMOVED est creee dans l'historique avec les SSID concernes ;
+- les sessions concernees qui sont connectees sont deconnectees afin que le
+  nouvel etat soit charge lors de la prochaine connexion.
+
+Un echec de deconnexion est journalise, mais n'annule pas une suppression
+d'enregistrement deja enregistree.
+
 === 0^REJECT^Définit un filtre pour rejeter quelque chose
 Crée un filtre pour rejeter quelque chose.
 
@@ -2085,6 +2264,32 @@ Voir aussi TYPE pour afficher le CONTENU d'un fichier.
 === 0^SHOW/FILTER^Affiche le contenu de tous les filtres que vous avez définis
 Affiche le contenu de tous les filtres qui sont définis.
 Cette commande affiche tous les filtres, de n'importe quelle catégorie.
+
+=== 9^SHOW/HEALTH [status|connections|traffic|pc92|peers [CALL]|queues|web|rbn|topology|self_health|all]^Affiche l'etat et la supervision du DXSpider local
+Affiche l'etat de fonctionnement actuel du noeud DXSpider local. Cette
+commande en lecture seule exige le privilege SYSOP 9. Sans argument,
+elle affiche status. Les donnees viennent de DXSupervisor / DXHealth.
+
+Options :
+  status       Version, build, duree de fonctionnement et resume du noeud.
+  connections  Connexions actuelles et leur etat.
+  traffic      Compteurs physiques du trafic entrant et sortant par protocole.
+  pc92         Compteurs PC92 pour les types A, C, D et K.
+  peers [CALL] Compteurs des pairs directs ; CALL selectionne un pair.
+  queues       Files d'entree et connexions en attente.
+  web          Canaux de transport web et leurs compteurs.
+  rbn          Canaux RBN et leurs compteurs.
+  topology     Noeuds et utilisateurs du reseau connus de DXSpider.
+  self_health  Requetes, erreurs et durees de generation de DXSupervisor.
+  all          Affiche toutes les sections ci-dessus.
+
+Exemples :
+  SH/HEALTH
+  SH/HEALTH TRAFFIC
+  SH/HEALTH PC92
+  SH/HEALTH PEERS EA3CV-2
+  SH/HEALTH SELF_HEALTH
+  SH/HEALTH ALL
 
 === 0^SHOW/HFSTATS [jours] [date]^Affiche les statistiques DX ondes courtes
 Affiche le nombre d'informations DX par bande, en ondes courtes, pour les

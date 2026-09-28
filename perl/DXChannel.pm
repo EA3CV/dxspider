@@ -30,6 +30,7 @@ use DXM;
 use DXUtil;
 use DXVars;
 use DXDebug;
+use DXHealth;
 use Filter;
 use Prefix;
 use Route;
@@ -204,6 +205,10 @@ sub alloc
 
 	# this will add a cnum to debugged callsigns
 	$self->check_cnum_debugging;
+
+	# Universal connection observation. Only channels with a real transport
+	# are counted; the local $main::me pseudo-channel has no connection.
+	DXHealth::connection_up($self) if $conn;
 
 	return $channels{$call} = $self;
 }
@@ -486,6 +491,8 @@ sub send						# this is always later and always data
 		for (ref $l ? @$l : $l) {
 			my @lines = split /\n/;
 			for (@lines) {
+				DXHealth::protocol_physical_out_line($self->{call}, $_);
+				DXHealth::pc92_physical_out_line($self->{call}, $_);
 				$conn->send_later("D$call|$_");
 				dbg("-> D $self->{dcall} $_") if isdbg('chan');
 			}
@@ -552,6 +559,10 @@ sub disconnect
 {
 	my $self = shift;
 	my $user = $self->{user};
+
+	# Universal teardown observation; DXHealth makes this idempotent with
+	# the higher-level user/node disconnect hooks.
+	DXHealth::connection_down($self);
 	
 	$user->close($self->{startt}, $self->{hostname}) if defined $user;
 	$self->{conn}->disconnect if $self->{conn};

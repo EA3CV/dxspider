@@ -19,6 +19,8 @@
 # Date    : 16-Sep-2026
 #
 
+# Copyright (c) 2026 Dirk Koopman G1TLH
+#
 package DXReg;
 
 use strict;
@@ -2282,9 +2284,9 @@ sub _base_call
 # ------------------------------------------------------------
 # _current_registered_ssids
 #
-# SQL DXUser::get_all_calls() does not currently return a call list,
-# so for the bounded SSID namespace the reliable approach is simply
-# to inspect BASE-1 .. BASE-99.
+# Keep this deliberately bounded to the SSID namespace BASE-1 .. BASE-99.
+# DXUser::get_all_calls() does return calls, but scanning the whole user
+# database is unnecessary here.
 # ------------------------------------------------------------
 
 sub _current_registered_ssids

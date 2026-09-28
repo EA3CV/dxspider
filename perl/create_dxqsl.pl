@@ -26,6 +26,8 @@ use SysVar;
 use DXUtil;
 use Spot;
 use QSL;
+use DBI;
+
 
 use vars qw($end $lastyear $lastday $lasttime);
 
@@ -54,6 +56,7 @@ foreach my $year (sort readdir YEAR) {
 		my $fn = "$baseyear/$day";
 		my $f = new IO::File $fn  or die "$fn ($!)"; 
 		print "doing: $fn\n";
+		QSL::begin_work;
 		while (<$f>) {
 			last if $end;
 			if (/(QSL|VIA)/i) {
@@ -64,6 +67,7 @@ foreach my $year (sort readdir YEAR) {
 			}
 		}
 		$f->close;
+		QSL::commit;
 		last if $end;
 	}
 	last if $end;
