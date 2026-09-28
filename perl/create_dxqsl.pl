@@ -26,6 +26,8 @@ use SysVar;
 use DXUtil;
 use Spot;
 use QSL;
+use DBI;
+
 
 use vars qw($end $lastyear $lastday $lasttime);
 
@@ -37,7 +39,7 @@ my $qslfn = "dxqsl";
 $main::systime = time;
 
 QSL::remove_files();
-my $dbh = QSL::init(1) or die "cannot open QSL file";
+QSL::init(1) or die "cannot open QSL file";
 
 my $base = localdata("spots");
 
@@ -54,7 +56,7 @@ foreach my $year (sort readdir YEAR) {
 		my $fn = "$baseyear/$day";
 		my $f = new IO::File $fn  or die "$fn ($!)"; 
 		print "doing: $fn\n";
-		$dbh->start_work;
+		QSL::begin_work;
 		while (<$f>) {
 			last if $end;
 			if (/(QSL|VIA)/i) {
@@ -65,7 +67,7 @@ foreach my $year (sort readdir YEAR) {
 			}
 		}
 		$f->close;
-		$dbh->commit;
+		QSL::commit;
 		last if $end;
 	}
 	last if $end;
