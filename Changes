@@ -1,3 +1,9 @@
+28Sep26======================================================================
+1. There are a lot of changes that need testing, please look at the dxweb,
+   dxweb-admin directories for information on the new web interfaces. There
+   is also a new registration system. Please read /spider/README_DXReg.txt
+   for more information. This has all be provided by Kin EA3CV for which I
+   am very (very) grateful.
 27Sep26======================================================================
 1. Fixed small bug in DXProtout when generating PC92 sentences which caused
    an unnecessary empty field to be emitted on A and D messages.
