@@ -1,3 +1,24 @@
+30Sep26======================================================================
+1. Discourage callsigns from connecting into the node too quickly. 
+
+   The way this works is if any callsign has connected more than 3 times in 
+   less than $main::tmlaverage (def: 30) seconds then they (as standard) are 
+   bumped off immediately for $main::tmladd (def: 60) seconds before they can 
+   login again. Every time they continue trying to login, $main::tmladd 
+   seconds are added. 
+
+   A "stat/user <callsign>" will show that next possible login time to sysops 
+   (but not to the miscreant). 
+
+   This behaviour can be disabled by set/var $main::tmlaverage = 0.
+
+   It can be made more onerous by set/var $main::tmlgeometric = 1. This will 
+   double the no of seconds left before allowing the next login, before
+   adding $main::tmladd seconds. 
+
+   NOTE: This process works for both users AND nodes.
+2. Fix a long standing issue with LogDbg where the first parameter (supposed
+   to be the required debugging label) was ignored.
 28Sep26======================================================================
 1. There are a lot of changes that need testing, please look at the dxweb,
    dxweb-admin directories for information on the new web interfaces. There
