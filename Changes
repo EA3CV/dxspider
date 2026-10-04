@@ -1,3 +1,8 @@
+04Oct26======================================================================
+1. Add set/nextlogin to manually set the time a callsign can login some
+   seconds into the future. 
+
+   Usage: set/nextlogin <seconds> <callsign> ...
 30Sep26======================================================================
 1. Discourage callsigns from connecting into the node too quickly. 
 

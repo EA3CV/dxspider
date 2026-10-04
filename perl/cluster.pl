@@ -238,9 +238,12 @@ our $io_disconnected;
 our $tmlaverage = 30;	# if there more than 3 connection attempts within this interval then start the login delay process
 our $tmladd = 60;		    # Add this value to $user->nextlogin
 our $tmlgeometric = 0;	# Rather than add  linearly, add ($user->nextlogin + $tmladd) * 2 instead
+our $tmlmaxdelay = 3600*4; 		# don't allow the delay to get beyond (default) 4 hours
+
  
 use vars qw($version $subversion $build $gitversion $gitbranch);
 
+# send a (admin) message / snottogram to a connected callsign 
 # send a message to call on conn and disconnect
 sub already_conn
 {
@@ -328,15 +331,17 @@ sub new_channel
 			$conn->disconnect;
 			return;
 		}
+
 		# Is this user has a nextlogin time, is it > now?
 		if ($tmlaverage) {
 			my $t = $user->nextlogin || 0;
 			if ($t  > $main::systime) {
 				my $l = $t - $main::systime;
 				$l = ($tmlgeometric ? $l * 2 : $l) +$tmladd +$tmlaverage;
+				$l = $tmlmaxdelay if $l > $tmlmaxdelay;
 				$user->nextlogin($l + $main::systime);
 				LogDbg('chan', "$call on $host is not allowed to login for another $l secs, disconnected");
-				$conn->disconnect;
+				already_conn($conn, $call, "logging too quickly, banned for $l seconds");
 				return;
 			}
 			else {
