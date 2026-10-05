@@ -7,6 +7,9 @@
 3. Change dxweb-admin authentication to allow users with privilege >= 1.
    Console commands retain normal DXSpider command privilege checking.
 4. Update dxweb to version 0.7.2 and dxweb-admin to version 0.76.7.
+5. Added $main::tmlmaxdelay = 3600*4 to stop the delays going stupidly long
+   say, into the next millenium for the more active connectors (value
+   tunable).
 04Oct26======================================================================
 1. Add set/nextlogin to manually set the time a callsign can login some
    seconds into the future. 
