@@ -221,8 +221,7 @@ sub LogDbg
 {
 	my $cat = shift;
 	foreach my $m (@_) {
-		DXDebug::dbgsetcat($cat);
-		DXDebug::dbg($m);
+		DXDebug::dbg($m) if isdbg($cat);
 		Log($cat, $m);
 	}
 }

@@ -235,12 +235,15 @@ our $localhost_alias_ipv6;		# for things (PC92, PC61 etc) that expose IP address
 our $save_route_cache;			# save and restore route cache on restart. Probably only useful for G1TLH testing
 our $local_ipaddr;
 our $io_disconnected;
+our $tmlaverage = 30;	# if there more than 3 connection attempts within this interval then start the login delay process
+our $tmladd = 60;		    # Add this value to $user->nextlogin
+our $tmlgeometric = 0;	# Rather than add  linearly, add ($user->nextlogin + $tmladd) * 2 instead
+our $tmlmaxdelay = 3600*4; 		# don't allow the delay to get beyond (default) 4 hours
 
-
+ 
 use vars qw($version $subversion $build $gitversion $gitbranch);
 
-
-
+# send a (admin) message / snottogram to a connected callsign 
 # send a message to call on conn and disconnect
 sub already_conn
 {
@@ -281,7 +284,7 @@ sub new_channel
 			$user->qth('on the web');
 			$user->homenode($main::mycall);
 			$user->lat($main::mylatitude);
-			$user->long($main::mylongitude);
+ 			$user->long($main::mylongitude);
 			$user->qra($main::mylocator);
 		}
 		$user->startt($main::systime);	
@@ -321,18 +324,45 @@ sub new_channel
 			my $luser = DXUser::get_current($basecall);
 			$lock = $luser->lockout if $luser;
 		}
-
 		# now deal with the lock
 		my $host = $conn->peerhost;
 		if ($lock) {
-			LogDbg('', "$call on $host is locked out, disconnected");
+			LogDbg('chan', "$call on $host is locked out, disconnected");
 			$conn->disconnect;
 			return;
 		}
 
+		# Is this user has a nextlogin time, is it > now?
+		if ($tmlaverage) {
+			my $t = $user->nextlogin || 0;
+			if ($t  > $main::systime) {
+				my $l = $t - $main::systime;
+				$l = ($tmlgeometric ? $l * 2 : $l) +$tmladd +$tmlaverage;
+				$l = $tmlmaxdelay if $l > $tmlmaxdelay;
+				$user->nextlogin($l + $main::systime);
+				LogDbg('chan', "$call on $host is not allowed to login for another $l secs, disconnected");
+				already_conn($conn, $call, "logging too quickly, banned for $l seconds");
+				return;
+			}
+			else {
+				my @lastconns = @{$user->connlist} if $user->connlist;
+			
+				if (@lastconns && @lastconns >= $DXUser::maxconnlist) {	# meaning it's full 
+					# the number of seconds since the start of the first conn -> end of the last conn
+					# in the list
+					my $av = $lastconns[-1]->[1] - $lastconns[0]->[0]; 
+					if ( $av <=  $tmlaverage ) {
+						$user->nextlogin($tmladd + $main::systime);
+					} else {
+						delete $user->{nextlogin};
+					}
+				}
+			}
+		}
+		
 		# Is he from a badip?
 		if (DXCIDR::find($host)) {
-			LogDbg('', "$call on $host is from a badip $host, disconnected");
+			LogDbg('chan', "$call on $host is from a badip $host, disconnected");
 			$conn->disconnect;
 			return;
 		}
@@ -375,7 +405,7 @@ sub new_channel
 				if ($bumpexisting) {
 					my $ip = $dxchan->hostname;
 					$dxchan->send_now('D', DXM::msg($lang, 'conbump', $call, $ip));
-					LogDbg('', "$call bumped off by $ip, disconnected");
+					LogDbg('chan', "$call bumped off by $ip, disconnected");
 					$dxchan->sleep(5);
 					$dxchan->disconnect;
 				} else {
@@ -400,7 +430,7 @@ sub new_channel
 			$v = defined $c ? $c : $m;
 			if ($v && @n >= $v+$allowmultiple) {
 				my $nodes = join ',', @n;
-				LogDbg('', "$call has too many connections ($v) at $nodes - disconnected");
+				LogDbg('chan', "$call has too many connections ($v) at $nodes - disconnected");
 				DXHealth::connection_too_many($call, eval { $conn->peerhost } || '', $v, scalar(@n));
 				already_conn($conn, $call, DXM::msg($lang, 'contomany', $call, $v, $nodes));
 				return;
@@ -430,7 +460,7 @@ sub new_channel
 	
 
 	# set callbacks
-	$conn->set_error(sub {my $err = shift; LogDbg('', "Comms error '$err' received for call $dxchan->{call}"); $dxchan->disconnect(1);});
+	$conn->set_error(sub {my $err = shift; LogDbg('chan', "Comms error '$err' received for call $dxchan->{call}"); $dxchan->disconnect(1);});
 	$conn->set_on_eof(sub {$dxchan->disconnect});
 	$conn->set_rproc(sub {my ($conn,$msg) = @_; $dxchan->rec($msg);});
 	if ($sort eq 'W') {

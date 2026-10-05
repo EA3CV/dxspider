@@ -81,6 +81,7 @@ our $dbh;
 		  long => '0,Longitude,slong',
 		  maxconnect => '1,Max Connections',
 		  name => '0,Name',
+		  nextlogin => '9,Next poss. login,cldatetime',
 		  node => '0,Last Node',
 		  nopings => '9,Ping Obs Count',
 		  nothere => '0,Not Here Text',
