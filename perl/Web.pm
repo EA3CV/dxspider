@@ -20,6 +20,7 @@ use DXSupervisor;
 use Route;
 use Route::User;
 use DXSubprocess;
+use Filter;
 
 
 # One-request execution context for a logical WebCluster user.
@@ -407,16 +408,98 @@ sub _web_control_can_write
 	return 0;
 }
 
-# WebCluster needs an absolute ANN feed switch.  DXCommandmode::announce()
-# deliberately lets local-node announcements through even when {ann} is off,
-# so intercept them here only for negotiated WebCluster channels.
+# Logical Web users share one technical #WEB-n DXChannel.  Keep the transport
+# unfiltered, but retain the effective per-user filters in RAM and attach the
+# matching logical calls to each feed item.  The external Web process then
+# fans the item out only to those authenticated calls.  No per-spot disk I/O
+# and no artificial DXChannel are required.
+sub _web_read_filter
+{
+	my ($call, $sort) = @_;
+	my $base = $call;
+	$base =~ s/-\d+$//;
+	return Filter::read_in($sort, $call, 0) ||
+		Filter::read_in($sort, $base, 0) ||
+		Filter::read_in($sort, 'user_default', 0);
+}
+
+sub _web_refresh_user_filters
+{
+	my ($self, $call) = @_;
+	my $owned = $self->{web_users}{$call} or return;
+	my %filters;
+	for my $sort (qw(spots ann wwv wcy rbn)) {
+		$filters{$sort} = _web_read_filter($call, $sort);
+	}
+	$owned->{filters} = \%filters;
+	return 1;
+}
+
+sub _web_refresh_all_filters
+{
+	my $self = shift;
+	$self->_web_refresh_user_filters($_) for keys %{$self->{web_users} || {}};
+	return 1;
+}
+
+sub _web_filter_targets
+{
+	my ($self, $sort, @args) = @_;
+	my @targets;
+	for my $call (sort keys %{$self->{web_users} || {}}) {
+		my $owned = $self->{web_users}{$call} || next;
+		next unless $owned->{authenticated};
+		my $f = $owned->{filters}{$sort};
+		if ($f) {
+			my ($want) = $f->it(@args);
+			next unless $want;
+		}
+		push @targets, $call;
+	}
+	return \@targets;
+}
+
+sub web_rbn_users
+{
+	my $self = shift;
+	return grep { $self->{web_users}{$_}{authenticated} }
+		sort keys %{$self->{web_users} || {}};
+}
+
+sub web_rbn_filter
+{
+	my ($self, $call) = @_;
+	my $owned = $self->{web_users}{$call} or return;
+	return $owned->{filters}{rbn};
+}
+
+sub dx_spot
+{
+	my $self = shift;
+	if ($self->is_webcluster) {
+		return unless $self->{dx};
+		my @filter_args = @_ > 2 ? @_[2 .. $#_] : ();
+		my $targets = $self->_web_filter_targets('spots', @filter_args);
+		return unless @$targets;
+		local $self->{_web_feed_targets} = $targets;
+		return $self->SUPER::dx_spot(@_);
+	}
+	return $self->SUPER::dx_spot(@_);
+}
+
+# WebCluster needs absolute feed switches, while logical-user filtering is
+# evaluated with the same argument slices used by DXCommandmode.
 sub announce
 {
 	my $self = shift;
 	if ($self->is_webcluster) {
-		# DXCommandmode::announce args after $line/$isolate are $to,$target,...
 		my $target = $_[3] || '';
 		return if $target eq 'WX' ? !$self->{web_feed_wx} : !$self->{web_feed_ann};
+		my @filter_args = @_ > 5 ? @_[5 .. $#_] : ();
+		my $targets = $self->_web_filter_targets('ann', @filter_args);
+		return unless @$targets;
+		local $self->{_web_feed_targets} = $targets;
+		return $self->SUPER::announce(@_);
 	}
 	return $self->SUPER::announce(@_);
 }
@@ -424,14 +507,28 @@ sub announce
 sub wwv
 {
 	my $self = shift;
-	return if $self->is_webcluster && !$self->{web_feed_wwv};
+	if ($self->is_webcluster) {
+		return unless $self->{web_feed_wwv};
+		my @filter_args = @_ > 9 ? @_[9 .. $#_] : ();
+		my $targets = $self->_web_filter_targets('wwv', @filter_args);
+		return unless @$targets;
+		local $self->{_web_feed_targets} = $targets;
+		return $self->SUPER::wwv(@_);
+	}
 	return $self->SUPER::wwv(@_);
 }
 
 sub wcy
 {
 	my $self = shift;
-	return if $self->is_webcluster && !$self->{web_feed_wcy};
+	if ($self->is_webcluster) {
+		return unless $self->{web_feed_wcy};
+		my @filter_args = @_ > 2 ? @_[2 .. $#_] : ();
+		my $targets = $self->_web_filter_targets('wcy', @filter_args);
+		return unless @$targets;
+		local $self->{_web_feed_targets} = $targets;
+		return $self->SUPER::wcy(@_);
+	}
 	return $self->SUPER::wcy(@_);
 }
 
@@ -492,10 +589,13 @@ sub local_send
 		);
 
 		if (my $type = $type_for{$let}) {
-			my $payload = _encode_protocol_object([
+			my @pairs = (
 				['type',    $type],
 				['payload', $buf],
-			]);
+			);
+			push @pairs, ['targets', $self->{_web_feed_targets}]
+				if ref($self->{_web_feed_targets}) eq 'ARRAY';
+			my $payload = _encode_protocol_object(\@pairs);
 
 			unless (defined $payload) {
 				LogDbg('err', "Web $self->{call}: cannot encode $type feed JSON");
@@ -677,13 +777,17 @@ sub _auth_request
 
 	my $is_admin = ($self->{web_role} || '') eq 'dxweb-admin';
 	my $password_required;
+	# Capture the authoritative DXUser privilege once, before creating the
+	# transient Web logical user.  This is the privilege returned to dxweb-admin
+	# and later used by Web::Actor for normal command privilege enforcement.
+	my $dx_priv = $user ? 0 + ($user->priv || 0) : 0;
 
 	if ($is_admin) {
 		# Administrative authority is granted only by DXSpider itself.  The
 		# technical dxweb-admin transport must already be local (checked during
-		# HELLO), the account must be a real SYSOP, and a non-empty DXUser
+		# HELLO), the account must have privilege >= 1, and a non-empty DXUser
 		# password must match.  Browser/client supplied privilege is ignored.
-		unless ($user && ($user->priv || 0) >= 9) {
+		unless ($user && $dx_priv >= 1) {
 			$self->_error($id, 'auth', 'admin_privilege_required', {call => $call});
 			return;
 		}
@@ -717,7 +821,7 @@ sub _auth_request
 	# persistent DXUser privilege.  Only the separately negotiated Admin
 	# transport may receive the server-side DXUser privilege for its isolated
 	# administrative actor.
-	my $effective_priv = $is_admin ? ($user->priv || 0) : 0;
+	my $effective_priv = $is_admin ? $dx_priv : 0;
 
 	$self->_user_add(\%u, {
 		priv => $effective_priv,
@@ -837,6 +941,7 @@ sub _user_add
 		auth_source   => $authmeta ? ($authmeta->{auth_source} || 'dxspider') : 'external',
 		generation    => ++$web_user_generation_seq,
 	};
+	$self->_web_refresh_user_filters($call);
 
 	$self->tell_login('loginu', $call);
 	$self->tell_buddies('loginb', $call);
@@ -1262,6 +1367,7 @@ sub _command_request
 		return unless defined $owned->{generation} && defined $user_generation &&
 			$owned->{generation} == $user_generation;
 
+		$web->_web_refresh_all_filters();
 		my @messages = grep { defined $_ && length $_ }
 			(@{$done_actor->{_command_returned} || []}, $done_actor->output);
 		$web->_response($id, 'ok', 'command', {call => $call, messages => \@messages});
@@ -1281,6 +1387,7 @@ sub _command_request
 		return;
 	}
 
+	$self->_web_refresh_all_filters();
 	my @messages = grep { defined $_ && length $_ } (@returned, $actor->output);
 	$actor->disconnect;
 	$self->_response($id, 'ok', 'command', {call => $call, messages => \@messages});

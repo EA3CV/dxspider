@@ -1,3 +1,12 @@
+05Oct26======================================================================
+1. Added per-user runtime filtering for logical dxweb and dxweb-admin users.
+   Filters are now applied independently to each authenticated Web user.
+2. Add targeted Web feed fanout so authenticated users receive only feed
+   records allowed by their current filters. Anonymous dxweb users retain
+   the normal common feed.
+3. Change dxweb-admin authentication to allow users with privilege >= 1.
+   Console commands retain normal DXSpider command privilege checking.
+4. Update dxweb to version 0.7.2 and dxweb-admin to version 0.76.7.
 04Oct26======================================================================
 1. Add set/nextlogin to manually set the time a callsign can login some
    seconds into the future. 
@@ -35,19 +44,6 @@
    an unnecessary empty field to be emitted on A and D messages.
 26Sep26======================================================================
 1. Fix show/dxsql and connect to the new database version fixed by Kin EA3CV.
-24Sep26======================================================================
-1. Introducing a new user registration system. 
-
-   See /spider/README_DXReg.txt for more information.
-23Sep26======================================================================
-1. Add show/health
-2. Add comprehensive web components for remote user access as well as 
-   administration which are both now considered ready for wider testing.
- 
-   Please look at the installation instructions in /spider/dxweb and 
-   /spider/dxweb-admin directories.
-
-   All written by Kin EA3CV
 18Sep26======================================================================
 1. Added SIGHUP protector on dxweb and dxweb-admin start routines
 17Sep26======================================================================

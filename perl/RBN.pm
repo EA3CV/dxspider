@@ -538,6 +538,22 @@ sub dx_spot
 	my $dxchan = shift;
 	my $quality = shift;
 	my $cand = shift;
+	# A Web transport represents many logical users.  Run the native RBN
+	# selection/filter algorithm once per logical Web user, preserving candidate
+	# selection while applying that user's RBN filter independently of SPOTS.
+	# The recursion flag is dynamically scoped and never escapes this call.
+	if (eval { $dxchan->isa('Web') && $dxchan->is_webcluster } && !$dxchan->{_web_rbn_one}) {
+		for my $webcall ($dxchan->web_rbn_users) {
+			my $rf = $dxchan->web_rbn_filter($webcall);
+			local $dxchan->{_web_rbn_one} = 1;
+			local $dxchan->{_web_feed_targets} = [$webcall];
+			local $dxchan->{rbnfilter} = $rf;
+			local $dxchan->{spotsfilter} = undef;
+			$self->dx_spot($dxchan, $quality, $cand);
+		}
+		return;
+	}
+
 	my $call = $dxchan->{call};
 	my $strength = 100;		# because it could if we talk about FTx
 	my $saver;
