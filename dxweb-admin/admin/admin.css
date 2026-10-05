@@ -982,3 +982,48 @@ html[data-theme="dark"] #loginDialog .loginCard input{background:#243a50!importa
 html[data-theme="dark"] #loginDialog .loginCard input:focus{border-color:#83c5f5!important;outline:2px solid #4d9bd655;outline-offset:1px}
 html[data-theme="dark"] #loginDialog .loginCard button{background:#2778b6!important;color:#fff!important;border-color:#5ba9df!important}
 @media(prefers-color-scheme:dark){html[data-theme="auto"] #loginDialog .loginCard{background:#17283a!important;color:#ecf4ff!important}html[data-theme="auto"] #loginDialog .loginCard input{background:#243a50!important;color:#f5f9ff!important;border:1px solid #708aa3!important}}
+
+/* dxweb-admin 0.76.7: SYSOP-only navigation stays visible, but uses a clearly inactive grey treatment for priv < 9. */
+body.v2-shell .v2NavBtn.sysopDenied,
+body.v2-shell .mainTabs button.sysopDenied,
+.mainTabs button.sysopDenied {
+  opacity:1!important;
+  filter:none!important;
+  cursor:not-allowed!important;
+  pointer-events:none!important;
+  color:#7f8a99!important;
+  background:#303946!important;
+  border-color:#46515f!important;
+  box-shadow:none!important;
+  transform:none!important;
+}
+body.v2-shell .v2NavBtn.sysopDenied .v2Icon,
+body.v2-shell .v2NavBtn.sysopDenied .v2Badge,
+body.v2-shell .v2NavBtn.sysopDenied [class*="badge" i],
+body.v2-shell .v2NavBtn.sysopDenied [class*="tag" i] {
+  color:#8993a0!important;
+  background:#3a4451!important;
+  border-color:#505b68!important;
+  box-shadow:none!important;
+}
+body.v2-shell .v2NavBtn.sysopDenied:hover,
+body.v2-shell .mainTabs button.sysopDenied:hover,
+.mainTabs button.sysopDenied:hover {
+  color:#7f8a99!important;
+  background:#303946!important;
+  border-color:#46515f!important;
+}
+html[data-theme="light"] body.v2-shell .v2NavBtn.sysopDenied,
+html[data-theme="light"] body.v2-shell .mainTabs button.sysopDenied {
+  color:#87909a!important;
+  background:#d9dde2!important;
+  border-color:#c5cbd2!important;
+}
+html[data-theme="light"] body.v2-shell .v2NavBtn.sysopDenied .v2Icon,
+html[data-theme="light"] body.v2-shell .v2NavBtn.sysopDenied .v2Badge,
+html[data-theme="light"] body.v2-shell .v2NavBtn.sysopDenied [class*="badge" i],
+html[data-theme="light"] body.v2-shell .v2NavBtn.sysopDenied [class*="tag" i] {
+  color:#8b949e!important;
+  background:#cbd1d7!important;
+  border-color:#b9c0c8!important;
+}
