@@ -15,6 +15,7 @@
    queries, decode caching and cache warm-up for standard time windows.
 8. Keep Web Supervision telemetry bounded, non-blocking and isolated from the
    normal DXSpider protocol and login paths.
+9. Added missing unset/badip cmd.
 06Oct26======================================================================
 1. Fix TML (Too Many Logins) handling for new users not yet present in DXUser
    preventing an undefined $user->nextlogin call during login.
