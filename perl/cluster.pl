@@ -297,6 +297,9 @@ sub new_channel
 	} else {
 		# "Normal" connections
 
+		# Count every normal incoming login attempt before validation/throttling.
+		eval { DXHealth::connection_attempt($call); 1 };
+
 		# normalise calls like G1TST-0/G1TST-00/G1TST-01 to G1TST and G1TST-1 respectively
 		my $ncall = normalise_call($call);
 		if ($call ne $ncall) {
@@ -341,6 +344,7 @@ sub new_channel
 				$l = $tmlmaxdelay if $l > $tmlmaxdelay;
 				$user->nextlogin($l + $main::systime);
 				LogDbg('chan', "$call on $host is not allowed to login for another $l secs, disconnected");
+				eval { DXHealth::connection_rapid_throttled($call); 1 };
 				already_conn($conn, $call, "logging too quickly, banned for $l seconds");
 				return;
 			}
@@ -362,6 +366,7 @@ sub new_channel
 		
 		# Is he from a badip?
 		if (DXCIDR::find($host)) {
+			eval { DXHealth::connection_badip($call); 1 };
 			LogDbg('chan', "$call on $host is from a badip $host, disconnected");
 			$conn->disconnect;
 			return;
@@ -456,6 +461,9 @@ sub new_channel
 		} else {
 			die "Invalid sort of user on $call = $sort";
 		}
+		# Reaching this point means the incoming normal connection was accepted
+		# and a real DXSpider channel was constructed.
+		eval { DXHealth::connection_incoming_success($newcall); 1 };
 	}
 	
 

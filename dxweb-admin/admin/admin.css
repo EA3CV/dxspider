@@ -983,7 +983,7 @@ html[data-theme="dark"] #loginDialog .loginCard input:focus{border-color:#83c5f5
 html[data-theme="dark"] #loginDialog .loginCard button{background:#2778b6!important;color:#fff!important;border-color:#5ba9df!important}
 @media(prefers-color-scheme:dark){html[data-theme="auto"] #loginDialog .loginCard{background:#17283a!important;color:#ecf4ff!important}html[data-theme="auto"] #loginDialog .loginCard input{background:#243a50!important;color:#f5f9ff!important;border:1px solid #708aa3!important}}
 
-/* dxweb-admin 0.76.7: SYSOP-only navigation stays visible, but uses a clearly inactive grey treatment for priv < 9. */
+/* dxweb-admin 0.77.0: SYSOP-only navigation stays visible, but uses a clearly inactive grey treatment for priv < 9. */
 body.v2-shell .v2NavBtn.sysopDenied,
 body.v2-shell .mainTabs button.sysopDenied,
 .mainTabs button.sysopDenied {
@@ -1027,3 +1027,72 @@ html[data-theme="light"] body.v2-shell .v2NavBtn.sysopDenied [class*="tag" i] {
   background:#cbd1d7!important;
   border-color:#b9c0c8!important;
 }
+/* v0.29 Metrics/Diagnostics additions: preserve existing visual system. */
+.metricsSummaryGrid{margin-top:12px}.diagnosticsScope{margin:12px 2px 0;font-size:.82rem;opacity:.72}.metricsSummaryGrid .superTable td:not(:first-child),.diagnosticsGrid .superTable td:last-child,#diagFilteringRows td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+/* Keep fallback SVG line/area/legend/tooltip colors identical to ECharts palette. */
+.chartSeries.s1{stroke:#3b82f6}.chartArea.s1{fill:#3b82f6}.chartSeries.s2{stroke:#8b5cf6}.chartArea.s2{fill:#8b5cf6}.chartSeries.s3{stroke:#f97316}.chartArea.s3{fill:#f97316}.chartSeries.s4{stroke:#ef4444}.chartArea.s4{fill:#ef4444}.chartSeries.s5{stroke:#06b6d4}.chartArea.s5{fill:#06b6d4}.chartSeries.s6{stroke:#e879f9}.chartArea.s6{fill:#e879f9}.chartSeries.s7{stroke:#f59e0b}.chartArea.s7{fill:#f59e0b}.chartSeries.s8{stroke:#6366f1}.chartArea.s8{fill:#6366f1}.chartSeries.s9{stroke:#ec4899}.chartArea.s9{fill:#ec4899}.chartSeries.s10{stroke:#94a3b8}.chartArea.s10{fill:#94a3b8}
+
+/* v0.34 Top accepted-spot rankings: enough vertical room for 20 readable bars. */
+.metricRankCard .metricChart{min-height:360px;height:360px}
+.metricModal #metricModalChart{min-height:560px}
+.rankFallback{display:grid;gap:3px;padding:8px 12px;font-size:12px}.rankFallback div{display:flex;justify-content:space-between;gap:16px}
+
+/* v0.35: persistent Metrics controls and exact rate-summary column alignment. */
+body.v2-shell #metrics .metricsHead{position:sticky!important;top:0!important;z-index:35!important;background:var(--v2-surface)!important;border:1px solid var(--v2-border)!important;border-radius:10px!important;padding:10px 12px!important;box-shadow:var(--v2-shadow)!important}
+body.v2-shell #metrics .metricsSummaryGrid .superTable{table-layout:fixed!important;width:100%!important}
+body.v2-shell #metrics .metricsSummaryGrid .superTable th:nth-child(1),body.v2-shell #metrics .metricsSummaryGrid .superTable td:nth-child(1){width:30%;text-align:left!important}
+body.v2-shell #metrics .metricsSummaryGrid .superTable th:nth-child(2),body.v2-shell #metrics .metricsSummaryGrid .superTable td:nth-child(2){width:14%;text-align:right!important}
+body.v2-shell #metrics .metricsSummaryGrid .superTable th:nth-child(3),body.v2-shell #metrics .metricsSummaryGrid .superTable td:nth-child(3){width:16%;text-align:right!important}
+body.v2-shell #metrics .metricsSummaryGrid .superTable th:nth-child(4),body.v2-shell #metrics .metricsSummaryGrid .superTable td:nth-child(4){width:13%;text-align:right!important}
+body.v2-shell #metrics .metricsSummaryGrid .superTable th:nth-child(5),body.v2-shell #metrics .metricsSummaryGrid .superTable td:nth-child(5){width:12%;text-align:center!important}
+body.v2-shell #metrics .metricsSummaryGrid .superTable th:nth-child(6),body.v2-shell #metrics .metricsSummaryGrid .superTable td:nth-child(6){width:15%;text-align:left!important}
+
+/* v0.39: sticky controls, diagnostic column alignment, hover help */
+#metrics.section.active{overflow:auto!important;position:relative!important}
+#metrics>.metricsPanel{height:auto!important;min-height:100%!important;overflow:visible!important}
+body.v2-shell #metrics .metricsHead{position:sticky!important;top:0!important;z-index:80!important;margin:-12px -12px 12px!important;border-radius:0 0 10px 10px!important;background:var(--v2-surface,#fff)!important}
+#diagnostics .superTable{table-layout:fixed}
+#diagnostics #diagFilteringRows~*{}
+#diagnostics .superTable th:last-child,#diagnostics .superTable td:last-child{text-align:right!important;padding-right:14px!important}
+#diagnostics .diagnosticsGrid .superTable th:first-child,#diagnostics .diagnosticsGrid .superTable td:first-child{width:72%!important;text-align:left!important}
+#diagnostics .diagnosticsGrid .superTable th:last-child,#diagnostics .diagnosticsGrid .superTable td:last-child{width:28%!important;text-align:right!important}
+#diagnostics #diagFilteringRows tr td:nth-child(1){width:28%}#diagnostics #diagFilteringRows tr td:nth-child(2){width:52%}#diagnostics #diagFilteringRows tr td:nth-child(3){width:20%;text-align:right!important}
+#diagnostics table:has(#diagFilteringRows) th:nth-child(1){width:28%}#diagnostics table:has(#diagFilteringRows) th:nth-child(2){width:52%}#diagnostics table:has(#diagFilteringRows) th:nth-child(3){width:20%;text-align:right!important}
+.chartHead h3[title],.superCard h3[title]{cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
+
+/* v0.40 diagnostics layout + true workspace-sticky controls */
+body.v2-shell #metrics .metricsHead{position:sticky!important;top:-22px!important;z-index:120!important;margin:-22px -24px 14px!important;padding:12px 24px!important;border-radius:0!important;border-width:0 0 1px!important}
+#diagnostics .diagnosticsDecisionGrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start;margin-top:12px}
+#diagnostics .diagnosticsDecisionGrid .superCard{min-width:0}
+#diagnostics .diagnosticsRatesGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
+#diagnostics .rateContextTable{table-layout:fixed!important;width:100%!important}
+#diagnostics .rateContextTable th:nth-child(1),#diagnostics .rateContextTable td:nth-child(1){width:30%;text-align:left!important}
+#diagnostics .rateContextTable th:nth-child(2),#diagnostics .rateContextTable td:nth-child(2){width:14%;text-align:right!important}
+#diagnostics .rateContextTable th:nth-child(3),#diagnostics .rateContextTable td:nth-child(3){width:16%;text-align:right!important}
+#diagnostics .rateContextTable th:nth-child(4),#diagnostics .rateContextTable td:nth-child(4){width:13%;text-align:right!important}
+#diagnostics .rateContextTable th:nth-child(5),#diagnostics .rateContextTable td:nth-child(5){width:12%;text-align:center!important}
+#diagnostics .rateContextTable th:nth-child(6),#diagnostics .rateContextTable td:nth-child(6){width:15%;text-align:left!important}
+#diagnostics .diagnosticsDecisionGrid .superTable th:last-child,#diagnostics .diagnosticsDecisionGrid .superTable td:last-child{text-align:right!important;width:28%!important}
+@media(max-width:1150px){#diagnostics .diagnosticsDecisionGrid{grid-template-columns:1fr 1fr}#diagnostics .diagFilteringCard{grid-column:1/-1}#diagnostics .diagnosticsRatesGrid{grid-template-columns:1fr}}
+
+/* v0.41 verified UI corrections */
+/* The section is the actual scroll container. Do not let the metrics panel clip its sticky header. */
+body.v2-shell #metrics.section.active{overflow:auto!important;position:relative!important}
+body.v2-shell #metrics .metricsPanel{overflow:visible!important;height:auto!important;max-height:none!important;min-height:100%!important}
+body.v2-shell #metrics .metricsHead{position:sticky!important;top:0!important;z-index:140!important;margin:0 0 14px!important;padding:12px 14px!important;border:1px solid var(--v2-border)!important;border-radius:10px!important;background:var(--v2-surface)!important;box-shadow:var(--v2-shadow)!important}
+/* Diagnostics: 50% filtering + 25% origin + 25% neighbour. */
+body.v2-shell #diagnostics .diagnosticsDecisionGrid{grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr)!important;gap:12px!important}
+body.v2-shell #diagnostics .diagnosticsDecisionGrid .superTable th:last-child,
+body.v2-shell #diagnostics .diagnosticsDecisionGrid .superTable td:last-child{text-align:right!important;width:72px!important}
+@media(max-width:1150px){body.v2-shell #diagnostics .diagnosticsDecisionGrid{grid-template-columns:1fr 1fr!important}body.v2-shell #diagnostics .diagFilteringCard{grid-column:1/-1!important}}
+@media(max-width:760px){body.v2-shell #diagnostics .diagnosticsDecisionGrid{grid-template-columns:1fr!important}body.v2-shell #diagnostics .diagFilteringCard{grid-column:auto!important}}
+/* Visual cue for all elements that carry explanatory hover text. */
+body.v2-shell [data-help],body.v2-shell h3[title],body.v2-shell .kpiLabel[title]{cursor:help}
+
+/* v0.44 rank charts: vertical Top-30 presentation */
+.metricRankCard .metricChart{min-height:380px;height:380px}
+
+/* v0.46 diagnostics input tables share one row. */
+#diagnostics .diagnosticsInputGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
+#diagnostics .diagnosticsInputGrid .superCard{min-width:0}
+@media(max-width:1050px){#diagnostics .diagnosticsInputGrid{grid-template-columns:1fr}}

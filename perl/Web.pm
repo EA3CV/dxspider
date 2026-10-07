@@ -1233,17 +1233,17 @@ sub _supervisor_request
 	my ($self, $req) = @_;
 	my $id = $req->{id};
 	my $what = lc($req->{what} || 'status');
-	# Only the internal dxweb-admin sampler may take these three read-only
-	# snapshots without a logical browser user.  Any request carrying a call,
-	# and every other supervisor snapshot, keeps the existing priv>=9 check.
+	# Only the internal dxweb-admin sampler may take these read-only snapshots
+	# without a logical browser user.  Any request carrying a call, and every
+	# other supervisor snapshot, keeps the existing priv>=9 check.
 	my $technical = (($self->{web_role} || '') eq 'dxweb-admin' &&
 	                 !defined($req->{call}) &&
-	                 $what =~ /^(?:status|traffic|self_health)$/) ? 1 : 0;
+	                 $what =~ /^(?:status|connections|traffic|spot_ranks|rbn|self_health)$/) ? 1 : 0;
 	unless ($technical) {
 		my ($call, $err) = $self->_registration_admin($req);
 		unless ($call) { $self->_error($id, 'supervisor', $err); return; }
 	}
-	unless ($what =~ /^(?:status|connections|traffic|web|rbn|self_health|topology)$/) {
+	unless ($what =~ /^(?:status|connections|traffic|spot_ranks|web|rbn|self_health|topology)$/) {
 		$self->_error($id, 'supervisor', 'unsupported_snapshot');
 		return;
 	}

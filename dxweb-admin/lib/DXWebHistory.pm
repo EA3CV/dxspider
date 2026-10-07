@@ -19,7 +19,8 @@ use File::Find qw(find);
 use Time::HiRes qw(time);
 use Time::Local qw(timegm);
 
-our $VERSION = '0.11.0';
+our $VERSION = '0.16.0';
+our $SCHEMA_VERSION = 1;
 
 sub new {
     my ($class, %opt) = @_;
@@ -38,7 +39,96 @@ sub new {
         last_write => undef,
     }, $class;
     unless ($self->{path}) { $self->{enabled}=0; $self->{error}='no_history_path'; return $self }
+    $self->_prepare_database;
     return $self;
+}
+
+sub _database_schema_ok {
+    my ($dbh) = @_;
+    my ($version) = $dbh->selectrow_array('PRAGMA user_version');
+    return 0 unless defined $version && 0 + $version == $SCHEMA_VERSION;
+
+    my $cols = $dbh->selectall_arrayref('PRAGMA table_info(samples)');
+    return 0 unless ref($cols) eq 'ARRAY' && @$cols == 4;
+    my @expected = (
+        ['id',           'INTEGER', 0, 1],
+        ['kind',         'TEXT',    1, 0],
+        ['collected_at', 'REAL',    1, 0],
+        ['payload_json', 'TEXT',    1, 0],
+    );
+    for my $i (0 .. $#expected) {
+        my ($name,$type,$notnull,$pk)=@{$expected[$i]};
+        my $c=$cols->[$i] || return 0;
+        return 0 unless ($c->[1]//'') eq $name;
+        return 0 unless uc($c->[2]//'') eq $type;
+        return 0 unless 0+($c->[3]||0) == $notnull;
+        return 0 unless 0+($c->[5]||0) == $pk;
+    }
+    my ($idx_sql)=$dbh->selectrow_array(
+        q{SELECT sql FROM sqlite_master WHERE type='index' AND name='samples_kind_time'}
+    );
+    return 0 unless defined $idx_sql && $idx_sql =~ /ON\s+samples\s*\(\s*kind\s*,\s*collected_at\s*\)/i;
+    return 1;
+}
+
+sub _create_database_schema {
+    my ($dbh) = @_;
+    $dbh->do('PRAGMA journal_mode=WAL');
+    $dbh->do('PRAGMA synchronous=NORMAL');
+    $dbh->do('CREATE TABLE samples (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, collected_at REAL NOT NULL, payload_json TEXT NOT NULL)');
+    $dbh->do('CREATE INDEX samples_kind_time ON samples(kind,collected_at)');
+    $dbh->do('CREATE INDEX samples_time ON samples(collected_at)');
+    $dbh->do('PRAGMA user_version=' . (0 + $SCHEMA_VERSION));
+}
+
+sub _ensure_performance_indexes {
+    my ($dbh) = @_;
+    # Performance-only index: adding it to a valid schema must never trigger
+    # destructive recreation of an existing history database.
+    $dbh->do('CREATE INDEX IF NOT EXISTS samples_time ON samples(collected_at)');
+    return 1;
+}
+
+sub _prepare_database {
+    my ($self) = @_;
+    my $path=$self->{path};
+    my $dir=dirname($path);
+    eval { make_path($dir) unless -d $dir; 1 } or do {
+        $self->{enabled}=0; $self->{error}="history_directory_failed: $@"; return 0;
+    };
+
+    require DBI;
+    my $recreate = !-e $path;
+    if (!$recreate) {
+        my $ok=eval {
+            my $dbh=DBI->connect("dbi:SQLite:dbname=$path",'', '', {
+                RaiseError=>1,PrintError=>0,AutoCommit=>1,sqlite_busy_timeout=>1000,
+            });
+            my $valid=_database_schema_ok($dbh);
+            _ensure_performance_indexes($dbh) if $valid;
+            $dbh->disconnect;
+            $valid;
+        };
+        $recreate=1 unless $ok;
+    }
+
+    if ($recreate) {
+        unlink $_ for grep { -e $_ } ($path, "$path-wal", "$path-shm");
+        my $ok=eval {
+            my $dbh=DBI->connect("dbi:SQLite:dbname=$path",'', '', {
+                RaiseError=>1,PrintError=>0,AutoCommit=>1,sqlite_busy_timeout=>1000,
+            });
+            _create_database_schema($dbh);
+            my $valid=_database_schema_ok($dbh);
+            $dbh->disconnect;
+            die 'schema verification failed after create' unless $valid;
+            1;
+        };
+        unless ($ok) {
+            $self->{enabled}=0; $self->{error}="history_schema_prepare_failed: $@"; return 0;
+        }
+    }
+    return 1;
 }
 
 sub status {
@@ -59,7 +149,7 @@ sub enqueue {
     my ($self, $kind, $payload) = @_;
     return 0 unless $self->{enabled};
     return 0 unless defined $kind && ref($payload) eq 'HASH';
-    return 0 unless $kind =~ /^(?:status|traffic|self_health|system)$/;
+    return 0 unless $kind =~ /^(?:status|connections|traffic|spot_ranks|rbn|self_health|system)$/;
     my $json = eval { encode_json($payload) };
     return 0 if $@ || !defined $json;
     if (@{$self->{queue}} >= $self->{max_queue}) {
@@ -96,8 +186,7 @@ sub _flush_async {
             });
             $dbh->do('PRAGMA journal_mode=WAL');
             $dbh->do('PRAGMA synchronous=NORMAL');
-            $dbh->do('CREATE TABLE IF NOT EXISTS samples (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, collected_at REAL NOT NULL, payload_json TEXT NOT NULL)');
-            $dbh->do('CREATE INDEX IF NOT EXISTS samples_kind_time ON samples(kind,collected_at)');
+            die 'history schema mismatch during flush' unless _database_schema_ok($dbh);
             my $sth=$dbh->prepare('INSERT INTO samples(kind,collected_at,payload_json) VALUES(?,?,?)');
             $dbh->begin_work;
             $sth->execute($_->{kind},$_->{collected_at},$_->{payload_json}) for @batch;
@@ -144,7 +233,7 @@ sub latest_snapshots_async {
                 sqlite_open_flags=>0x00000001,
             });
             my %out;
-            for my $kind (qw(status traffic self_health)) {
+            for my $kind (qw(status connections traffic rbn self_health)) {
                 my $r=$dbh->selectrow_arrayref(
                     'SELECT collected_at,payload_json FROM samples WHERE kind=? ORDER BY collected_at DESC,id DESC LIMIT 1',
                     undef,$kind
@@ -244,6 +333,9 @@ sub _semantic_class {
     return 'gauge'   if $kind eq 'status' && $path =~ /^(?:uptime_seconds|channels|nodes|users|web|rbn|other|direct_nodes|network_nodes|network_users|local_users|pending_connects|input_queue_max|input_queue_nonempty|input_queue_total|generation_ms)$/;
     return 'counter' if $kind eq 'self_health' && $path =~ /^health\.(?:requests|errors)$/;
     return 'gauge'   if $kind eq 'self_health' && $path =~ /^(?:generation_ms|health\.last_generation_ms|health\.max_generation_ms)$/;
+    return 'counter' if $kind eq 'connections' && $path =~ /^connection_totals\.(?:connects|disconnects|too_many)$/;
+    return 'counter' if $kind eq 'connections' && $path =~ /^connections\.\d+\.(?:connect_count|disconnect_count|too_many_count)$/;
+    return 'gauge' if $kind eq 'rbn' && $path =~ /^(?:channels\.\d+\.(?:queue_depth|minute\.(?:raw|retrieved|delivered|users)|ten_minute\.(?:raw|retrieved|delivered|users)|hour\.(?:raw|retrieved|delivered|users))|totals\.(?:queue_depth|minute\.(?:raw|retrieved|delivered|users)|ten_minute\.(?:raw|retrieved|delivered|users)|hour\.(?:raw|retrieved|delivered|users)))$/;
     if ($kind eq 'traffic') {
         return 'counter' if $path =~ /^transport\.(?:bytes_in|bytes_out|lines_in|lines_out)$/;
         return 'counter' if $path =~ /^spots\.(?:hf|vhf|total|local_generated)$/;
@@ -254,6 +346,10 @@ sub _semantic_class {
         return 'counter' if $path =~ /^protocol\.input_diagnostics\.(?:malformed|unknown_protocol)\.(?:packets|bytes)$/;
         return 'counter' if $path =~ /^protocol\.input_diagnostics\.malformed\.by_pc\.[^.]+\.(?:packets|bytes)$/;
         return 'counter' if $path =~ /^protocol\.input_diagnostics\.peers\.[^.]+\.(?:packets|bytes)$/;
+        return 'counter' if $path =~ /^operator_events\.(?:badlist|pc61_drop)\.[^.]+\.total$/;
+        return 'counter' if $path =~ /^operator_events\.(?:badlist|pc61_drop)\.[^.]+\.(?:by_neighbour|by_peer|by_origin|by_pc)\.[^.]+$/;
+        return 'counter' if $path =~ /^operator_events\.spots\.duplicate_local_user\.(?:total|by_call\.[^.]+)$/;
+        return 'counter' if $path =~ /^operator_events\.connections\.badip\.(?:total|by_call\.[^.]+)$/;
         return 'counter' if $path =~ /^pc92\.(?:physical\.(?:in|out)\.[^.]+|totals\.(?:in|out))\.[ACDK]\.(?:packets|bytes)$/;
         return 'counter' if $path =~ /^pc92\.logical\.(?:received|generated|forwarded)\.[ACDK]\.(?:packets|bytes)$/;
         return 'counter' if $path =~ /^pc_spots\.(?:pc11_received|pc61_received|pc11_promotions|pc11_promoted_by_pc61|pc11_promoted_by_route)$/;
@@ -295,7 +391,11 @@ sub semantic_window_async {
                 sqlite_open_flags=>0x00000001,
             });
             my $rows=$dbh->selectall_arrayref(
-                'SELECT kind,collected_at,payload_json FROM samples WHERE collected_at >= ? ORDER BY kind,collected_at,id',
+                q{SELECT kind,collected_at,payload_json
+                     FROM samples
+                    WHERE collected_at >= ?
+                      AND kind IN ('status','connections','traffic','rbn','self_health','system')
+                    ORDER BY kind,collected_at,id},
                 undef,$from
             );
             my ($oldest,$newest)=$dbh->selectrow_array('SELECT MIN(collected_at),MAX(collected_at) FROM samples');
@@ -372,28 +472,168 @@ sub metrics_series_async {
     my %windows=('1h'=>3600,'6h'=>21600,'24h'=>86400,'7d'=>604800,'30d'=>2592000,'1y'=>31536000);
     my $window=$opt{window}//'24h'; return $cb->('invalid_window',undef) unless exists $windows{$window};
     my $selected_peer=$opt{peer}//''; return $cb->('invalid_peer',undef) if ref($selected_peer) || length($selected_peer)>128 || $selected_peer =~ /[\x00-\x1f]/;
+    my $compact=$opt{compact}?1:0;
     my($seconds,$path)=($windows{$window},$self->{path}); my $sp=Mojo::IOLoop::Subprocess->new;
     $sp->run(sub {
         require DBI; my$now=time;my$from=$now-$seconds;my$bucket=$seconds/120;$bucket=5 if$bucket<5;
         my$dbh=DBI->connect("dbi:SQLite:dbname=$path",'','',{RaiseError=>1,PrintError=>0,AutoCommit=>1,sqlite_busy_timeout=>1000,sqlite_open_flags=>0x00000001});
-        my$rows=$dbh->selectall_arrayref('SELECT kind,collected_at,payload_json FROM samples WHERE collected_at>=? ORDER BY collected_at,id',undef,$from);
+        my$rows=$dbh->selectall_arrayref(q{
+            SELECT s.kind,s.collected_at,s.payload_json
+              FROM samples s
+              JOIN (
+                    SELECT kind,CAST((collected_at-?)/? AS INTEGER) AS bucket_no,MAX(id) AS id
+                      FROM samples
+                     WHERE collected_at>=?
+                       AND kind IN ('status','connections','traffic','rbn','self_health','system')
+                     GROUP BY kind,bucket_no
+                   ) q ON q.id=s.id
+            UNION ALL
+            SELECT kind,collected_at,payload_json
+              FROM samples
+             WHERE kind='spot_ranks' AND collected_at>=?
+            ORDER BY collected_at
+        },undef,$from,$bucket,$from,$from);
         my($oldest,$newest)=$dbh->selectrow_array('SELECT MIN(collected_at),MAX(collected_at) FROM samples');$dbh->disconnect;
+        # A metrics request walks the same traffic snapshots for fixed series,
+        # neighbour rates and logical-origin rates. Decode each selected JSON
+        # payload once and reuse it throughout this request.
+        my %decoded_row;
+        my $decode_row=sub {
+            my($r)=@_; my$key="$r";
+            return $decoded_row{$key} if exists $decoded_row{$key};
+            my$x=eval{decode_json($r->[2])};
+            return $decoded_row{$key}=(ref($x) eq 'HASH' ? $x : undef);
+        };
         my@fixed=(['traffic','transport.bytes_in','counter','transport_rx_bps'],['traffic','transport.bytes_out','counter','transport_tx_bps'],['traffic','spots.total','counter','spots_per_s'],['status','cpu_self_seconds','counter','cpu_self_ratio'],['status','channels','gauge','channels'],['status','nodes','gauge','nodes'],['status','users','gauge','users'],['status','direct_nodes','gauge','direct_nodes'],['status','network_nodes','gauge','network_nodes'],['status','network_users','gauge','network_users'],['status','local_users','gauge','local_users'],['status','rbn','gauge','rbn'],['status','web','gauge','web'],['status','input_queue_total','gauge','input_queue_total'],['status','input_queue_max','gauge','input_queue_max'],['status','input_queue_nonempty','gauge','input_queue_nonempty'],['status','pending_connects','gauge','pending_connects'],['self_health','generation_ms','gauge','health_generation_ms'],['system','mem_used_bytes','gauge','host_mem_used'],['system','mem_total_bytes','gauge','host_mem_total'],['system','fs_used_percent','gauge','fs_used_percent'],['system','history_queue_items','gauge','web_history_queue'],['system','fanout_queue_items','gauge','web_fanout_queue'],['system','pending_requests','gauge','web_pending_requests'],['system','browser_queued_clients','gauge','web_queued_clients'],['system','browser_queue_bytes','gauge','web_queue_bytes'],['system','browser_queue_max_bytes','gauge','web_queue_max_bytes'],['system','history_dropped_total','counter','web_history_dropped'],['system','ws_dropped_total','counter','web_ws_dropped'],['system','ws_slow_disconnects_total','counter','web_slow_disconnects']);
         push@fixed,['traffic','protocol.input_diagnostics.malformed.packets','counter','reject_malformed'],['traffic','protocol.input_diagnostics.unknown_protocol.packets','counter','reject_unknown'],['traffic','pc_spots.pc11_received','counter','spot_pc11'],['traffic','pc_spots.pc61_received','counter','spot_pc61'];
+        push@fixed,['connections','connection_totals.connects','counter','connections_connect'],['connections','connection_totals.disconnects','counter','connections_disconnect'],['connections','connection_totals.too_many','counter','connections_too_many'];
+        push@fixed,['connections','incoming_login.attempts','counter','login_attempts'],['connections','incoming_login.successful','counter','login_successful'],['connections','incoming_login.rapid_throttled','counter','login_rapid_throttled'];
+        for my$reason(qw(baddx badspotter badnode badword)){push@fixed,['traffic',"operator_events.badlist.$reason.total",'counter',"badlist_$reason"]}
+        for my$reason(qw(badip non_public_ip)){push@fixed,['traffic',"operator_events.pc61_drop.$reason.total",'counter',"pc61_drop_$reason"]}
+        push@fixed,['traffic','operator_events.spots.duplicate_local_user.total','counter','spot_local_duplicate'],['traffic','operator_events.connections.badip.total','counter','connection_badip'];
+        push@fixed,['rbn','totals.minute.raw','gauge','rbn_raw_minute'],['rbn','totals.minute.retrieved','gauge','rbn_retrieved_minute'],['rbn','totals.minute.delivered','gauge','rbn_delivered_minute'],['rbn','totals.minute.users','gauge','rbn_users_minute'],['rbn','totals.queue_depth','gauge','rbn_queue_depth'];
         for my$sub(qw(A C D K)){push@fixed,['traffic',"pc92.logical.received.$sub.packets",'counter',"pc92_received_$sub"],['traffic',"pc92.logical.generated.$sub.packets",'counter',"pc92_generated_$sub"],['traffic',"pc92.logical.forwarded.$sub.packets",'counter',"pc92_forwarded_$sub"]}
-        my %want = map { ("$_->[0]\0$_->[1]" => $_) } @fixed;my(%raw,%peer,%peers,%boots);
-        for my$r(@$rows){my($kind,$at,$json)=@$r;my$x=eval{decode_json($json)};next unless ref$x eq'HASH';my$boot=defined$x->{boot_id}?"$x->{boot_id}":'';$boots{$boot}=1 if length$boot;my%flat;_flatten_numeric($x,'',\%flat);
+        my %want = map { ("$_->[0]\0$_->[1]" => $_) } @fixed;my(%raw,%peer,%peers,%boots,%kind_span);
+        for my$r(@$rows){my($kind,$at,$json)=@$r;$kind_span{$kind}{first}=$at if !defined($kind_span{$kind}{first})||$at<$kind_span{$kind}{first};$kind_span{$kind}{last}=$at if !defined($kind_span{$kind}{last})||$at>$kind_span{$kind}{last};my$x=$decode_row->($r);next unless ref$x eq'HASH';my$boot=defined$x->{boot_id}?"$x->{boot_id}":'';$boots{$boot}=1 if length$boot;my%flat;_flatten_numeric($x,'',\%flat);
           for my$k(keys%flat){if(my$w=$want{"$kind\0$k"}){push@{$raw{$w->[3]}},[0+$at,0+$flat{$k},$boot,$w->[2]]}
             if($kind eq'traffic'&&$k=~/^protocol\.protocols\.(PC\d+)\.(in|out)\.packets$/){my($pc,$d)=($1,$2);my$n='protocol_'.$pc.'_'.$d;push@{$raw{$n}},[0+$at,0+$flat{$k},$boot,'counter']}
             if($kind eq'traffic'&&$k=~/^protocol\.logical\.(PC\d+)\.forwarded\.packets$/){my$pc=$1;push@{$raw{'forwarded_'.$pc}},[0+$at,0+$flat{$k},$boot,'counter']}
             if($kind eq'traffic'&&$k=~/^protocol\.peers\.([^.]+)\.(PC\d+)\.(in|out)\.packets$/){my($pn,$pc,$d)=($1,$2,$3);$peers{$pn}=1;next if length($selected_peer)&&$pn ne$selected_peer;my$key=length($selected_peer)?$selected_peer:'__all__';$peer{$key}{$d}{$at}{v}+=0+$flat{$k};$peer{$key}{$d}{$at}{boot}=$boot;if(length($selected_peer)){push@{$raw{'peer_'.$pc.'_'.$d}},[0+$at,0+$flat{$k},$boot,'counter']}}}}
         if(length($selected_peer)&&!$peers{$selected_peer}){die "unknown_peer\n"}
         my$key=length($selected_peer)?$selected_peer:'__all__';for my$d(qw(in out)){my@a=map{[0+$_,0+$peer{$key}{$d}{$_}{v},$peer{$key}{$d}{$_}{boot},'counter']}sort{$a<=>$b}keys%{$peer{$key}{$d}||{}};$raw{$d eq'in'?'peer_in_bps':'peer_out_bps'}=\@a if@a}
+        # Physical-neighbour rates are derived here from stored cumulative snapshots.
+        # No burst counter is added to DXSpider and logical origin is never inferred.
+        my (%neighbour_samples,%neighbour_rates,@neighbour_summary);
+        for my $r (@$rows) {
+            my ($kind,$at,$json)=@$r; next unless $kind eq 'traffic';
+            my $x=$decode_row->($r); next unless ref($x) eq 'HASH';
+            my $boot=defined($x->{boot_id}) ? "$x->{boot_id}" : '';
+            my $pp=ref($x->{protocol}) eq 'HASH' && ref($x->{protocol}{peers}) eq 'HASH' ? $x->{protocol}{peers} : {};
+            for my $pn (keys %$pp) {
+                my ($total,%pcs)=(0); next unless ref($pp->{$pn}) eq 'HASH';
+                for my $pc (keys %{$pp->{$pn}}) {
+                    next unless ref($pp->{$pn}{$pc}) eq 'HASH'; my $in=$pp->{$pn}{$pc}{in}; next unless ref($in) eq 'HASH';
+                    my $n=0+($in->{packets}||0); $total+=$n; $pcs{$pc}=$n;
+                }
+                push @{$neighbour_samples{$pn}}, {t=>0+$at,total=>0+$total,pcs=>\%pcs,boot=>$boot};
+            }
+        }
+        for my $pn (sort keys %neighbour_samples) {
+            my $samples=$neighbour_samples{$pn}; my @points; my ($peak,$peak_at,$peak_pc)=(0,undef,undef);
+            for(my $i=1;$i<@$samples;$i++) {
+                my($p,$q)=($samples->[$i-1],$samples->[$i]); next if length($p->{boot})&&length($q->{boot})&&$p->{boot} ne$q->{boot};
+                my$dt=$q->{t}-$p->{t}; next if$dt<=0; my$dv=$q->{total}-$p->{total}; next if$dv<0;
+                my($dom,$domdv)=(undef,-1); my%allpc=map{$_=>1}(keys%{$p->{pcs}},keys%{$q->{pcs}});
+                for my$pc(keys%allpc){my$d=(0+($q->{pcs}{$pc}||0))-(0+($p->{pcs}{$pc}||0));next if$d<0;if($d>$domdv){($dom,$domdv)=($pc,$d)}}
+                my$rate=$dv/$dt; push@points,{t=>0+$q->{t},rate_pps=>0+$rate,packets=>0+$dv,span_seconds=>0+$dt,dominant_pc=>$dom};
+                if(!defined($peak_at)||$rate>$peak){($peak,$peak_at,$peak_pc)=($rate,0+$q->{t},$dom)}
+            }
+            next unless @points; $neighbour_rates{$pn}=\@points;
+            # Baseline is the median of prior valid intervals from the current boot.
+            # The latest interval is deliberately excluded so a burst cannot raise its own baseline.
+            my @prior = @points > 1 ? map { 0+$_->{rate_pps} } @points[0 .. $#points-1] : ();
+            @prior = sort { $a <=> $b } @prior;
+            my ($baseline,$deviation_ratio);
+            if (@prior) {
+                my $m=int(@prior/2);
+                $baseline = @prior % 2 ? $prior[$m] : ($prior[$m-1]+$prior[$m])/2;
+                $deviation_ratio = $baseline > 0 ? (0+$points[-1]{rate_pps})/$baseline : undef;
+            }
+            # Burst classification is deliberately derived in dxweb-admin, never in DXSpider.
+            # A high ratio alone is insufficient: require a stable baseline and a meaningful absolute rate.
+            my $burst_min_baseline_samples = 5;
+            my $burst_min_pps = 5;
+            my $burst_min_ratio = 3;
+            my $latest_pps = 0+$points[-1]{rate_pps};
+            my $burst = (@prior >= $burst_min_baseline_samples
+                         && defined($baseline) && $baseline > 0
+                         && $latest_pps >= $burst_min_pps
+                         && defined($deviation_ratio) && $deviation_ratio >= $burst_min_ratio) ? 1 : 0;
+            push@neighbour_summary,{neighbour=>$pn,latest_pps=>$latest_pps,peak_pps=>0+$peak,peak_at=>$peak_at,
+                dominant_pc=>$points[-1]{dominant_pc},peak_dominant_pc=>$peak_pc,samples=>scalar(@points),
+                baseline_pps=>defined($baseline)?0+$baseline:undef,baseline_samples=>scalar(@prior),
+                deviation_ratio=>defined($deviation_ratio)?0+$deviation_ratio:undef,burst=>$burst};
+        }
+        @neighbour_summary=sort{$b->{peak_pps}<=>$a->{peak_pps}||$a->{neighbour}cmp$b->{neighbour}}@neighbour_summary;
+        # Logical-origin rates use only explicitly instrumented accepted counters.
+        # They are independent of physical neighbour rates: no origin<->neighbour
+        # association is invented here.
+        my (%origin_samples,%origin_rates,@origin_summary);
+        for my $r (@$rows) {
+            my ($kind,$at,$json)=@$r; next unless $kind eq 'traffic';
+            my $x=$decode_row->($r); next unless ref($x) eq 'HASH';
+            my $boot=defined($x->{boot_id}) ? "$x->{boot_id}" : '';
+            my $oo=ref($x->{protocol}) eq 'HASH' && ref($x->{protocol}{origins}) eq 'HASH' ? $x->{protocol}{origins} : {};
+            for my $origin (keys %$oo) {
+                next unless ref($oo->{$origin}) eq 'HASH'; my($total,%pcs)=(0);
+                for my $pc (keys %{$oo->{$origin}}) {
+                    next unless ref($oo->{$origin}{$pc}) eq 'HASH';
+                    my $a=$oo->{$origin}{$pc}{accepted}; next unless ref($a) eq 'HASH';
+                    my $n=0+($a->{packets}||0); $total+=$n; $pcs{$pc}=$n;
+                }
+                push @{$origin_samples{$origin}}, {t=>0+$at,total=>0+$total,pcs=>\%pcs,boot=>$boot};
+            }
+        }
+        for my $origin (sort keys %origin_samples) {
+            my $samples=$origin_samples{$origin}; my @points; my($peak,$peak_at,$peak_pc)=(0,undef,undef);
+            for(my $i=1;$i<@$samples;$i++) {
+                my($p,$q)=($samples->[$i-1],$samples->[$i]); next if length($p->{boot})&&length($q->{boot})&&$p->{boot} ne$q->{boot};
+                my$dt=$q->{t}-$p->{t}; next if$dt<=0; my$dv=$q->{total}-$p->{total}; next if$dv<0;
+                my($dom,$domdv)=(undef,-1); my%allpc=map{$_=>1}(keys%{$p->{pcs}},keys%{$q->{pcs}});
+                for my$pc(keys%allpc){my$d=(0+($q->{pcs}{$pc}||0))-(0+($p->{pcs}{$pc}||0));next if$d<0;if($d>$domdv){($dom,$domdv)=($pc,$d)}}
+                my$rate=$dv/$dt; push@points,{t=>0+$q->{t},rate_pps=>0+$rate,packets=>0+$dv,span_seconds=>0+$dt,dominant_pc=>$dom};
+                if(!defined($peak_at)||$rate>$peak){($peak,$peak_at,$peak_pc)=($rate,0+$q->{t},$dom)}
+            }
+            next unless @points; $origin_rates{$origin}=\@points;
+            my @prior=@points>1?map{0+$_->{rate_pps}}@points[0..$#points-1]:(); @prior=sort{$a<=>$b}@prior;
+            my($baseline,$ratio); if(@prior){my$m=int(@prior/2);$baseline=@prior%2?$prior[$m]:($prior[$m-1]+$prior[$m])/2;$ratio=$baseline>0?(0+$points[-1]{rate_pps})/$baseline:undef}
+            my$latest=0+$points[-1]{rate_pps}; my$burst=(@prior>=5&&defined($baseline)&&$baseline>0&&$latest>=5&&defined($ratio)&&$ratio>=3)?1:0;
+            push @origin_summary,{origin=>$origin,latest_pps=>$latest,peak_pps=>0+$peak,peak_at=>$peak_at,dominant_pc=>$points[-1]{dominant_pc},peak_dominant_pc=>$peak_pc,samples=>scalar(@points),baseline_pps=>defined($baseline)?0+$baseline:undef,baseline_samples=>scalar(@prior),deviation_ratio=>defined($ratio)?0+$ratio:undef,burst=>$burst};
+        }
+        @origin_summary=sort{$b->{peak_pps}<=>$a->{peak_pps}||$a->{origin}cmp$b->{origin}}@origin_summary;
+        # Accepted-spot rankings are interval samples drained by the dedicated
+        # dxweb-admin sampler.  Aggregate them here, outside DXSpider, and return
+        # only Top-30 so browser payload size is bounded.
+        my (%rank_dx,%rank_spotter,%rank_origin); my ($rank_total,$rank_overflow)=(0,0);
+        for my $r (@$rows) {
+            my ($kind,$at,$json)=@$r; next unless $kind eq 'spot_ranks';
+            my $x=$decode_row->($r); next unless ref($x) eq 'HASH';
+            my $sr=ref($x->{spot_ranks}) eq 'HASH' ? $x->{spot_ranks} : $x;
+            $rank_total += 0+($sr->{total}||0); $rank_overflow += 0+($sr->{overflow}||0);
+            for my $spec ([by_dx=>\%rank_dx],[by_spotter=>\%rank_spotter],[by_origin_node=>\%rank_origin]) {
+                my($key,$dst)=@$spec; my$src=$sr->{$key}; next unless ref($src) eq 'HASH';
+                for my $name (keys %$src) { $dst->{$name} += 0+($src->{$name}||0) }
+            }
+        }
+        my $topn=sub { my($h)=@_; my@k=sort{($h->{$b}||0)<=>($h->{$a}||0)||$a cmp $b}keys%$h; $#k=29 if @k>30; return [map{{name=>$_,count=>0+($h->{$_}||0)}}@k] };
+        my $spot_rankings={total=>0+$rank_total,overflow=>0+$rank_overflow,top_dx=>$topn->(\%rank_dx),top_spotters=>$topn->(\%rank_spotter),top_origin_nodes=>$topn->(\%rank_origin)};
+
         my%series;for my$name(keys%raw){my$samples=$raw{$name};next unless@$samples;my%b;
           if($samples->[0][3]eq'counter'){for(my$i=1;$i<@$samples;$i++){my($t0,$v0,$b0)=@{$samples->[$i-1]};my($t1,$v1,$b1)=@{$samples->[$i]};next if length$b0&&length$b1&&$b0 ne$b1;my$dt=$t1-$t0;my$dv=$v1-$v0;next if$dt<=0||$dv<0;my$n=int(($t1-$from)/$bucket);next if$n<0;$b{$n}{dv}+=$dv;$b{$n}{dt}+=$dt;$b{$n}{t}=$from+($n+.5)*$bucket}$series{$name}=[map{my$x=$b{$_};{t=>0+$x->{t},v=>$name eq 'cpu_self_ratio' ? ($x->{dt}>0?0+$x->{dv}/$x->{dt}:undef) : 0+$x->{dv}}}sort{$a<=>$b}keys%b]}
           else{for my$x(@$samples){my($t,$v)=@$x;my$n=int(($t-$from)/$bucket);next if$n<0;$b{$n}={t=>$from+($n+.5)*$bucket,v=>0+$v}}$series{$name}=[map{{t=>0+$b{$_}{t},v=>0+$b{$_}{v}}}sort{$a<=>$b}keys%b]}}
         my$cs=defined$oldest&&$oldest>$from?$oldest:$from;my$ce=defined$newest&&$newest<$now?$newest:$now;my$cov=(defined$oldest&&defined$newest&&$ce>$cs)?$ce-$cs:0;my$ratio=$seconds?$cov/$seconds:0;$ratio=1 if$ratio>1;
-        return{schema_version=>2,window=>$window,window_seconds=>$seconds,from_at=>0+$from,to_at=>0+$now,bucket_seconds=>0+$bucket,coverage_seconds=>0+$cov,coverage_ratio=>0+$ratio,boot_count=>scalar(keys%boots),selected_peer=>$selected_peer,peers=>[sort keys%peers],series=>\%series,semantics=>{counters=>'non-decreasing delta total per displayed bucket within one boot; cpu_self_ratio remains a per-second ratio for percent display',gauges=>'last observed value in each bucket',missing=>'missing buckets are not zero'}};
+        my%kind_coverage=map{my$k=$_;my$f=$kind_span{$k}{first};my$l=$kind_span{$k}{last};$k=>{samples=>scalar(grep{$_->[0] eq $k}@$rows),seconds=>(defined$f&&defined$l&&$l>$f?0+($l-$f):0)}}keys%kind_span;
+        return{schema_version=>2,window=>$window,window_seconds=>$seconds,from_at=>0+$from,to_at=>0+$now,bucket_seconds=>0+$bucket,coverage_seconds=>0+$cov,coverage_ratio=>0+$ratio,boot_count=>scalar(keys%boots),kind_coverage=>\%kind_coverage,selected_peer=>$selected_peer,peers=>[sort keys%peers],series=>\%series,traffic_rates=>{neighbours=>$compact?{}:\%neighbour_rates,neighbour_summary=>\@neighbour_summary,origins=>$compact?{}:\%origin_rates,origin_summary=>\@origin_summary,origin_available=>scalar(@origin_summary)?1:0},spot_rankings=>$spot_rankings,semantics=>{traffic_rates=>'derived asynchronously from successive cumulative traffic snapshots; logical-origin accepted rates are primary for burst detection; physical-neighbour rates remain independent context and are never substituted or joined by inference; baseline is median of prior valid same-boot rates and excludes latest interval; burst requires at least 5 baseline intervals, latest rate >= 5 pkt/s and deviation ratio >= 3.0',counters=>'non-decreasing delta total per displayed bucket within one boot; cpu_self_ratio remains a per-second ratio for percent display',gauges=>'last observed value in each bucket',missing=>'missing buckets are not zero'}};
     },sub{my($sp,$err,$r)=@_;$cb->($err?"$err":undef,$r)});
 }
 

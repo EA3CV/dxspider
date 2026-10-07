@@ -32,6 +32,17 @@ if ($what eq 'status') {
 } elsif ($what eq 'traffic') {
 	@out = generate_traffic($self);
 
+} elsif ($what eq 'filtering') {
+	@out = generate_filtering($self);
+} elsif ($what eq 'diagnostics') {
+	@out = generate_diagnostics($self);
+
+} elsif ($what eq 'origins') {
+	@out = generate_protocol_origins($self);
+
+} elsif ($what eq 'bursts') {
+	@out = generate_bursts($self);
+
 } elsif ($what eq 'pc92') {
 	@out = generate_pc92($self);
 
@@ -62,6 +73,16 @@ if ($what eq 'status') {
 	push @out, " ";
 
 	push @out, generate_traffic($self);
+	push @out, " ";
+
+	push @out, generate_filtering($self);
+	push @out, " ", generate_diagnostics($self);
+	push @out, " ";
+
+	push @out, generate_protocol_origins($self);
+	push @out, " ";
+
+	push @out, generate_bursts($self);
 	push @out, " ";
 
 	push @out, generate_pc92($self);
@@ -592,6 +613,17 @@ sub generate_connections
 
 	push @out, "(no connections)" unless $count;
 
+	my $tot = $r->{connection_totals} || {};
+	push @out, " ";
+	push @out, sprintf "%-22s  %12s", "Connect events:", comma($tot->{connects});
+	push @out, sprintf "%-22s  %12s", "Disconnect events:", comma($tot->{disconnects});
+	push @out, sprintf "%-22s  %12s", "Too many events:", comma($tot->{too_many});
+	my $login = $r->{incoming_login} || {};
+	push @out, " ";
+	push @out, sprintf "%-22s  %12s", "Login attempts:", comma($login->{attempts});
+	push @out, sprintf "%-22s  %12s", "Login successful:", comma($login->{successful});
+	push @out, sprintf "%-22s  %12s", "Rapid-login throttled:", comma($login->{rapid_throttled});
+
 	return @out;
 }
 
@@ -659,6 +691,184 @@ sub generate_traffic
 	return @out;
 }
 
+
+sub generate_filtering
+{
+    my ($self) = @_;
+    my @out;
+    my $r = get_snapshot('traffic');
+    unless ($r) { push @out, "Unable to obtain filtering information"; return @out; }
+    my $op = $r->{operator_events} || {};
+    my $diag = (($r->{protocol} || {})->{input_diagnostics} || {});
+
+    push @out, heading("Filtering / Rejects");
+    push @out, sprintf "%-24s  %12s", "Reason", "Count";
+    push @out, sprintf "%-24s  %12s", "-" x 24, "-" x 12;
+    my @rows = (
+        ['Bad DX',       $op->{badlist}{baddx}{total}],
+        ['Bad spotter',  $op->{badlist}{badspotter}{total}],
+        ['Bad node',     $op->{badlist}{badnode}{total}],
+        ['Bad word',     $op->{badlist}{badword}{total}],
+        ['PC61 badip',   $op->{pc61_drop}{badip}{total}],
+        ['PC61 non-public IP', $op->{pc61_drop}{non_public_ip}{total}],
+        ['Local spot duplicate', $op->{spots}{duplicate_local_user}{total}],
+        ['Malformed protocol', $diag->{malformed}{packets}],
+        ['Unknown protocol', $diag->{unknown_protocol}{packets}],
+    );
+    push @out, sprintf "%-24s  %12s", $_->[0], comma($_->[1]) for @rows;
+
+    my %origin;
+    my %peer;
+    for my $family (qw(badlist pc61_drop)) {
+        for my $reason (keys %{$op->{$family} || {}}) {
+            my $e = $op->{$family}{$reason} || {};
+            $origin{$_} += number($e->{by_origin}{$_}) for keys %{$e->{by_origin} || {}};
+            my $neighbour = $e->{by_neighbour} || $e->{by_peer} || {};
+            $peer{$_} += number($neighbour->{$_}) for keys %$neighbour;
+        }
+    }
+    for my $set (["Top reject origins", \%origin], ["Top reject neighbours", \%peer]) {
+        my ($title,$h)=@$set; my @k=sort { $h->{$b}<=>$h->{$a} || $a cmp $b } keys %$h;
+        splice(@k,5) if @k>5; next unless @k;
+        push @out, " ", $title, "-" x length($title);
+        push @out, sprintf "%-16s  %12s", "Call", "Count";
+        push @out, sprintf "%-16s  %12s", "-" x 16, "-" x 12;
+        push @out, sprintf("%-16s  %12s", $_, comma($h->{$_})) for @k;
+    }
+    return @out;
+}
+
+
+
+sub generate_diagnostics
+{
+    my ($self) = @_;
+    my @out;
+    my $r = get_snapshot('traffic');
+    unless ($r) { push @out, "Unable to obtain diagnostics information"; return @out; }
+    my $op = $r->{operator_events} || {};
+    my $diag = (($r->{protocol} || {})->{input_diagnostics} || {});
+
+    push @out, heading("Diagnostics");
+    push @out, "Protocol boundary rejects (origin unavailable at this boundary)";
+    push @out, sprintf "%-18s  %12s  %14s", "Cause", "Packets", "Bytes";
+    push @out, sprintf "%-18s  %12s  %14s", "-" x 18, "-" x 12, "-" x 14;
+    push @out, sprintf "%-18s  %12s  %14s", "Malformed", comma($diag->{malformed}{packets}), comma($diag->{malformed}{bytes});
+    push @out, sprintf "%-18s  %12s  %14s", "Unknown protocol", comma($diag->{unknown_protocol}{packets}), comma($diag->{unknown_protocol}{bytes});
+
+    my $bypc = $diag->{malformed}{by_pc} || {};
+    my @pcs = sort { number($bypc->{$b}{packets}) <=> number($bypc->{$a}{packets}) || $a cmp $b } keys %$bypc;
+    if (@pcs) {
+        push @out, " ", "Malformed by PC", "---------------";
+        push @out, sprintf "%-6s  %12s  %14s  %-24s", "PC", "Packets", "Bytes", "Bad fields";
+        push @out, sprintf "%-6s  %12s  %14s  %-24s", "-" x 6, "-" x 12, "-" x 14, "-" x 24;
+        for my $pc (@pcs) {
+            my $x=$bypc->{$pc}||{}; my $f=$x->{fields}||{};
+            my $fields=join(',', map { $_ . ':' . number($f->{$_}) } sort {$a<=>$b} grep {/^[0-9]+$/} keys %$f);
+            $fields='-' unless length $fields; $fields=substr($fields,0,24);
+            push @out, sprintf "%-6s  %12s  %14s  %-24s", $pc, comma($x->{packets}), comma($x->{bytes}), $fields;
+        }
+    }
+
+    my $peers=$diag->{peers}||{};
+    my @peers=sort {
+        my $at=number($peers->{$a}{malformed}{packets})+number($peers->{$a}{unknown_protocol}{packets});
+        my $bt=number($peers->{$b}{malformed}{packets})+number($peers->{$b}{unknown_protocol}{packets});
+        $bt<=>$at || $a cmp $b
+    } keys %$peers;
+    if (@peers) {
+        splice(@peers,10) if @peers>10;
+        push @out, " ", "Boundary rejects by neighbour", "-----------------------------";
+        push @out, sprintf "%-16s  %12s  %12s  %12s", "Neighbour", "Malformed", "Unknown", "Total";
+        push @out, sprintf "%-16s  %12s  %12s  %12s", "-" x 16, "-" x 12, "-" x 12, "-" x 12;
+        for my $peer (@peers) {
+            my $m=number($peers->{$peer}{malformed}{packets}); my $u=number($peers->{$peer}{unknown_protocol}{packets});
+            push @out, sprintf "%-16s  %12s  %12s  %12s", $peer, comma($m), comma($u), comma($m+$u);
+        }
+    }
+
+    push @out, " ", "Proven filtering/drop decisions", "-------------------------------";
+    push @out, sprintf "%-20s  %-22s  %12s", "Family", "Reason", "Count";
+    push @out, sprintf "%-20s  %-22s  %12s", "-" x 20, "-" x 22, "-" x 12;
+    for my $spec ([badlist=>[qw(baddx badspotter badnode badword)]],[pc61_drop=>[qw(badip non_public_ip)]]) {
+        my($fam,$reasons)=@$spec;
+        for my $reason (@$reasons) { push @out, sprintf "%-20s  %-22s  %12s", $fam, $reason, comma($op->{$fam}{$reason}{total}); }
+    }
+    push @out, sprintf "%-20s  %-22s  %12s", 'spots', 'duplicate_local_user', comma($op->{spots}{duplicate_local_user}{total});
+    push @out, sprintf "%-20s  %-22s  %12s", 'connections', 'badip', comma($op->{connections}{badip}{total});
+    push @out, " ", "Scope: malformed/unknown have neighbour only; origin is not inferred.";
+    push @out, "PC92 routing-policy returns are excluded from Diagnostics.";
+    return @out;
+}
+
+sub generate_protocol_origins
+{
+    my ($self) = @_;
+    my @out;
+    my $r = get_snapshot('traffic');
+    unless ($r) { push @out, "Unable to obtain protocol origin information"; return @out; }
+    my $proto = $r->{protocol} || {};
+    my $origins = $proto->{origins} || {};
+    my $scope = $proto->{origin_scope} || {};
+
+    push @out, heading("Logical Protocol Origins");
+    push @out, "Coverage: PC11/61 field7; PC92 A/C/D/K pcall; PC93 validated onode";
+    push @out, "Coverage is protocol-scoped; neighbour is never substituted for origin";
+    push @out, sprintf "%-16s  %-5s  %10s  %12s", "Origin", "PC", "Accepted", "Forwarded";
+    push @out, sprintf "%-16s  %-5s  %10s  %12s", "-" x 16, "-" x 5, "-" x 10, "-" x 12;
+    my @rows;
+    for my $origin (keys %$origins) {
+        for my $pc (keys %{$origins->{$origin} || {}}) {
+            my $x = $origins->{$origin}{$pc} || {};
+            my $a = number($x->{accepted}{packets});
+            my $f = number($x->{forwarded}{packets});
+            push @rows, [$origin,$pc,$a,$f] if $a || $f;
+        }
+    }
+    @rows = sort { ($b->[2]+$b->[3]) <=> ($a->[2]+$a->[3]) || $a->[0] cmp $b->[0] || $a->[1] cmp $b->[1] } @rows;
+    splice(@rows,20) if @rows > 20;
+    push @out, sprintf("%-16s  %-5s  %10s  %12s", $_->[0], $_->[1], comma($_->[2]), comma($_->[3])) for @rows;
+    push @out, "(no protocol origins recorded yet)" unless @rows;
+    return @out;
+}
+
+sub generate_bursts
+{
+    my ($self) = @_;
+    my @out;
+    my $path = '/spider/local_data/dxweb-bursts.json';
+    push @out, heading("Traffic Rates / Bursts");
+    unless (-f $path) { push @out, "Snapshot unavailable (dxweb-admin has not published it yet)"; return @out; }
+    my @st=stat($path); my $size=$st[7]||0;
+    if ($size <= 0 || $size > 65536) { push @out, "Snapshot invalid (size)"; return @out; }
+    my $json='';
+    my $fh;
+    unless (open $fh,'<',$path) { push @out, "Snapshot unavailable (open failed)"; return @out; }
+    binmode $fh; my $n=read($fh,$json,65537); close $fh;
+    if (!defined($n) || $n>65536) { push @out, "Snapshot invalid (read)"; return @out; }
+    my $r=eval { require JSON::PP; JSON::PP::decode_json($json) };
+    unless (ref($r) eq 'HASH' && (($r->{schema_version}||0)==1 || ($r->{schema_version}||0)==2)) { push @out, "Snapshot invalid (schema/json)"; return @out; }
+    my $age=time-number($r->{generated_at}); $age=0 if $age<0;
+    push @out, sprintf "Snapshot age: %.0f s%s",$age,($age>90?'  STALE':'');
+    if (($r->{schema_version}||0)>=2 && $r->{origin_available}) {
+        push @out, "Primary dimension: logical origin";
+        push @out, sprintf "%-15s  %8s  %8s  %6s  %-5s  %-5s",qw(Origin Latest Base Ratio Burst PC);
+        push @out, sprintf "%-15s  %8s  %8s  %6s  %-5s  %-5s",'-'x15,'-'x8,'-'x8,'-'x6,'-'x5,'-'x5;
+        my $oc=0; for my $x (@{$r->{origins}||[]}) { next unless ref($x) eq 'HASH'; $oc++; push @out,sprintf "%-15s  %8.2f  %8.2f  %6.2f  %-5s  %-5s",display_text($x->{origin}),number($x->{latest_pps}),number($x->{baseline_pps}),number($x->{deviation_ratio}),($x->{burst}?'YES':'no'),display_text($x->{dominant_pc}); last if $oc>=20 }
+        push @out,"(no logical-origin rate data)" unless $oc;
+        push @out,""; push @out,"Physical neighbour context (independent; no inferred join)";
+    } else { push @out, "Origin: unavailable (not inferred)"; }
+    push @out, sprintf "%-15s  %8s  %8s  %6s  %-5s  %-5s",qw(Neighbour Latest Base Ratio Burst PC);
+    push @out, sprintf "%-15s  %8s  %8s  %6s  %-5s  %-5s",'-'x15,'-'x8,'-'x8,'-'x6,'-'x5,'-'x5;
+    my $count=0;
+    for my $x (@{$r->{neighbours}||[]}) {
+        next unless ref($x) eq 'HASH'; $count++;
+        push @out,sprintf "%-15s  %8.2f  %8.2f  %6.2f  %-5s  %-5s",
+            display_text($x->{neighbour}),number($x->{latest_pps}),number($x->{baseline_pps}),number($x->{deviation_ratio}),($x->{burst}?'YES':'no'),display_text($x->{dominant_pc});
+    }
+    push @out,"(no neighbour rate data)" unless $count;
+    return @out;
+}
 
 sub generate_pc92
 {
@@ -1198,7 +1408,7 @@ sub generate_self_health
 sub usage
 {
 	return (
-		"show/health [status|connections|traffic|pc92|peers [CALL]|" .
+		"show/health [status|connections|traffic|filtering|diagnostics|origins|bursts|pc92|peers [CALL]|" .
 		"queues|web|rbn|topology|self_health|all]"
 	);
 }

@@ -11,7 +11,7 @@ package DXHealth;
 
 use strict;
 
-our $VERSION = '0.7';
+our $VERSION = '0.9';
 our @SORTS = qw(A D C K);
 our %VALID = map { $_ => 1 } @SORTS;
 our %logical;
@@ -22,8 +22,99 @@ our %protocol;
 our %protocol_peer;
 our $local_spots_generated = 0;
 our %protocol_logical;
+our %protocol_origin;
 our %protocol_reject;
 our %protocol_reject_peer;
+
+# Operator-facing reject/filter telemetry.  These counters record only proven
+# decisions at the point where DXSpider actually drops, suppresses or marks
+# traffic local-only.  Dimensions are bounded so hostile input cannot create
+# unbounded RAM growth.
+our %operator_events;
+our $MAX_OPERATOR_DIMENSIONS = 2048;
+our $MAX_OPERATOR_SNAPSHOT_DIMENSIONS = 32;
+
+sub _bounded_inc {
+    my ($h, $key) = @_;
+    return 0 unless ref($h) eq 'HASH';
+    $key = '' unless defined $key;
+    $key = uc "$key";
+    $key =~ s/^\s+|\s+$//g;
+    return 0 unless length $key;
+    if (!exists $h->{$key} && scalar(keys %$h) >= $MAX_OPERATOR_DIMENSIONS) {
+        $key = '<OTHER>';
+    }
+    $h->{$key} = 0 + ($h->{$key} || 0) + 1;
+    return 1;
+}
+
+sub operator_event {
+    my ($family, $reason, $peer, $origin, $pc) = @_;
+    return 0 unless defined $family && $family =~ /^(?:badlist|pc61_drop)$/;
+    return 0 unless defined $reason && $reason =~ /^[a-z0-9_]+$/;
+    my $e = ($operator_events{$family}{$reason} ||= { total => 0 });
+    $e->{total}++;
+    _bounded_inc(($e->{by_peer} ||= {}), $peer);
+    _bounded_inc(($e->{by_origin} ||= {}), $origin);
+    _bounded_inc(($e->{by_pc} ||= {}), $pc) if defined $pc && length $pc;
+    return 1;
+}
+
+sub local_duplicate_spot {
+    my ($call) = @_;
+    my $e = ($operator_events{spots}{duplicate_local_user} ||= { total => 0 });
+    $e->{total}++;
+    _bounded_inc(($e->{by_call} ||= {}), $call);
+    return 1;
+}
+
+sub connection_badip {
+    my ($call) = @_;
+    my $e = ($operator_events{connections}{badip} ||= { total => 0 });
+    $e->{total}++;
+    _bounded_inc(($e->{by_call} ||= {}), $call);
+    return 1;
+}
+
+sub _snapshot_dimension {
+    my ($src) = @_;
+    return {} unless ref($src) eq 'HASH';
+    my @keys = sort {
+        (0 + ($src->{$b} || 0)) <=> (0 + ($src->{$a} || 0)) || $a cmp $b
+    } keys %$src;
+    my %out;
+    my $other = 0;
+    my $n = 0;
+    for my $key (@keys) {
+        my $v = 0 + ($src->{$key} || 0);
+        if ($n < $MAX_OPERATOR_SNAPSHOT_DIMENSIONS) {
+            $out{$key} = $v;
+            $n++;
+        } else {
+            $other += $v;
+        }
+    }
+    $out{'<OTHER>'} = 0 + ($out{'<OTHER>'} || 0) + $other if $other;
+    return \%out;
+}
+
+sub operator_snapshot {
+    my %copy;
+    for my $family (keys %operator_events) {
+        for my $reason (keys %{$operator_events{$family} || {}}) {
+            my $src = $operator_events{$family}{$reason} || {};
+            my $dst = ($copy{$family}{$reason} = { total => 0 + ($src->{total} || 0) });
+            # Canonical external terminology is neighbour.  The hot-path store
+            # remains by_peer for compatibility with existing instrumentation.
+            $dst->{by_neighbour} = _snapshot_dimension($src->{by_peer}) if ref($src->{by_peer}) eq 'HASH';
+            for my $dim (qw(by_origin by_pc by_call)) {
+                next unless ref($src->{$dim}) eq 'HASH';
+                $dst->{$dim} = _snapshot_dimension($src->{$dim});
+            }
+        }
+    }
+    return \%copy;
+}
 
 # Protocol input diagnostics. These counters are deliberately limited to
 # failures proven at the protocol boundary. Duplicates are NOT rejects here:
@@ -67,6 +158,8 @@ sub protocol_reject_malformed {
 # authoritative DXChannel snapshot.
 our %connections;
 our %connection_totals = (connects => 0, disconnects => 0, too_many => 0);
+our %incoming_login_totals = (attempts => 0, successful => 0, rapid_throttled => 0);
+our %incoming_login_by_call;
 our $CONNECTION_RETENTION = 48 * 3600;   # enough for the 24 h UI window
 our $MAX_CONNECTIONS_TRACKED = 4096;
 
@@ -104,6 +197,25 @@ sub _connection_kind {
     return 'user' if $s eq 'U';
     return 'node' if $s =~ /^[ACRSXL]$/;
     return 'other';
+}
+
+sub connection_attempt {
+    my ($call) = @_;
+    $incoming_login_totals{attempts}++;
+    _bounded_inc(\%incoming_login_by_call, $call);
+    return 1;
+}
+
+sub connection_rapid_throttled {
+    my ($call) = @_;
+    $incoming_login_totals{rapid_throttled}++;
+    return 1;
+}
+
+sub connection_incoming_success {
+    my ($call) = @_;
+    $incoming_login_totals{successful}++;
+    return 1;
 }
 
 sub connection_up {
@@ -199,6 +311,7 @@ sub connection_snapshot {
     }
     return {
         totals => { map { $_ => 0 + ($connection_totals{$_} || 0) } qw(connects disconnects too_many) },
+        incoming_login => { map { $_ => 0 + ($incoming_login_totals{$_} || 0) } qw(attempts successful rapid_throttled) },
         retained => scalar(keys %rows),
         retention_seconds => 0 + $CONNECTION_RETENTION,
         max_entries => 0 + $MAX_CONNECTIONS_TRACKED,
@@ -281,8 +394,32 @@ sub protocol_logical_line {
     return protocol_logical_inc($pc, $kind, length($line));
 }
 
+sub protocol_logical_origin_line {
+    my ($kind, $origin, $line) = @_;
+    my $pc = _pc_from_line($line);
+    return 0 unless defined $pc;
+    return 0 unless defined $origin && !ref($origin) && length($origin);
+    return 0 unless protocol_logical_inc($pc, $kind, length($line));
+    my $name = sprintf('PC%02d', $pc);
+    $protocol_origin{$origin}{$name}{$kind}{packets}++;
+    $protocol_origin{$origin}{$name}{$kind}{bytes} += length($line);
+    return 1;
+}
+
+sub protocol_origin_inc {
+    my ($kind, $origin, $pc, $bytes) = @_;
+    return 0 unless defined $origin && !ref($origin) && length($origin);
+    return 0 unless defined $pc && $pc >= 10 && $pc <= 99;
+    return 0 unless defined $kind && $kind =~ /^(?:accepted|forwarded|generated|reply)$/;
+    $bytes = 0 unless defined $bytes && $bytes >= 0;
+    my $name = sprintf('PC%02d', $pc);
+    $protocol_origin{$origin}{$name}{$kind}{packets}++;
+    $protocol_origin{$origin}{$name}{$kind}{bytes} += $bytes;
+    return 1;
+}
+
 sub protocol_snapshot {
-    my %out = (protocols => {}, peers => {}, logical => {}, capabilities => {}, local_spots_generated => 0 + $local_spots_generated);
+    my %out = (protocols => {}, peers => {}, logical => {}, origins => {}, origin_scope => {}, capabilities => {}, local_spots_generated => 0 + $local_spots_generated);
     for my $pc (sort {$a <=> $b} keys %protocol) {
         my $name = sprintf('PC%02d', $pc);
         for my $dir (qw(in out)) {
@@ -314,6 +451,23 @@ sub protocol_snapshot {
             };
         }
     }
+    for my $origin (sort keys %protocol_origin) {
+        for my $pc (sort keys %{$protocol_origin{$origin}}) {
+            for my $kind (sort keys %{$protocol_origin{$origin}{$pc}}) {
+                $out{origins}{$origin}{$pc}{$kind} = {
+                    packets => 0 + ($protocol_origin{$origin}{$pc}{$kind}{packets} || 0),
+                    bytes   => 0 + ($protocol_origin{$origin}{$pc}{$kind}{bytes} || 0),
+                };
+            }
+        }
+    }
+    $out{origin_scope} = {
+        PC11 => { accepted=>1, forwarded=>1, source=>'field7' },
+        PC61 => { accepted=>1, forwarded=>1, source=>'field7' },
+        PC92 => { accepted=>1, sorts=>[qw(A C D K)], source=>'pcall_field1' },
+        PC93 => { accepted=>1, generated=>1, source=>'validated_onode' },
+        complete_physical_coverage => 0,
+    };
     $out{input_diagnostics} = {
         malformed => {
             packets => 0 + ($protocol_reject{malformed}{packets} || 0),
@@ -471,6 +625,31 @@ sub pc92_reset {
     %physical = ();
     %pc92k_advertised = ();
     return 1;
+}
+
+# v0.39 additive accepted-spot ranking telemetry. Bounded, RAM-only and drained by
+# the technical sampler. This block intentionally adds to the installed DXHealth
+# instead of replacing the site's working module.
+our $MAX_SPOT_RANK_DIMENSIONS = 4096;
+our %spot_rank_interval;
+our $spot_rank_overflow = 0;
+sub _spot_rank_inc {
+    my ($dim,$key)=@_; return 0 unless defined $dim && defined $key;
+    $key=uc($key); $key=~s/^\s+|\s+$//g; return 0 unless length $key;
+    my $h=($spot_rank_interval{$dim} ||= {});
+    if(!exists $h->{$key} && scalar(keys %$h) >= $MAX_SPOT_RANK_DIMENSIONS){$spot_rank_overflow++;return 0}
+    $h->{$key}++; return 1;
+}
+sub accepted_spot_rank {
+    my ($dx,$spotter,$origin)=@_;
+    $spot_rank_interval{total}=0+($spot_rank_interval{total}||0)+1;
+    _spot_rank_inc('dx',$dx); _spot_rank_inc('spotter',$spotter); _spot_rank_inc('origin_node',$origin);
+    return 1;
+}
+sub spot_rank_take_snapshot {
+    my %o=(total=>0+($spot_rank_interval{total}||0),overflow=>0+$spot_rank_overflow,max_dimensions=>0+$MAX_SPOT_RANK_DIMENSIONS);
+    for my $d(qw(dx spotter origin_node)){my %x=%{$spot_rank_interval{$d}||{}};$o{"by_$d"}=\%x}
+    %spot_rank_interval=(); $spot_rank_overflow=0; return \%o;
 }
 
 1;

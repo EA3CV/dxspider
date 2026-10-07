@@ -17,7 +17,7 @@ use Spot;
 use Route::Node;
 use DXUser;
 
-our $VERSION = '0.5';
+our $VERSION = '0.6';
 our $SCHEMA_VERSION = 1;
 our $MAX_CONNECTIONS = 512;
 our $boot_id = join('-', time(), $$, int(rand(0x7fffffff)));
@@ -160,6 +160,7 @@ sub connections {
     $o->{total}=scalar(@all_full); $o->{truncated}=$truncated; $o->{connections}=\@rows;
     $o->{connection_totals}=$hist->{totals}; $o->{connection_retained}=$hist->{retained};
     $o->{connection_retention_seconds}=$hist->{retention_seconds};
+    $o->{incoming_login}=$hist->{incoming_login} if ref($hist->{incoming_login}) eq 'HASH';
     return $o;
 }
 sub traffic {
@@ -191,6 +192,13 @@ sub traffic {
         $o->{protocol} = $proto;
         $o->{spots}{local_generated} = _num($proto->{local_spots_generated});
     }
+    my $ops = eval { DXHealth::operator_snapshot() };
+    $o->{operator_events} = $ops if $ops && ref($ops) eq 'HASH';
+    $o->{telemetry_caps}={
+        protocol_pc84_pc85=>1,
+        local_duplicate_spots=>(defined &DXHealth::local_duplicate_spot ? 1 : 0),
+        protocol_input_diagnostics=>(defined &DXHealth::protocol_reject_malformed ? 1 : 0),
+    };
     my $pc92 = eval { DXHealth::pc92_snapshot() };
     $o->{pc92} = $pc92 if $pc92 && ref($pc92) eq 'HASH';
     return $o;
@@ -223,15 +231,25 @@ sub web {
 }
 sub rbn {
     my @rows;
+    my %totals = (
+        minute => { raw=>0, retrieved=>0, delivered=>0, users=>0 },
+        ten_minute => { raw=>0, retrieved=>0, delivered=>0, users=>0 },
+        hour => { raw=>0, retrieved=>0, delivered=>0, users=>0 },
+        queue_depth => 0,
+    );
     for my $c (DXChannel::get_all()) {
         next unless eval { $c->is_rbn };
-        push @rows, {call=>$c->{call}||'',lasttime=>_num($c->{lasttime}),queue_depth=>_qlen($c->{queue}),inrush_until=>_num($c->{inrushpreventor}),
+        my $row = {call=>$c->{call}||'',lasttime=>_num($c->{lasttime}),queue_depth=>_qlen($c->{queue}),inrush_until=>_num($c->{inrushpreventor}),
             minute=>{raw=>_num($c->{noraw}),retrieved=>_num($c->{norbn}),delivered=>_num($c->{nospot}),users=>_qlen($c->{nousers})},
             ten_minute=>{raw=>_num($c->{noraw10}),retrieved=>_num($c->{norbn10}),delivered=>_num($c->{nospot10}),users=>_qlen($c->{nousers10})},
             hour=>{raw=>_num($c->{norawhour}),retrieved=>_num($c->{norbnhour}),delivered=>_num($c->{nospothour}),users=>_qlen($c->{nousershour})}};
+        push @rows, $row;
+        $totals{queue_depth} += $row->{queue_depth};
+        for my $w (qw(minute ten_minute hour)) { $totals{$w}{$_} += $row->{$w}{$_} for qw(raw retrieved delivered users); }
     }
-    my $o=_base(); $o->{channels}=\@rows; return $o;
+    my $o=_base(); $o->{channels}=\@rows; $o->{totals}=\%totals; return $o;
 }
+
 sub topology {
     # Keep this snapshot deliberately compact.  It runs in the DXSpider event
     # loop, therefore it must neither perform I/O nor build an unbounded object.
@@ -290,10 +308,11 @@ sub topology {
     return $o;
 }
 
+sub spot_ranks { my $o=_base(); my $r=eval { DXHealth::spot_rank_take_snapshot() }; $o->{spot_ranks}=$r if $r && ref($r) eq 'HASH'; return $o; }
 sub self_health { my $o=_base(); $o->{health}={%self_health}; return $o; }
 sub snapshot {
     my ($what)=@_; $what=lc($what||'');
-    my %allowed=(status=>\&status,connections=>\&connections,traffic=>\&traffic,web=>\&web,rbn=>\&rbn,self_health=>\&self_health,topology=>\&topology);
+    my %allowed=(status=>\&status,connections=>\&connections,traffic=>\&traffic,web=>\&web,rbn=>\&rbn,self_health=>\&self_health,spot_ranks=>\&spot_ranks,topology=>\&topology);
     return (0,{error=>'unsupported_snapshot'}) unless $allowed{$what};
     my $t=time(); $self_health{requests}++; $self_health{last_request}=$t;
     my ($ok,$data); $ok=eval{$data=$allowed{$what}->();1};
