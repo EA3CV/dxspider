@@ -4,6 +4,13 @@ DXSPIDER USER WEB - OPERATIONAL OVERVIEW
 DXWeb is the normal user-facing web application for DXSpider. It runs
 independently of DXWeb Admin and normally listens on TCP port 7380.
 
+The HTTP listener is configurable with HTTP_HOST and HTTP_PORT. Direct
+deployments normally use 0.0.0.0:7380. When a trusted reverse proxy is
+used, bind DXWeb to a private address such as 127.0.0.1 and enable
+MOJO_REVERSE_PROXY=1 so Mojolicious uses the proxy information for the
+original client address. Do not expose that private backend listener to
+untrusted clients.
+
 The server code in this tree is dxweb/app.pl. It connects to the local
 DXSpider IntMsg listener (default 127.0.0.1:27754) using a dynamically
 assigned #WEB-n technical channel and the dxweb protocol-v2 role.

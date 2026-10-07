@@ -9,6 +9,7 @@ Group=root
 WorkingDirectory=/spider/dxweb
 Environment=DXS_HOST=127.0.0.1
 Environment=DXS_PORT=27754
+Environment=HTTP_HOST=0.0.0.0
 Environment=HTTP_PORT=7380
 ExecStart=/bin/sh /spider/dxweb/start.sh
 Restart=on-failure

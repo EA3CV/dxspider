@@ -15,6 +15,8 @@
    queries, decode caching and cache warm-up for standard time windows.
 8. Keep Web Supervision telemetry bounded, non-blocking and isolated from the
    normal DXSpider protocol and login paths.
+9. Added configurable DXWeb and DXWeb Admin HTTP bind addresses and documented
+   direct and Nginx reverse-proxy deployment with trusted proxy handling.
 06Oct26======================================================================
 1. Fix TML (Too Many Logins) handling for new users not yet present in DXUser
    preventing an undefined $user->nextlogin call during login.

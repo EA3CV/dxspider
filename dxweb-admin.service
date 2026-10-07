@@ -7,6 +7,8 @@ Type=simple
 User=root
 Group=root
 WorkingDirectory=/spider/dxweb-admin
+Environment=DXS_PORT=27754
+Environment=DXWEB_HOST=0.0.0.0
 Environment=DXWEB_PORT=7381
 ExecStart=/usr/bin/perl /spider/dxweb-admin/admin.pl
 Restart=on-failure
