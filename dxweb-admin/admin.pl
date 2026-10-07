@@ -26,6 +26,7 @@ use DXWebBurstSnapshot;
 
 my $DXS_HOST = '127.0.0.1'; # security boundary: admin transport is local-only
 my $DXS_PORT = $ENV{DXS_PORT} // 27754;
+my $DXWEB_HOST = $ENV{DXWEB_HOST} // '0.0.0.0';
 my $DXWEB_PORT = $ENV{DXWEB_PORT} // 7381; # definitive Admin UI port
 my $RECONNECT = $ENV{RECONNECT_SEC} // 3;
 my $MAX_INPUT_BYTES = $ENV{MAX_INPUT_BYTES} // 262144;
@@ -462,7 +463,7 @@ websocket '/ws'=>sub($c){if(scalar(keys %clients)>=$MAX_CLIENTS){$c->finish(1013
 # explicit Mojolicious command.  An explicit command line still wins, e.g.
 #   perl admin.pl daemon -l http://127.0.0.1:7310
 if (!@ARGV) {
-    app->start('daemon', '-l', "http://0.0.0.0:$DXWEB_PORT");
+    app->start('daemon', '-l', "http://$DXWEB_HOST:$DXWEB_PORT");
 } else {
     app->start;
 }

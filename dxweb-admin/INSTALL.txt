@@ -20,9 +20,55 @@ Install and start the service (run as root):
     systemctl daemon-reload
     systemctl enable --now dxweb-admin.service
 
-The service starts /spider/dxweb-admin/admin.pl with DXWEB_PORT=7381.
-The backend connects only to 127.0.0.1; DXS_PORT defaults to 27754.
-Edit the unit and reload systemd if the configured port differs.
+The service starts /spider/dxweb-admin/admin.pl with:
+
+    DXS_PORT=27754
+    DXWEB_HOST=0.0.0.0
+    DXWEB_PORT=7381
+
+The DXSpider transport itself remains local at 127.0.0.1.
+
+Direct mode
+-----------
+
+The defaults expose DXWeb Admin directly on TCP port 7381:
+
+    DXWEB_HOST=0.0.0.0
+    DXWEB_PORT=7381
+
+Leave MOJO_REVERSE_PROXY unset (or set it to 0) when clients connect
+directly to DXWeb Admin.
+
+Reverse-proxy mode
+------------------
+
+A tested Nginx layout keeps the public port unchanged and moves the
+application listener to a loopback-only backend:
+
+    public/Nginx :7381 -> DXWeb Admin 127.0.0.1:7481
+
+Configure DXWeb Admin with:
+
+    DXWEB_HOST=127.0.0.1
+    DXWEB_PORT=7481
+    MOJO_REVERSE_PROXY=1
+
+Nginx must proxy WebSocket upgrades and replace, rather than trust,
+client-supplied forwarding headers. For example:
+
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+With MOJO_REVERSE_PROXY=1 the backend listener is a security boundary:
+do not expose TCP 7481 directly to untrusted clients. Only the trusted
+reverse proxy should be able to reach it.
+
+Edit the unit and reload systemd if the configured ports differ.
 
 Verify only this service:
 
@@ -30,8 +76,9 @@ Verify only this service:
     curl -i http://127.0.0.1:7381/healthz
     curl -s http://127.0.0.1:7381/admin-version.json
 
-The version endpoint must report 0.75.0 for this snapshot. /healthz
-returns HTTP 200 and state=ready once the DXSpider link is established;
+The version endpoint reports the application version running from this
+checkout. /healthz returns HTTP 200 and state=ready once the DXSpider
+link is established;
 otherwise it may return HTTP 503. Test SYSOP Login/Logout in the browser.
 
 DXWeb User does not need to be installed for Web Admin to operate.

@@ -23,7 +23,48 @@ The service starts /spider/dxweb/start.sh from /spider/dxweb and uses:
 
     DXS_HOST=127.0.0.1
     DXS_PORT=27754
+    HTTP_HOST=0.0.0.0
     HTTP_PORT=7380
+
+Direct mode
+-----------
+
+The defaults expose DXWeb directly on TCP port 7380:
+
+    HTTP_HOST=0.0.0.0
+    HTTP_PORT=7380
+
+Leave MOJO_REVERSE_PROXY unset (or set it to 0) when clients connect
+directly to DXWeb.
+
+Reverse-proxy mode
+------------------
+
+A tested Nginx layout keeps the public port unchanged and moves the
+application listener to a loopback-only backend:
+
+    public/Nginx :7380 -> DXWeb 127.0.0.1:7480
+
+Configure DXWeb with:
+
+    HTTP_HOST=127.0.0.1
+    HTTP_PORT=7480
+    MOJO_REVERSE_PROXY=1
+
+Nginx must proxy WebSocket upgrades and replace, rather than trust,
+client-supplied forwarding headers. For example:
+
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+With MOJO_REVERSE_PROXY=1 the backend listener is a security boundary:
+do not expose TCP 7480 directly to untrusted clients. Only the trusted
+reverse proxy should be able to reach it.
 
 Edit the unit and run systemctl daemon-reload if these defaults differ.
 Do not run dxweb/install.pl against the same Git checkout: that installer
