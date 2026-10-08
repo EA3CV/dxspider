@@ -480,6 +480,10 @@ sub dx_spot
 		return unless $self->{dx};
 		my @filter_args = @_ > 2 ? @_[2 .. $#_] : ();
 		my $targets = $self->_web_filter_targets('spots', @filter_args);
+		{
+			local $self->{_web_feed_targets} = [];
+			$self->SUPER::dx_spot(@_);
+		}
 		return unless @$targets;
 		local $self->{_web_feed_targets} = $targets;
 		return $self->SUPER::dx_spot(@_);

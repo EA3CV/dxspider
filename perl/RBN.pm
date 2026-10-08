@@ -543,6 +543,13 @@ sub dx_spot
 	# selection while applying that user's RBN filter independently of SPOTS.
 	# The recursion flag is dynamically scoped and never escapes this call.
 	if (eval { $dxchan->isa('Web') && $dxchan->is_webcluster } && !$dxchan->{_web_rbn_one}) {
+		{
+			local $dxchan->{_web_rbn_one} = 1;
+			local $dxchan->{_web_feed_targets} = [];
+			local $dxchan->{rbnfilter} = undef;
+			local $dxchan->{spotsfilter} = undef;
+			$self->dx_spot($dxchan, $quality, $cand);
+		}
 		for my $webcall ($dxchan->web_rbn_users) {
 			my $rf = $dxchan->web_rbn_filter($webcall);
 			local $dxchan->{_web_rbn_one} = 1;
