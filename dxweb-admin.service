@@ -8,8 +8,9 @@ User=root
 Group=root
 WorkingDirectory=/spider/dxweb-admin
 Environment=DXS_PORT=27754
-Environment=DXWEB_HOST=0.0.0.0
-Environment=DXWEB_PORT=7381
+Environment=DXWEB_HOST=127.0.0.1
+Environment=DXWEB_PORT=7481
+Environment=MOJO_REVERSE_PROXY=1
 ExecStart=/usr/bin/perl /spider/dxweb-admin/admin.pl
 Restart=on-failure
 RestartSec=3

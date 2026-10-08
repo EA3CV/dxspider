@@ -1,3 +1,16 @@
+08Oct26======================================================================
+1. Added Nginx HTTP and HTTPS reverse-proxy configuration examples for
+   DXWeb and DXWeb Admin, including WebSocket/WSS support.
+2. Extended the installation documentation for both applications with
+   references to the Nginx examples, loopback-only backends and
+   MOJO_REVERSE_PROXY configuration.
+3. Integrated the DXSpider Registration (DXReg) configuration into
+   perl/DXVars.pm.issue, including registration settings, password
+   generation, templates, SMTP email and Telegram notifications.
+4. Added README_DXWeb describing the native DXSpider WebCluster
+   integration, the DXWeb user frontend, DXWeb Admin supervision and
+   administration, and the protocol documentation available for
+   third-party WebCluster developers.
 07Oct26======================================================================
 1. Extended DXSpider Web Supervision with protocol, filtering and diagnostic
    telemetry, including bounded per-origin and per-neighbour information.

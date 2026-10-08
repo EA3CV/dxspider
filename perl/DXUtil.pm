@@ -28,7 +28,7 @@ require Exporter;
 			 filecopy ptimelist
              print_all_fields cltounix unpad is_callsign is_latlong
 			 is_qra is_freq is_digits is_pctext is_pcflag insertitem deleteitem
-			 is_prefix dd is_ipaddr $pi $d2r $r2d localdata localdata_mv localdata_cp_missing
+			 is_prefix dd is_ipaddr $pi $d2r $r2d localdata localdata_mv
 			 diffms _diffms _diffus difft parraydifft is_ztime basecall
 			 normalise_call is_numeric htime barecall is_rfc1918 alias_localhost
 			 find_external_ipaddr find_local_ipaddr
@@ -493,8 +493,7 @@ sub is_latlong
 # is it an ip address?
 sub is_ipaddr
 {
-	my $addr = shift;
-	my ($suffix) = $addr =~ s|(/\d+)$||;
+	$_[0] =~ s|/\d+$||;
 	# if ($ptonok) {
 	# 	if ($_[0] =~ /:/) {
 	# 		if (inet_pton(AF_INET6, $_[0])) {
@@ -506,10 +505,10 @@ sub is_ipaddr
 	# 		}
 	# 	}
 	# } else {
-		if ($addr =~ /:/) {
-			return ($addr =~ /^((?:\:?\:?[0-9a-f]{0,4}){1,8}\:?\:?)$/i);	
+		if ($_[0] =~ /:/) {
+			return ($_[0] =~ /^((?:\:?\:?[0-9a-f]{0,4}){1,8}\:?\:?)$/i);	
 		} else {
-			return ($addr =~ /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+			return ($_[0] =~ /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
 		}
 #	}
 	return undef;
@@ -585,29 +584,6 @@ sub localdata_mv
 		}
 	}
 }
-# Copy missing defaults from data/ to local_data/.
-# Existing local files are deliberately never overwritten or removed.
-sub localdata_cp_missing
-{
-	my $ifn = shift;
-	my $src = "$main::data/$ifn";
-	my $dst = "$main::local_data/$ifn";
-
-	return unless -e $src;
-
-	if (-d $src) {
-		mkdir($dst) unless -d $dst;
-		opendir(my $dh, $src) or die "localdata_cp_missing: cannot open '$src' $!\n";
-		for my $entry (grep { $_ ne '.' && $_ ne '..' } readdir($dh)) {
-			localdata_cp_missing("$ifn/$entry");
-		}
-		closedir($dh);
-	}
-	elsif (-f $src && !-e $dst) {
-		copy($src, $dst) or die "localdata_cp_missing: cannot copy '$src' -> '$dst' $!\n";
-	}
-}
-
 
 # measure the time taken for something to happen; use Time::HiRes qw(gettimeofday tv_interval);
 sub _diffms

@@ -35,14 +35,22 @@ if ($call) {
 		push @out, $self->msg('e3', 'User record for', $call);
 	}
 } else {
-	if ($self->conn->{csort} eq 'telnet' && $self->user->passwd) {
+	if ($self->conn->{csort} eq 'telnet' ||
+	    $self->conn->{csort} eq 'local') {
 		$self->conn->{decho} = $self->conn->{echo};
 		$self->conn->{echo} = 0;
-		push @out, $self->msg('pw0');
-		$self->state('passwd');
+
+		if ($self->user->passwd) {
+			push @out, $self->msg('pw0');
+			$self->state('passwd');
+		} else {
+			push @out, $self->msg('pw1');
+			$self->state('passwd1');
+		}
 	} else {
 		push @out, $self->msg('e5');
 	}
 }
 
 return (1, @out);
+
