@@ -16,6 +16,7 @@ use Data::Dumper;
 use Time::HiRes qw(gettimeofday tv_interval);
 use Text::Wrap;
 use IO::Socket::IP -register;
+use Socket qw(AF_INET AF_INET6 inet_pton);
 
 use strict;
 
@@ -30,7 +31,7 @@ require Exporter;
 			 is_qra is_freq is_digits is_pctext is_pcflag insertitem deleteitem
 			 is_prefix dd is_ipaddr $pi $d2r $r2d localdata localdata_mv localdata_cp_missing
 			 diffms _diffms _diffus difft parraydifft is_ztime basecall
-			 normalise_call is_numeric htime barecall is_rfc1918 alias_localhost
+			 normalise_call is_numeric htime barecall is_rfc1918 is_public_ip alias_localhost
 			 find_external_ipaddr find_local_ipaddr
             );
 
@@ -493,7 +494,8 @@ sub is_latlong
 # is it an ip address?
 sub is_ipaddr
 {
-	$_[0] =~ s|/\d+$||;
+	my $addr = shift;
+	my ($suffix) = $addr =~ s|(/\d+)$||;
 	# if ($ptonok) {
 	# 	if ($_[0] =~ /:/) {
 	# 		if (inet_pton(AF_INET6, $_[0])) {
@@ -505,10 +507,10 @@ sub is_ipaddr
 	# 		}
 	# 	}
 	# } else {
-		if ($_[0] =~ /:/) {
-			return ($_[0] =~ /^((?:\:?\:?[0-9a-f]{0,4}){1,8}\:?\:?)$/i);	
+		if ($addr =~ /:/) {
+			return ($addr =~ /^((?:\:?\:?[0-9a-f]{0,4}){1,8}\:?\:?)$/i);	
 		} else {
-			return ($_[0] =~ /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+			return ($addr =~ /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
 		}
 #	}
 	return undef;
@@ -584,28 +586,27 @@ sub localdata_mv
 		}
 	}
 }
-
 # Copy missing defaults from data/ to local_data/.
 # Existing local files are deliberately never overwritten or removed.
 sub localdata_cp_missing
 {
-    my $ifn = shift;
-    my $src = "$main::data/$ifn";
-    my $dst = "$main::local_data/$ifn";
+	my $ifn = shift;
+	my $src = "$main::data/$ifn";
+	my $dst = "$main::local_data/$ifn";
 
-    return unless -e $src;
+	return unless -e $src;
 
-    if (-d $src) {
-        mkdir($dst) unless -d $dst;
-        opendir(my $dh, $src) or die "localdata_cp_missing: cannot open '$src' $!\n";
-        for my $entry (grep { $_ ne '.' && $_ ne '..' } readdir($dh)) {
-            localdata_cp_missing("$ifn/$entry");
-        }
-        closedir($dh);
-    }
-    elsif (-f $src && !-e $dst) {
-        copy($src, $dst) or die "localdata_cp_missing: cannot copy '$src' -> '$dst' $!\n";
-    }
+	if (-d $src) {
+		mkdir($dst) unless -d $dst;
+		opendir(my $dh, $src) or die "localdata_cp_missing: cannot open '$src' $!\n";
+		for my $entry (grep { $_ ne '.' && $_ ne '..' } readdir($dh)) {
+			localdata_cp_missing("$ifn/$entry");
+		}
+		closedir($dh);
+	}
+	elsif (-f $src && !-e $dst) {
+		copy($src, $dst) or die "localdata_cp_missing: cannot copy '$src' -> '$dst' $!\n";
+	}
 }
 
 
@@ -768,6 +769,75 @@ sub is_rfc1918
 	my $addr = shift;
 	
 	return $addr =~ /^(?:10|127|169\.254|172\.1[6-9]|172\.2[0-9]|172\.3[0-1]|192\.168)(?:.\d{1,3}){2,3}$/;
+}
+
+
+# Return true only for addresses suitable as public Internet addresses in
+# protocol data.  This is intentionally stricter than is_rfc1918(): PC61 must
+# not advertise loopback, link-local, shared, documentation, benchmarking,
+# multicast, reserved or other special-use addresses as a public endpoint.
+sub is_public_ip
+{
+    my $addr = shift;
+    return 0 unless defined $addr && !ref($addr) && length $addr;
+    $addr =~ s/^::ffff://i;
+
+    if ($addr =~ /\./) {
+        return 0 unless inet_pton(AF_INET, $addr);
+        my @o = split /\./, $addr;
+        return 0 unless @o == 4;
+        my $n = (($o[0] << 24) | ($o[1] << 16) | ($o[2] << 8) | $o[3]);
+        $n &= 0xffffffff;
+        return 1 if $n == 0xc0000009 || $n == 0xc000000a; # globally reachable IANA anycast exceptions
+        my @blocked = (
+            [0x00000000, 0xff000000], # 0.0.0.0/8
+            [0x0a000000, 0xff000000], # 10.0.0.0/8
+            [0x64400000, 0xffc00000], # 100.64.0.0/10 shared address space
+            [0x7f000000, 0xff000000], # 127.0.0.0/8 loopback
+            [0xa9fe0000, 0xffff0000], # 169.254.0.0/16 link-local
+            [0xac100000, 0xfff00000], # 172.16.0.0/12
+            [0xc0000000, 0xffffff00], # 192.0.0.0/24 protocol assignments
+            [0xc0000200, 0xffffff00], # 192.0.2.0/24 documentation
+            [0xc0586300, 0xffffff00], # 192.88.99.0/24 deprecated 6to4 relay
+            [0xc0a80000, 0xffff0000], # 192.168.0.0/16
+            [0xc6120000, 0xfffe0000], # 198.18.0.0/15 benchmarking
+            [0xc6336400, 0xffffff00], # 198.51.100.0/24 documentation
+            [0xcb007100, 0xffffff00], # 203.0.113.0/24 documentation
+            [0xe0000000, 0xf0000000], # 224.0.0.0/4 multicast
+            [0xf0000000, 0xf0000000], # 240.0.0.0/4 reserved/broadcast
+        );
+        for my $r (@blocked) { return 0 if (($n & $r->[1]) == $r->[0]); }
+        return 1;
+    }
+
+    return 0 unless inet_pton(AF_INET6, $addr);
+    my $bin = inet_pton(AF_INET6, $addr);
+    my @b = unpack('C16', $bin);
+    return 0 if !grep { $_ } @b;                         # ::/128
+    return 0 if join('', map { chr($_) } @b[0..14]) eq ("\0" x 15) && $b[15] == 1; # ::1
+    return 0 if $b[0] == 0xff;                          # ff00::/8 multicast
+    return 0 if ($b[0] & 0xfe) == 0xfc;                 # fc00::/7 ULA
+    return 0 if $b[0] == 0xfe && ($b[1] & 0xc0) == 0x80;# fe80::/10 link-local
+    return 0 if $b[0] == 0x01 && $b[1] == 0x00 && !grep { $_ } @b[2..7]; # 100::/64 discard-only
+    return 0 if $b[0] == 0x20 && $b[1] == 0x01 && $b[2] == 0x0d && $b[3] == 0xb8; # 2001:db8::/32 docs
+    # 64:ff9b::/96 is explicitly globally reachable in the IANA registry.
+    return 1 if $b[0] == 0x00 && $b[1] == 0x64 && $b[2] == 0xff && $b[3] == 0x9b
+                && !grep { $_ } @b[4..11];
+    return 0 unless ($b[0] & 0xe0) == 0x20;             # current global unicast 2000::/3
+    return 0 if $b[0] == 0x3f && $b[1] == 0xff && ($b[2] & 0xf0) == 0x00; # 3fff::/20 documentation
+    return 0 if $b[0] == 0x20 && $b[1] == 0x02;         # 2002::/16 6to4: not globally reachable
+    return 0 if $b[0] == 0x20 && $b[1] == 0x01 && $b[2] == 0x0d && $b[3] == 0xb8; # docs
+    # 2001::/23 is special-purpose by default.  Allow only the more-specific
+    # entries that IANA marks globally reachable.
+    if ($b[0] == 0x20 && $b[1] == 0x01 && $b[2] < 0x02) {
+        return 1 if $b[2] == 0x00 && $b[3] == 0x01 && !grep { $_ } @b[4..14] && $b[15] >= 1 && $b[15] <= 3;
+        return 1 if $b[2] == 0x00 && $b[3] == 0x03;     # 2001:3::/32 AMT
+        return 1 if $b[2] == 0x00 && $b[3] == 0x04 && $b[4] == 0x01 && $b[5] == 0x12; # 2001:4:112::/48
+        return 1 if $b[2] == 0x00 && ($b[3] & 0xf0) == 0x20; # 2001:20::/28 ORCHIDv2
+        return 1 if $b[2] == 0x00 && ($b[3] & 0xf0) == 0x30; # 2001:30::/28 DETs
+        return 0;
+    }
+    return 1;
 }
 
 sub find_local_ipaddr
