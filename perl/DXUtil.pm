@@ -28,7 +28,7 @@ require Exporter;
 			 filecopy ptimelist
              print_all_fields cltounix unpad is_callsign is_latlong
 			 is_qra is_freq is_digits is_pctext is_pcflag insertitem deleteitem
-			 is_prefix dd is_ipaddr $pi $d2r $r2d localdata localdata_mv
+			 is_prefix dd is_ipaddr $pi $d2r $r2d localdata localdata_mv localdata_cp_missing
 			 diffms _diffms _diffus difft parraydifft is_ztime basecall
 			 normalise_call is_numeric htime barecall is_rfc1918 alias_localhost
 			 find_external_ipaddr find_local_ipaddr
@@ -584,6 +584,30 @@ sub localdata_mv
 		}
 	}
 }
+
+# Copy missing defaults from data/ to local_data/.
+# Existing local files are deliberately never overwritten or removed.
+sub localdata_cp_missing
+{
+    my $ifn = shift;
+    my $src = "$main::data/$ifn";
+    my $dst = "$main::local_data/$ifn";
+
+    return unless -e $src;
+
+    if (-d $src) {
+        mkdir($dst) unless -d $dst;
+        opendir(my $dh, $src) or die "localdata_cp_missing: cannot open '$src' $!\n";
+        for my $entry (grep { $_ ne '.' && $_ ne '..' } readdir($dh)) {
+            localdata_cp_missing("$ifn/$entry");
+        }
+        closedir($dh);
+    }
+    elsif (-f $src && !-e $dst) {
+        copy($src, $dst) or die "localdata_cp_missing: cannot copy '$src' -> '$dst' $!\n";
+    }
+}
+
 
 # measure the time taken for something to happen; use Time::HiRes qw(gettimeofday tv_interval);
 sub _diffms
