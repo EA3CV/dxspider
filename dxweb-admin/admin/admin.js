@@ -5,7 +5,7 @@
  *
  * Copyright (c) 2026 Dirk Koopman G1TLH
  */
-// DXSpider Web Supervision 0.60.7
+// DXSpider Web Supervision 0.60.8
 // Date: 2026-09-16
 'use strict';
 const $=id=>document.getElementById(id);
@@ -26,7 +26,26 @@ function clearSessionContent(){
  if($('regSearch'))$('regSearch').value='';
  if($('regActionResult'))$('regActionResult').textContent='';
 }
-function loginState(ok,m={}){authenticated=ok;document.body.classList.toggle('authenticated',ok);authUser=ok?(m.call||authUser):null;authPriv=ok?Number(m.priv||0):0;document.querySelectorAll('.mainTabs [data-section]').forEach(b=>{const denied=ok&&authPriv<9&&SYSOP_SECTIONS.has(b.dataset.section);b.style.display='';b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 9':'';b.classList.toggle('sysopDenied',denied);b.style.filter=''});document.querySelectorAll('.v2NavBtn[data-v2-target]').forEach(b=>{const denied=ok&&authPriv<9&&SYSOP_SECTIONS.has(b.dataset.v2Target);b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 9':'';b.classList.toggle('sysopDenied',denied)});if(ok&&authPriv<9&&SYSOP_SECTIONS.has(activeSection))selectSection('operation');$('loginButton').textContent=ok?`Logout ${authUser}`:'Login';setLocked(!ok)}
+// Spot font preference is per authenticated callsign and per web application.
+const spotFontKeyBase='dxspider.dxweb-admin.spotFont.';
+let spotFontPercent=100;
+function spotFontApply(value,save=false){
+ spotFontPercent=Math.max(70,Math.min(150,Math.round(value/10)*10));
+ const area=document.querySelector('#spots .spotResultArea');
+ if(area)area.style.setProperty('--spot-font-scale',String(spotFontPercent/100));
+ const reset=$('spotFontReset');if(reset)reset.textContent=spotFontPercent+' %';
+ if(save&&authenticated&&authUser){try{localStorage.setItem(spotFontKeyBase+authUser.toUpperCase(),String(spotFontPercent))}catch(_){}}
+ if(typeof updateSpotLayout==='function')updateSpotLayout();
+}
+function spotFontForSession(){
+ let value=100;
+ if(authenticated&&authUser){try{const saved=Number(localStorage.getItem(spotFontKeyBase+authUser.toUpperCase()));if(saved>=70&&saved<=150)value=saved}catch(_){}}
+ spotFontApply(value,false);
+}
+$('spotFontDown').onclick=()=>spotFontApply(spotFontPercent-10,true);
+$('spotFontUp').onclick=()=>spotFontApply(spotFontPercent+10,true);
+$('spotFontReset').onclick=()=>spotFontApply(100,true);
+function loginState(ok,m={}){authenticated=ok;document.body.classList.toggle('authenticated',ok);authUser=ok?(m.call||authUser):null;authPriv=ok?Number(m.priv||0):0;document.querySelectorAll('.mainTabs [data-section]').forEach(b=>{const denied=ok&&authPriv<9&&SYSOP_SECTIONS.has(b.dataset.section);b.style.display='';b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 9':'';b.classList.toggle('sysopDenied',denied);b.style.filter=''});document.querySelectorAll('.v2NavBtn[data-v2-target]').forEach(b=>{const denied=ok&&authPriv<9&&SYSOP_SECTIONS.has(b.dataset.v2Target);b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 9':'';b.classList.toggle('sysopDenied',denied)});if(ok&&authPriv<9&&SYSOP_SECTIONS.has(activeSection))selectSection('operation');$('loginButton').textContent=ok?`Logout ${authUser}`:'Login';setLocked(!ok);spotFontForSession()}
 function notice(t){$('noticeText').textContent=t;$('noticeDialog').showModal()}
 $('noticeClose').onclick=()=>$('noticeDialog').close();
 function showLogin(msg=''){if($('loginDialog').open)return;$('loginError').textContent=msg;$('loginDialog').showModal();$('loginCall').focus()}
@@ -131,15 +150,16 @@ function updateSpotLayout(){
  const available=Math.max(0,area.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)-8),selected=spotSelected();
  // Hide complete groups in priority order: ITU, CQ, Locator. Never hide core fields.
  const geoEnabled=!!geoLocator(document.getElementById('userLocator')?.value);
- const coreWidth=spotCore.reduce((s,x)=>s+x[2],0)+(geoEnabled?176:0);
+ const scale=spotFontPercent/100;
+ const coreWidth=spotCore.reduce((s,x)=>s+Math.ceil(x[2]*scale),0)+(geoEnabled?Math.ceil(176*scale):0);
  const groups=spotExtras.map(([key,name,w])=>({key,name,w,fields:selected.has(key)?[['Dx','DX'],['Spotter','Spotter']]:[]}));
- let extraWidth=groups.reduce((s,g)=>s+g.fields.length*g.w,0);
- for(const g of [...groups].reverse())if(extraWidth+coreWidth>available&&g.fields.length){extraWidth-=g.fields.length*g.w;g.fields=[]}
- const commentMin=80,base=coreWidth-commentMin;
+ let extraWidth=groups.reduce((s,g)=>s+g.fields.length*Math.ceil(g.w*scale),0);
+ for(const g of [...groups].reverse())if(extraWidth+coreWidth>available&&g.fields.length){extraWidth-=g.fields.length*Math.ceil(g.w*scale);g.fields=[]}
+ const commentMin=Math.ceil(80*scale),base=coreWidth-commentMin;
  const comment=Math.max(commentMin,spotCommentPreferred===null?available-base-extraWidth:Math.min(spotCommentPreferred,Math.max(commentMin,available-base-extraWidth)));
- const cols=spotCore.map(([key,title,w])=>({key,title,w:key==='comment'?comment:w}));
- if(geoEnabled)cols.push({key:'distance',title:'Distance',w:96},{key:'bearing',title:'Bearing',w:80});
- for(const g of groups)for(const [suffix,title] of g.fields)cols.push({key:g.key+suffix,title,w:g.w,group:g.name});
+ const cols=spotCore.map(([key,title,w])=>({key,title,w:key==='comment'?comment:Math.ceil(w*scale)}));
+ if(geoEnabled)cols.push({key:'distance',title:'Distance',w:Math.ceil(96*scale)},{key:'bearing',title:'Bearing',w:Math.ceil(80*scale)});
+ for(const g of groups)for(const [suffix,title] of g.fields)cols.push({key:g.key+suffix,title,w:Math.ceil(g.w*scale),group:g.name});
  const signature=cols.map(x=>x.key).join('|');const previous=spotVisibleColumns.map(x=>x.key).join('|');
  spotVisibleColumns=cols;
  const total=cols.reduce((s,x)=>s+x.w,0);table.style.width=total+'px';table.style.minWidth=total+'px';
@@ -165,12 +185,13 @@ $('spotHeaders').addEventListener('pointerdown',e=>{
 });
 window.addEventListener('load',updateSpotLayout);
 updateSpotLayout();
-function renderSpots(){const human=$('showHuman').checked,rbn=$('showRbn').checked,a=spotItems.filter(x=>(x.type==='human'&&human)||(x.type==='rbn'&&rbn));$('spotRows').innerHTML=a.slice(-250).reverse().map(x=>`<tr>${spotVisibleColumns.map(col=>`<td class="${col.key==='distance'||col.key==='bearing'?'spotGeoNumeric':''}" title="${col.key==='distance'||col.key==='bearing'?esc(geoCalculate(x).source):esc(x[col.key]??'')}">${col.key==='type'?(x.type==='human'?'C':'R'):col.key==='distance'||col.key==='bearing'?esc(geoRenderValue(x,col.key)):esc(x[col.key]??'')}</td>`).join('')}</tr>`).join('');setCount('spots',(human?spotCounts.human:0)+(rbn?spotCounts.rbn:0))}
+function renderSpots(){const human=$('showHuman').checked,rbn=$('showRbn').checked,a=spotItems.filter(x=>(x.type==='human'&&human)||(x.type==='rbn'&&rbn));$('spotRows').innerHTML=a.slice(-250).reverse().map(x=>`<tr class="${x._newUntil>Date.now()?'spotFresh':''}" style="${x._newUntil>Date.now()?'animation-delay:-'+((3000-(x._newUntil-Date.now()))/1000).toFixed(2)+'s':''}">${spotVisibleColumns.map(col=>`<td class="${col.key==='distance'||col.key==='bearing'?'spotGeoNumeric':''}" title="${col.key==='distance'||col.key==='bearing'?esc(geoCalculate(x).source):esc(x[col.key]??'')}">${col.key==='type'?(x.type==='human'?'C':'R'):col.key==='distance'||col.key==='bearing'?esc(geoRenderValue(x,col.key)):esc(x[col.key]??'')}</td>`).join('')}</tr>`).join('');setCount('spots',(human?spotCounts.human:0)+(rbn?spotCounts.rbn:0))}
 function renderLog(k){const e=document.querySelector(`[data-kind="${k}"]`);if(!e)return;e.textContent=logs[k].slice(-250).join('\n');e.scrollTop=e.scrollHeight;setCount(k,logs[k].length)}
 function parseCC11(payload){if(typeof payload!=='string')return null;const f=payload.split('^');if(f[0]!=='CC11'||f.length<7)return null;return{utc:(f[4]||'').replace(/Z$/i,'').replace(/[^0-9]/g,'').slice(0,4),freq:f[1]||'',dx:f[2]||'',comment:f[5]||'',spotter:f[6]||'',cqDx:f[10]||'',ituDx:f[11]||'',cqSpotter:f[12]||'',ituSpotter:f[13]||'',locDx:f[18]||'',locSpotter:f[19]||''}}
 function acceptFeed(m){const k=(m.feed||'').toLowerCase();if(k==='human'||k==='rbn'){const p=parseCC11(m.payload);if(!p)return;const enabled=k==='human'?$('showHuman').checked:$('showRbn').checked;
    if(!enabled)return;
-   spotItems.push({...p,type:k});
+   spotItems.push({...p,type:k,_newUntil:Date.now()+3000});
+   setTimeout(()=>{if(spotItems.some(x=>x._newUntil&&x._newUntil<=Date.now()))renderSpots()},3100);
    spotCounts[k]=(spotCounts[k]||0)+1;if(spotItems.length>1000)spotItems.shift();renderSpots();return}if(logs[k]){logs[k].push(typeof m.payload==='string'?m.payload:JSON.stringify(m.payload));if(logs[k].length>500)logs[k].shift();renderLog(k)}}
 function fmtTime(v){if(!v)return '-';const d=new Date(Number(v)*1000);return Number.isNaN(d.getTime())?'-':d.toLocaleString()}
 function compactSsids(values){const a=[...new Set((Array.isArray(values)?values:[]).map(Number).filter(n=>Number.isInteger(n)&&n>=1&&n<=99))].sort((x,y)=>x-y);if(!a.length)return '-';const out=[];let start=a[0],prev=a[0];const flush=()=>out.push(start===prev?String(start):`${start}-${prev}`);for(let i=1;i<a.length;i++){const n=a[i];if(n===prev+1){prev=n;continue}flush();start=prev=n}flush();return out.join(',')}

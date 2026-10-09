@@ -1141,3 +1141,23 @@ body.v2-shell [data-help],body.v2-shell h3[title],body.v2-shell .kpiLabel[title]
 
 /* Geographic values: right-aligned, including the unit and column heading. */
 .spotTable th.spotGeoNumeric,.spotTable td.spotGeoNumeric{text-align:right!important;font-variant-numeric:tabular-nums;}
+
+/* Spot presentation: per-session text size, alternating rows and new-feed emphasis. */
+#spots .spotResultArea .spotTable{font-size:calc(1em * var(--spot-font-scale,1))!important}
+#spots .spotResultArea .spotTable tbody td{font-size:inherit!important}
+#spots .spotTable tbody tr:nth-child(even){background:rgba(85,126,162,.075)}
+#spots .spotTable tbody tr:nth-child(odd){background:transparent}
+#spots .spotTable tbody tr.spotFresh{background:rgba(57,174,119,.26)!important;animation:spotNewFade 3s ease-out both}
+@keyframes spotNewFade{0%,45%{background-color:rgba(57,174,119,.32)}100%{background-color:transparent}}
+.spotFontControl{display:inline-flex;align-items:center;gap:2px;white-space:nowrap;margin-left:12px}
+.spotFontControl button{min-width:27px;padding:3px 6px;font:inherit;cursor:pointer}
+.spotFontControl #spotFontReset{min-width:57px;font-variant-numeric:tabular-nums}
+@media(max-width:850px){
+ #spots .panelHead:has(.spotOptionalControls){flex-wrap:wrap!important;overflow:visible!important;align-items:flex-start}
+ #spots .panelHead:has(.spotOptionalControls)>div{flex-wrap:wrap!important;flex-shrink:1!important;min-width:0}
+ #spots .spotTitleLine{flex-wrap:wrap;gap:8px 12px}
+ #spots .spotOptionalControls{flex-wrap:wrap;gap:6px 10px}
+ #spots .geoLocatorControl{margin-right:4px}
+}
+@media(max-width:480px){.spotFontControl{margin-left:0}#spots .spotTitleLine{width:100%}}
+@media(prefers-reduced-motion:reduce){#spots .spotTable tbody tr.spotFresh{animation:none;background:rgba(57,174,119,.19)!important}}

@@ -5,7 +5,7 @@
  *
  * Copyright (c) 2026 Dirk Koopman G1TLH
  */
-// DXSpider Web 2.8.14
+// DXSpider Web 2.8.15
 // Date: 2026-09-16
 'use strict';
 const $=id=>document.getElementById(id);
@@ -16,10 +16,30 @@ let cmdHistory=[], historyPos=0, pendingCommandTargets=[];
 function send(o){if(!(ws&&ws.readyState===WebSocket.OPEN))return false;ws.send(JSON.stringify(o));return true}
 function esc(v){return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function setCount(k,n){const e=document.querySelector(`[data-count="${k}"]`);if(e)e.textContent=String(n)}
+// Spot font preference is per authenticated callsign and per web application.
+const spotFontKeyBase='dxspider.dxweb.spotFont.';
+let spotFontPercent=100;
+function spotFontApply(value,save=false){
+ spotFontPercent=Math.max(70,Math.min(150,Math.round(value/10)*10));
+ const area=document.querySelector('#spots .spotResultArea');
+ if(area)area.style.setProperty('--spot-font-scale',String(spotFontPercent/100));
+ const reset=$('spotFontReset');if(reset)reset.textContent=spotFontPercent+' %';
+ if(save&&authenticated&&authUser){try{localStorage.setItem(spotFontKeyBase+authUser.toUpperCase(),String(spotFontPercent))}catch(_){}}
+ if(typeof updateSpotLayout==='function')updateSpotLayout();
+}
+function spotFontForSession(){
+ let value=100;
+ if(authenticated&&authUser){try{const saved=Number(localStorage.getItem(spotFontKeyBase+authUser.toUpperCase()));if(saved>=70&&saved<=150)value=saved}catch(_){}}
+ spotFontApply(value,false);
+}
+$('spotFontDown').onclick=()=>spotFontApply(spotFontPercent-10,true);
+$('spotFontUp').onclick=()=>spotFontApply(spotFontPercent+10,true);
+$('spotFontReset').onclick=()=>spotFontApply(100,true);
 function loginState(ok,m={}){
  authenticated=ok;document.body.classList.toggle('authenticated',ok);document.body.classList.toggle('anonymous',!ok); authUser=ok?(m.call||authUser):null;authRegistered=ok?Boolean(m.registered):false;passwordUsed=ok?Boolean(m.password_used):false;
  $('loginButton').textContent=ok?`Logout ${authUser}`:'Login';
  updateRegistrationAccess();
+ spotFontForSession();
 }
 function updateRegistrationAccess(){
  const loggedIn=authenticated,registered=authenticated&&authRegistered;
@@ -214,15 +234,16 @@ function updateSpotLayout(){
  const available=Math.max(0,area.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)-8),selected=spotSelected();
  // Hide complete groups in priority order: ITU, CQ, Locator. Never hide core fields.
  const geoEnabled=!!geoLocator(document.getElementById('userLocator')?.value);
- const coreWidth=spotCore.reduce((s,x)=>s+x[2],0)+(geoEnabled?176:0);
+ const scale=spotFontPercent/100;
+ const coreWidth=spotCore.reduce((s,x)=>s+Math.ceil(x[2]*scale),0)+(geoEnabled?Math.ceil(176*scale):0);
  const groups=spotExtras.map(([key,name,w])=>({key,name,w,fields:selected.has(key)?[['Dx','DX'],['Spotter','Spotter']]:[]}));
- let extraWidth=groups.reduce((s,g)=>s+g.fields.length*g.w,0);
- for(const g of [...groups].reverse())if(extraWidth+coreWidth>available&&g.fields.length){extraWidth-=g.fields.length*g.w;g.fields=[]}
- const commentMin=80,base=coreWidth-commentMin;
+ let extraWidth=groups.reduce((s,g)=>s+g.fields.length*Math.ceil(g.w*scale),0);
+ for(const g of [...groups].reverse())if(extraWidth+coreWidth>available&&g.fields.length){extraWidth-=g.fields.length*Math.ceil(g.w*scale);g.fields=[]}
+ const commentMin=Math.ceil(80*scale),base=coreWidth-commentMin;
  const comment=Math.max(commentMin,spotCommentPreferred===null?available-base-extraWidth:Math.min(spotCommentPreferred,Math.max(commentMin,available-base-extraWidth)));
- const cols=spotCore.map(([key,title,w])=>({key,title,w:key==='comment'?comment:w}));
- if(geoEnabled)cols.push({key:'distance',title:'Distance',w:96},{key:'bearing',title:'Bearing',w:80});
- for(const g of groups)for(const [suffix,title] of g.fields)cols.push({key:g.key+suffix,title,w:g.w,group:g.name});
+ const cols=spotCore.map(([key,title,w])=>({key,title,w:key==='comment'?comment:Math.ceil(w*scale)}));
+ if(geoEnabled)cols.push({key:'distance',title:'Distance',w:Math.ceil(96*scale)},{key:'bearing',title:'Bearing',w:Math.ceil(80*scale)});
+ for(const g of groups)for(const [suffix,title] of g.fields)cols.push({key:g.key+suffix,title,w:Math.ceil(g.w*scale),group:g.name});
  const signature=cols.map(x=>x.key).join('|');const previous=spotVisibleColumns.map(x=>x.key).join('|');
  spotVisibleColumns=cols;
  const total=cols.reduce((s,x)=>s+x.w,0);table.style.width=total+'px';table.style.minWidth=total+'px';
@@ -251,7 +272,7 @@ updateSpotLayout();
 function renderSpots(){
  const human=$('showHuman').checked,rbn=$('showRbn').checked;
  const a=spotItems.filter(x=>(x.type==='human'&&human)||(x.type==='rbn'&&rbn));
- $('spotRows').innerHTML=a.slice(-250).reverse().map(x=>`<tr>${spotVisibleColumns.map(col=>`<td class="${col.key==='distance'||col.key==='bearing'?'spotGeoNumeric':''}" title="${col.key==='distance'||col.key==='bearing'?esc(geoCalculate(x).source):esc(x[col.key]??'')}">${col.key==='type'?(x.type==='human'?'C':'R'):col.key==='distance'||col.key==='bearing'?esc(geoRenderValue(x,col.key)):esc(x[col.key]??'')}</td>`).join('')}</tr>`).join('');
+ $('spotRows').innerHTML=a.slice(-250).reverse().map(x=>`<tr class="${x._newUntil>Date.now()?'spotFresh':''}" style="${x._newUntil>Date.now()?'animation-delay:-'+((3000-(x._newUntil-Date.now()))/1000).toFixed(2)+'s':''}">${spotVisibleColumns.map(col=>`<td class="${col.key==='distance'||col.key==='bearing'?'spotGeoNumeric':''}" title="${col.key==='distance'||col.key==='bearing'?esc(geoCalculate(x).source):esc(x[col.key]??'')}">${col.key==='type'?(x.type==='human'?'C':'R'):col.key==='distance'||col.key==='bearing'?esc(geoRenderValue(x,col.key)):esc(x[col.key]??'')}</td>`).join('')}</tr>`).join('');
  const visibleCount=(human?spotCounts.human:0)+(rbn?spotCounts.rbn:0);
  setCount('spots',visibleCount);
 }
@@ -279,7 +300,8 @@ function acceptFeed(m){
    if(!p)return;
    const enabled=k==='human'?$('showHuman').checked:$('showRbn').checked;
    if(!enabled)return;
-   spotItems.push({...p,type:k});
+   spotItems.push({...p,type:k,_newUntil:Date.now()+3000});
+   setTimeout(()=>{if(spotItems.some(x=>x._newUntil&&x._newUntil<=Date.now()))renderSpots()},3100);
    spotCounts[k]=(spotCounts[k]||0)+1;
    if(spotItems.length>1000)spotItems.shift();
    renderSpots();
