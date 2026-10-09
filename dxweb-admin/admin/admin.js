@@ -5,7 +5,7 @@
  *
  * Copyright (c) 2026 Dirk Koopman G1TLH
  */
-// DXSpider Web Supervision 0.60.0
+// DXSpider Web Supervision 0.60.7
 // Date: 2026-09-16
 'use strict';
 const $=id=>document.getElementById(id);
@@ -54,8 +54,118 @@ function spotFilterChanged(k){
  spotItems=spotItems.filter(x=>x.type!==k);
  renderSpots();
 }
+// Spot submission uses the existing DXS spot action; the server enforces SYSOP privilege.
+$('spotOpen').onclick=()=>{if(!authenticated||authPriv<9){notice('SYSOP login required to send a spot.');return}$('spotResult').textContent='';$('spotDialog').showModal()};
+$('spotCancel').onclick=()=>$('spotDialog').close();
+$('spotForm').addEventListener('submit',e=>{e.preventDefault();if(!authenticated||authPriv<9)return;const freq=$('spotFreq').value.trim(),dxcall=$('spotDx').value.trim().toUpperCase(),comment=$('spotComment').value.trim();if(!freq||!dxcall)return;$('spotSubmit').disabled=true;$('spotResult').textContent='Sending…';if(!send({type:'spot',freq,dxcall,comment})){$('spotSubmit').disabled=false;$('spotResult').textContent='Admin connection is not ready.'}});
 $('showHuman').onchange=()=>spotFilterChanged('human');$('showRbn').onchange=()=>spotFilterChanged('rbn');
-function renderSpots(){const human=$('showHuman').checked,rbn=$('showRbn').checked,a=spotItems.filter(x=>(x.type==='human'&&human)||(x.type==='rbn'&&rbn));$('spotRows').innerHTML=a.slice(-250).reverse().map(x=>`<tr><td>${x.type==='human'?'C':'R'}</td><td>${esc(x.utc)}</td><td>${esc(x.freq)}</td><td>${esc(x.dx)}</td><td>${esc(x.spotter)}</td><td>${esc(x.comment)}</td><td>${esc(x.locDx)}</td><td>${esc(x.locSpotter)}</td><td>${esc(x.cqDx)}</td><td>${esc(x.cqSpotter)}</td><td>${esc(x.ituDx)}</td><td>${esc(x.ituSpotter)}</td></tr>`).join('');setCount('spots',(human?spotCounts.human:0)+(rbn?spotCounts.rbn:0))}
+
+// Browser-only great-circle calculations; the prefix map is generated offline
+// from DXSpider's authoritative prefix_data.pl, never queried in the spot path.
+let geoPrefixMap=null,geoPrefixLoading=false;
+function geoLocator(s){
+ s=String(s||'').trim().toUpperCase();if(!/^[A-R]{2}[0-9]{2}(?:[A-X]{2}(?:[0-9]{2}(?:[A-X]{2})?)?)?$/.test(s))return null;
+ let lon=-180,lat=-90,lonSpan=20,latSpan=10;
+ const alph='ABCDEFGHIJKLMNOPQRSTUVWX';
+ for(let i=0;i<s.length;i+=2){
+  const n=i/2;
+  if(n===0){lon+=(s.charCodeAt(i)-65)*20;lat+=(s.charCodeAt(i+1)-65)*10}
+  else if(n===1){lonSpan/=10;latSpan/=10;lon+=Number(s[i])*lonSpan;lat+=Number(s[i+1])*latSpan}
+  else if(n%2===0){lonSpan/=24;latSpan/=24;lon+=alph.indexOf(s[i])*lonSpan;lat+=alph.indexOf(s[i+1])*latSpan}
+  else{lonSpan/=10;latSpan/=10;lon+=Number(s[i])*lonSpan;lat+=Number(s[i+1])*latSpan}
+ }
+ return {lat:lat+latSpan/2,lon:lon+lonSpan/2};
+}
+function geoPrefix(dx){
+ if(!geoPrefixMap)return null;
+ const call=String(dx||'').toUpperCase().replace(/-\d+$/,'');
+ // Exact callsigns and slash-prefixes take precedence; then longest prefix.
+ const keys=[`=${call}`,call];
+ const parts=call.split('/');
+ for(const part of parts)if(part&&part.length<=4)keys.push(part);
+ for(const key of keys)if(Object.prototype.hasOwnProperty.call(geoPrefixMap,key))return geoPrefixMap[key];
+ const candidates=[call,...parts.filter(x=>x.length>=2)];
+ for(const candidate of candidates)for(let n=candidate.length;n>=1;n--){const key=candidate.slice(0,n);if(Object.prototype.hasOwnProperty.call(geoPrefixMap,key))return geoPrefixMap[key]}
+ return null;
+}
+function geoCalculate(item){
+ const origin=geoLocator(document.getElementById('userLocator')?.value);
+ if(!origin)return {distance:'—',bearing:'—',source:''};
+ let dest=geoLocator(item.locDx),approx=false;
+ if(!dest){const fallback=geoPrefix(item.dx);if(fallback){dest={lat:fallback[0],lon:fallback[1]};approx=true}}
+ if(!dest)return {distance:'—',bearing:'—',source:''};
+ const rad=Math.PI/180,p1=origin.lat*rad,p2=dest.lat*rad,dl=(dest.lon-origin.lon)*rad;
+ const cosine=Math.min(1,Math.max(-1,Math.sin(p1)*Math.sin(p2)+Math.cos(p1)*Math.cos(p2)*Math.cos(dl)));
+ const km=Math.round(6371.0088*Math.acos(cosine));
+ const y=Math.sin(dl)*Math.cos(p2),x=Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(dl);
+ const bearing=((Math.round(Math.atan2(y,x)/rad)%360)+360)%360;
+ return {distance:String(km)+' km',bearing:String(bearing).padStart(3,'0')+'°',source:approx?'Approximate DXCC/prefix position':'DX locator'};
+}
+function geoRenderValue(item,key){const g=geoCalculate(item);return key==='distance'?g.distance:g.bearing}
+function geoLoadPrefix(){
+ if(geoPrefixLoading)return;geoPrefixLoading=true;
+ fetch('/geo-prefix.json',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('prefix map missing');return r.json()}).then(data=>{
+  if(data&&data.version===1&&data.prefixes&&typeof data.prefixes==='object')geoPrefixMap=data.prefixes;
+  renderSpots();
+ }).catch(()=>{/* DX locator calculations remain available without a map */});
+}
+const geoInput=document.getElementById('userLocator');
+geoInput.value='';
+geoInput.addEventListener('input',()=>{
+ const value=geoInput.value.trim().toUpperCase();
+ geoInput.setCustomValidity(value&&!geoLocator(value)?'Enter a valid Maidenhead locator (4, 6, 8 or 10 characters).':'');
+ if(!geoInput.validity.valid)return;
+ updateSpotLayout();renderSpots();
+});
+geoLoadPrefix();
+
+// Optional spot columns and bounded Comment resizing; presentation only.
+const spotCore=[['type','C/R',44],['utc','UTC',58],['freq','Freq',120],['dx','DX',120],['spotter','Spotter',120],['comment','Comment',80]];
+const spotExtras=[['loc','Locator',78],['cq','CQ Zone',65],['itu','ITU Zone',65]];
+let spotVisibleColumns=[],spotCommentPreferred=null,spotResizeActive=false;
+try{const v=Number(localStorage.getItem('dxweb.spots.commentWidth'));if(v>=80&&v<=1200)spotCommentPreferred=v}catch(_){}
+function spotSelected(){return new Set([...document.querySelectorAll('[data-spot-group]:checked')].map(e=>e.dataset.spotGroup))}
+function updateSpotLayout(){
+ const table=document.querySelector('.spotTable'),area=table?.closest('.spotResultArea');if(!area)return;
+ const style=getComputedStyle(area);
+ const available=Math.max(0,area.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)-8),selected=spotSelected();
+ // Hide complete groups in priority order: ITU, CQ, Locator. Never hide core fields.
+ const geoEnabled=!!geoLocator(document.getElementById('userLocator')?.value);
+ const coreWidth=spotCore.reduce((s,x)=>s+x[2],0)+(geoEnabled?176:0);
+ const groups=spotExtras.map(([key,name,w])=>({key,name,w,fields:selected.has(key)?[['Dx','DX'],['Spotter','Spotter']]:[]}));
+ let extraWidth=groups.reduce((s,g)=>s+g.fields.length*g.w,0);
+ for(const g of [...groups].reverse())if(extraWidth+coreWidth>available&&g.fields.length){extraWidth-=g.fields.length*g.w;g.fields=[]}
+ const commentMin=80,base=coreWidth-commentMin;
+ const comment=Math.max(commentMin,spotCommentPreferred===null?available-base-extraWidth:Math.min(spotCommentPreferred,Math.max(commentMin,available-base-extraWidth)));
+ const cols=spotCore.map(([key,title,w])=>({key,title,w:key==='comment'?comment:w}));
+ if(geoEnabled)cols.push({key:'distance',title:'Distance',w:96},{key:'bearing',title:'Bearing',w:80});
+ for(const g of groups)for(const [suffix,title] of g.fields)cols.push({key:g.key+suffix,title,w:g.w,group:g.name});
+ const signature=cols.map(x=>x.key).join('|');const previous=spotVisibleColumns.map(x=>x.key).join('|');
+ spotVisibleColumns=cols;
+ const total=cols.reduce((s,x)=>s+x.w,0);table.style.width=total+'px';table.style.minWidth=total+'px';
+ $('spotCols').innerHTML=cols.map(x=>`<col style="width:${x.w}px">`).join('');
+ if(signature!==previous){
+  const groupHeaders=groups.filter(g=>g.fields.length).map(g=>`<th colspan="${g.fields.length}">${g.name}</th>`).join('');
+  const hasExtras=!!groupHeaders;
+  $('spotHeaders').innerHTML=`<tr class="spotHeadGroup">${cols.filter(x=>!x.group).map(x=>`<th ${hasExtras?'rowspan="2"':''} class="${x.key==='comment'?'commentHeader':(x.key==='distance'||x.key==='bearing'?'spotGeoNumeric':'')}">${x.title}${x.key==='comment'?'<span class="commentResizeHandle" role="separator" aria-label="Resize Comment column" title="Drag to resize Comment"></span>':''}</th>`).join('')}${groupHeaders}</tr>${hasExtras?`<tr class="spotHeadSub">${groups.map(g=>g.fields.map(f=>`<th>${f[1]}</th>`).join('')).join('')}</tr>`:''}`;
+  renderSpots();
+ }
+}
+for(const box of document.querySelectorAll('[data-spot-group]'))box.addEventListener('change',updateSpotLayout);
+const spotArea=document.querySelector('.spotResultArea');
+if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{if(!spotResizeActive)updateSpotLayout()}).observe(spotArea.parentElement);
+else window.addEventListener('resize',updateSpotLayout);
+$('spotHeaders').addEventListener('pointerdown',e=>{
+ if(!e.target.classList.contains('commentResizeHandle'))return;
+ e.preventDefault();spotResizeActive=true;
+ const startX=e.clientX,startWidth=spotVisibleColumns.find(x=>x.key==='comment')?.w||80;
+ const move=ev=>{spotCommentPreferred=Math.max(80,Math.min(1200,startWidth+ev.clientX-startX));updateSpotLayout()};
+ const done=()=>{spotResizeActive=false;window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',done);window.removeEventListener('pointercancel',done);try{localStorage.setItem('dxweb.spots.commentWidth',String(Math.round(spotCommentPreferred)))}catch(_){}updateSpotLayout()};
+ window.addEventListener('pointermove',move);window.addEventListener('pointerup',done);window.addEventListener('pointercancel',done);
+});
+window.addEventListener('load',updateSpotLayout);
+updateSpotLayout();
+function renderSpots(){const human=$('showHuman').checked,rbn=$('showRbn').checked,a=spotItems.filter(x=>(x.type==='human'&&human)||(x.type==='rbn'&&rbn));$('spotRows').innerHTML=a.slice(-250).reverse().map(x=>`<tr>${spotVisibleColumns.map(col=>`<td class="${col.key==='distance'||col.key==='bearing'?'spotGeoNumeric':''}" title="${col.key==='distance'||col.key==='bearing'?esc(geoCalculate(x).source):esc(x[col.key]??'')}">${col.key==='type'?(x.type==='human'?'C':'R'):col.key==='distance'||col.key==='bearing'?esc(geoRenderValue(x,col.key)):esc(x[col.key]??'')}</td>`).join('')}</tr>`).join('');setCount('spots',(human?spotCounts.human:0)+(rbn?spotCounts.rbn:0))}
 function renderLog(k){const e=document.querySelector(`[data-kind="${k}"]`);if(!e)return;e.textContent=logs[k].slice(-250).join('\n');e.scrollTop=e.scrollHeight;setCount(k,logs[k].length)}
 function parseCC11(payload){if(typeof payload!=='string')return null;const f=payload.split('^');if(f[0]!=='CC11'||f.length<7)return null;return{utc:(f[4]||'').replace(/Z$/i,'').replace(/[^0-9]/g,'').slice(0,4),freq:f[1]||'',dx:f[2]||'',comment:f[5]||'',spotter:f[6]||'',cqDx:f[10]||'',ituDx:f[11]||'',cqSpotter:f[12]||'',ituSpotter:f[13]||'',locDx:f[18]||'',locSpotter:f[19]||''}}
 function acceptFeed(m){const k=(m.feed||'').toLowerCase();if(k==='human'||k==='rbn'){const p=parseCC11(m.payload);if(!p)return;const enabled=k==='human'?$('showHuman').checked:$('showRbn').checked;
@@ -141,7 +251,7 @@ function finishCommandTarget(target){
  out.scrollTop=out.scrollHeight;
 }
 function handle(m){if(m.type==='status'){$('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===false){logoutPending=false;if(authenticated)clearSessionContent();loginState(false);setLocked(true);if(m.state==='ready'&&!$('loginDialog').open)showLogin()}return}if(m.type==='auth'||m.type==='auth_result'){$('loginSubmit').disabled=false;if(m.status==='ok'){clearSessionContent();loginState(true,m);$('loginDialog').close();$('loginError').textContent='';if(authPriv>=9)loadPending();setTimeout(()=>{if(authenticated)requestMetrics()},250);setTimeout(()=>{if(authenticated&&authPriv>=9)requestMaintenance([])},2500)}else{loginState(false);$('loginError').textContent=m.error==='admin_privilege_required'?'DXSpider privilege 1 is required for login (privilege 9 for administrative actions).':m.error==='password_required'?'A valid DXSpider password is required.':(m.error||'Authentication failed');showLogin($('loginError').textContent)}return}if(m.type==='logout_result'){logoutPending=false;loginState(false);showLogin();return}if(!authenticated)return;if(m.type==='reg_pending_result'){if(m.status==='ok')renderPending(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_history_result'){if(m.status==='ok')renderHistory(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_search_result'){if(m.status==='ok')renderHistory(m.result||[],'searchRows');else notice(responseText(m));return}if(m.type==='reg_accept_result'||m.type==='reg_reject_result'){const expected=decisionAction?`reg_${decisionAction}_result`:null;if(expected&&m.type!==expected){$('regActionResult').textContent=`Unexpected registration response: ${m.type}`;return}if(m.status==='ok'){const accepted=m.type==='reg_accept_result';const pw=accepted&&m.result&&m.result.password?` Password: ${m.result.password}`:'';$('regActionResult').textContent=(accepted?'Accepted.':'Rejected.')+pw;setTimeout(()=>{$('regActionDialog').close();decisionId=null;decisionAction=null;loadPending();loadHistory()},900)}else{$('regAccept').disabled=false;$('regReject').disabled=false;$('regActionResult').textContent=responseText(m)}return}if(m.type==='reg_delete_user_result'){$('deleteUserConfirm').disabled=false;if(m.status==='ok'){const calls=(m.result&&m.result.affected_calls)||[];$('deleteUserResult').textContent=`Deleted ${calls.length} DXUser record(s): ${calls.join(', ')}`;loadHistory();setTimeout(()=>$('deleteUserDialog').close(),1200)}else{$('deleteUserResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Delete failed'))}return}
- if(m.type==='feed'){acceptFeed(m);return}if(m.type==='command_result'){const target=pendingCommandTargets[0]||activePanel,t=responseText(m),out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);if(logs[target]){if(t){logs[target].push(...t.split('\n'));renderLog(target)}}else if(out&&t){if(target==='console'){const b=document.createElement('div');b.className='consoleResponse';b.textContent=t;out.appendChild(b)}else out.textContent+=t+'\n';out.scrollTop=out.scrollHeight}if(m.final!==false){finishCommandTarget(target);pendingCommandTargets.shift()}}}
+ if(m.type==='spot_result'){$('spotSubmit').disabled=false;$('spotResult').textContent=responseText(m)||(m.status==='ok'?'Spot accepted by DXSpider':'Spot rejected');if(m.status==='ok')setTimeout(()=>$('spotDialog').close(),500);return}if(m.type==='feed'){acceptFeed(m);return}if(m.type==='command_result'){const target=pendingCommandTargets[0]||activePanel,t=responseText(m),out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);if(logs[target]){if(t){logs[target].push(...t.split('\n'));renderLog(target)}}else if(out&&t){if(target==='console'){const b=document.createElement('div');b.className='consoleResponse';b.textContent=t;out.appendChild(b)}else out.textContent+=t+'\n';out.scrollTop=out.scrollHeight}if(m.final!==false){finishCommandTarget(target);pendingCommandTargets.shift()}}}
 loginState(false);connect();
 
 

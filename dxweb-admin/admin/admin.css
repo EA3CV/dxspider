@@ -1096,3 +1096,48 @@ body.v2-shell [data-help],body.v2-shell h3[title],body.v2-shell .kpiLabel[title]
 #diagnostics .diagnosticsInputGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
 #diagnostics .diagnosticsInputGrid .superCard{min-width:0}
 @media(max-width:1050px){#diagnostics .diagnosticsInputGrid{grid-template-columns:1fr}}
+
+/* Spot columns v0.60.4 — responsive optional groups and resizable Comment. */
+.spotOptionalControls{display:flex;align-items:center;gap:12px;min-width:0;margin-right:12px}
+.spotOptionGroup{display:flex;align-items:center;gap:5px;white-space:nowrap;font-size:11px;line-height:1.05}
+.spotOptionGroup>span{font-weight:600}
+.spotOptionChecks{display:flex;flex-direction:column;gap:2px}
+.spotOptionChecks label{display:flex;align-items:center;gap:3px;cursor:pointer;margin:0;white-space:nowrap}
+.spotOptionChecks input{margin:0;padding:0!important;width:12px;height:12px;flex:0 0 12px;box-sizing:border-box}
+.spotTable{table-layout:fixed!important;min-width:0!important}
+.spotTable col{width:auto}
+.spotTable th,.spotTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.spotTable th:nth-child(3),.spotTable td:nth-child(3){text-align:right}
+.spotTable th.commentHeader{position:sticky;overflow:visible}
+.commentHeader{position:relative}
+.commentResizeHandle{position:absolute;right:0;top:0;bottom:0;width:9px;cursor:col-resize;touch-action:none;z-index:5}
+.commentResizeHandle:hover{background:rgba(55,115,190,.25)}
+.spotResultArea{min-width:0;overflow-x:auto}
+@media(max-width:1050px){.spotOptionalControls{gap:6px;margin-right:6px}.spotOptionGroup{font-size:10px;gap:3px}}
+
+/* Keep the controls in the existing toolbar height; scroll horizontally if needed. */
+.panelHead:has(.spotOptionalControls){flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden}
+.panelHead:has(.spotOptionalControls)>div{flex-wrap:nowrap;flex-shrink:0}
+
+/* Spot core cells must never be ellipsized. Comment alone may clip. */
+.spotTable tbody td:nth-child(-n+5){text-overflow:clip!important}
+.spotOptionGroup input[data-spot-group]{margin:0 3px 0 0;padding:0!important;width:12px;height:12px;flex:0 0 12px}
+
+/* Spot layout 0.60.4: same-size filter labels and no unnecessary horizontal overflow. */
+.spotOptionalControls .spotOptionGroup{font-size:14px!important;line-height:normal;font-weight:600;gap:4px}
+.spotOptionalControls input[data-spot-group]{width:14px;height:14px;flex-basis:14px}
+.spotTable th:nth-child(3),.spotTable td:nth-child(3){padding-right:8px!important}
+.spotTable{box-sizing:border-box!important;max-width:none}
+
+/* Optional operator locator; no additional Operation bar height. */
+.geoLocatorControl{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:14px;font-weight:600;margin-right:10px}
+.geoLocatorControl input{width:84px;min-width:84px;box-sizing:border-box;font:inherit;font-size:13px;padding:3px 5px}
+.geoLocatorControl input:invalid{outline:2px solid #c55}
+
+/* Stable Comment header alignment regardless of optional header rows. */
+.spotTable thead .spotHeadGroup th.commentHeader{ text-align:left!important; padding-left:8px!important; }
+/* Compact Spots heading only; preserve the other panel headings. */
+.spotTitleLine h2{font-size:17px!important;}
+
+/* Geographic values: right-aligned, including the unit and column heading. */
+.spotTable th.spotGeoNumeric,.spotTable td.spotGeoNumeric{text-align:right!important;font-variant-numeric:tabular-nums;}
