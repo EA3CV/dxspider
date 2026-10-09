@@ -5,6 +5,7 @@
    with per-user preferences for authenticated users. Improved responsive
    layout for smaller screens and mobile devices.Added alternating background
    colors to spot table rows for improved readability.
+2. Add a visual filter editor to DXWeb, supporting both Spots and RBN filters
 08Oct26======================================================================
 1. Added Nginx HTTP and HTTPS reverse-proxy configuration examples for
    DXWeb and DXWeb Admin, including WebSocket/WSS support.

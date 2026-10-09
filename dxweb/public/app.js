@@ -5,13 +5,13 @@
  *
  * Copyright (c) 2026 Dirk Koopman G1TLH
  */
-// DXSpider Web 2.8.15
+// DXSpider Web 2.8.29
 // Date: 2026-09-16
 'use strict';
 const $=id=>document.getElementById(id);
 let ws=null, authenticated=false, logoutPending=false, authUser=null, authRegistered=false, passwordUsed=false, activeTab='spots';
 let spotItems=[], spotCounts={human:0,rbn:0}, logs={ann:[],wwv:[],wcy:[],wx:[]};
-let cmdHistory=[], historyPos=0, pendingCommandTargets=[];
+let cmdHistory=[], historyPos=0, pendingCommandTargets=[], pendingCommandNames=[];
 
 function send(o){if(!(ws&&ws.readyState===WebSocket.OPEN))return false;ws.send(JSON.stringify(o));return true}
 function esc(v){return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
@@ -94,7 +94,7 @@ $('registerForm').addEventListener('submit',e=>{
 });
 
 function clearSessionData(){
- spotItems=[];spotCounts={human:0,rbn:0};logs={ann:[],wwv:[],wcy:[],wx:[]};cmdHistory=[];historyPos=0;pendingCommandTargets=[];
+ spotItems=[];spotCounts={human:0,rbn:0};logs={ann:[],wwv:[],wcy:[],wx:[]};cmdHistory=[];historyPos=0;pendingCommandTargets=[];pendingCommandNames=[];
  const set=(id,v='')=>{const e=$(id);if(e)e.value!==undefined?e.value=v:e.textContent=v};
  set('consoleOutput');set('consoleCommand');set('filterCommand');set('annText');set('annResult');set('spotResult');
  set('spotFreq');set('spotDx');set('spotComment');
@@ -140,10 +140,188 @@ function command(cmd,target='console'){
  if(!cmdHistory.length||cmdHistory[cmdHistory.length-1]!==cmd)cmdHistory.push(cmd);
  historyPos=cmdHistory.length;
  if(target==='console'){const line=document.createElement('div');line.className='consoleCommandLine';line.textContent=`> ${cmd}`;$('consoleOutput').appendChild(line);$('consoleOutput').scrollTop=$('consoleOutput').scrollHeight}
- pendingCommandTargets.push(target);send({type:'command',command:cmd});
+ if(!send({type:'command',command:cmd}))return;
+ pendingCommandTargets.push(target);pendingCommandNames.push(cmd);
 }
 $('consoleForm').addEventListener('submit',e=>{e.preventDefault();const v=$('consoleCommand').value; $('consoleCommand').value='';command(v,'console')});
 $('filterForm').addEventListener('submit',e=>{e.preventDefault();const v=$('filterCommand').value;$('filterCommand').value='';command(v,'filters')});
+const filterBandCatalog={"bands":{"73khz":["band"],"136khz":["band"],"500khz":["band"],"160m":["band","cw","data","ft8","rtty","ssb"],"80m":["band","cw","data","ft4","ft8","rtty","ssb","sstv"],"60m":["band","cw","data","ssb"],"40m":["band","cw","data","ft4","ft8","rtty","ssb"],"30m":["band","cw","data","ft4","ft8","rtty"],"20m":["band","beacon","cw","data","ft4","ft8","rtty","ssb","sstv"],"17m":["band","beacon","cw","data","ft4","ft8","rtty","ssb"],"15m":["band","beacon","cw","data","ft4","ft8","rtty","ssb"],"12m":["band","beacon","cw","data","ft4","ft8","rtty","ssb"],"10m":["band","beacon","cw","data","ft4","ft8","rtty","space","ssb"],"8m":["band"],"6m":["band","beacon","cw","data","ft4","ft8","ssb"],"5m":["band"],"4m":["band","beacon","cw","ssb"],"2m":["band","beacon","cw","ssb"],"220":["band"],"70cm":["band"],"902":["band"],"23cm":["band"],"13cm":["band"],"9cm":["band","beacon","sat"],"6cm":["band","beacon","data","sat"],"3cm":["band"],"12mm":["band"],"6mm":["band","beacon"],"4mm":["band","beacon"],"122g":["band"],"134g":["band","beacon"],"241g":["band","beacon"],"band1":["band"],"band2":["band"],"band3":["band"],"band4":["band"],"band5":["band"],"military":["band"],"aircraft":["band"],"pmrlow":["band"],"pmrmid":["band"],"pmrhigh":["band"],"pmruhf":["band"],"hf":["band"],"vhf":["band"],"lband":["band"],"sband":["band"],"cband":["band"],"xband":["band"],"kuband":["band"],"kband":["band"],"kaband":["band"],"vband":["band"],"wband":["band"],"gband":["band"],"630m":["band"],"24g":["band"],"47g":["band","beacon"],"76g":["band","beacon"]},"regions":{"vlf":["73khz","136khz","630m"],"hf":["160m","80m","60m","40m","30m","20m","17m","15m","12m","10m"],"contesthf":["160m","80m","40m","20m","15m","10m"],"vhf":["8m","6m","5m","4m","2m","220"],"vhfradio":["band1","band2"],"vhftv":["band1","band3"],"uhf":["70cm","902","23cm","13cm"],"uhftv":["band4","band5"],"shf":["9cm","6cm","3cm","24g"],"ehf":["47g","76g","134g","241g"],"pmr":["pmrlow","pmrmid","pmrhigh","pmruhf"],"spe":["10m","8m","6m","5m","4m","2m"],"warc":["60m","30m","17m","12m"],"dsn":["23cm","9cm","6cm","3cm","24g","47g","76g","134g","241g"],"all":["73khz","136khz","630m","160m","80m","60m","40m","30m","20m","17m","15m","12m","10m","8m","6m","5m","4m","2m","220","70cm","902","23cm","9cm","6cm","3cm","24g","47g","76g","134g","241g"]},"aliases":{"630m":"500khz","24g":"12mm","47g":"6mm","76g":"4mm"}};
+// Compact filter editor. Local drafts are never sent until Save/Delete.
+let vfRules=[],vfCurrent=null,vfHistory=[],vfReadLines=[],vfReadActive=false,vfSeq=1;
+// Native Spot::$filterdef tags, not UI-invented aliases. RBN-only controls are a UI restriction.
+const vfCommonFields=[
+ ['call','DX · Callsign'],['call_dxcc','DX · DXCC'],['call_zone','DX · CQ Zone'],['call_itu','DX · ITU Zone'],
+ ['spotter','Spotter · Callsign'],['by_dxcc','Spotter · DXCC'],['by_zone','Spotter · CQ Zone'],['by_itu','Spotter · ITU Zone'],
+ ['on','Frequency · Band'],['freq','Frequency · Range'],['info','Comment']
+];
+const vfRbnFields=[['db','RBN · dB'],['q','RBN · Q']];
+const vfFields=()=>vfCommonFields.concat($('filterFamily').value==='rbn'?vfRbnFields:[]);
+const vfNativeAlias={dxcc:'call_dxcc',cq:'call_zone',zone:'call_zone',itu:'call_itu',by:'spotter',byzone:'by_zone',bycq:'by_zone',byitu:'by_itu'};
+const vfSimple=/^([a-z_]+)\s+([^\s()]+)$/i;
+const vfClone=x=>JSON.parse(JSON.stringify(x));
+function vfSnapshot(){vfHistory.push({rules:vfClone(vfRules),current:vfClone(vfCurrent)});if(vfHistory.length>60)vfHistory.shift();$('vfUndo').disabled=false}
+// Parse native AND/OR/NOT with balanced parentheses into an editable tree.
+function vfParse(expr){
+ const tokens=String(expr).match(/\(|\)|\b(?:and|or|not)\b|[^\s()]+/gi)||[];let pos=0;
+ const atom=()=>{if(tokens[pos]==='('){pos++;const v=disjunction();if(tokens[pos++]!==')')throw Error('Unbalanced parentheses');return v}
+  if(/^not$/i.test(tokens[pos]||'')){pos++;return {type:'not',child:atom()}}
+  const field=tokens[pos++],value=tokens[pos++];if(!field||!value||/[()]/.test(value)||/^(and|or|not)$/i.test(value))throw Error('Invalid condition');
+  const native=field.toLowerCase(),canonical=vfNativeAlias[native]||native;
+  if(!vfFields().some(f=>f[0]===canonical))throw Error('Unsupported native field');
+  return {type:'term',id:vfSeq++,field:native,value};};
+ const conjunction=()=>{let parts=[atom()];while(/^and$/i.test(tokens[pos]||'')){pos++;parts.push(atom())}return parts.length===1?parts[0]:{type:'group',op:'and',children:parts}};
+ const disjunction=()=>{let parts=[conjunction()];while(/^or$/i.test(tokens[pos]||'')){pos++;parts.push(conjunction())}return parts.length===1?parts[0]:{type:'group',op:'or',children:parts}};
+ try{const tree=disjunction();if(pos!==tokens.length)throw Error('Trailing tokens');return tree}catch(_){return null}
+}
+function vfSerialize(node){if(!node)return '';if(node.type==='term')return `${node.field} ${node.value.trim()}`;
+ if(node.type==='not')return `not ( ${vfSerialize(node.child)} )`;
+ return node.children.map(n=>{const value=vfSerialize(n);return n.type==='group'?`(${value})`:`( ${value} )`}).join(` ${node.op} `);}
+function vfBandOrder(a,b){
+ const classify=s=>/^[0-9]+m$/.test(s)?0:/^[0-9]+cm$/.test(s)?1:/^[0-9]+mm$/.test(s)?2:/^[0-9]+g$/.test(s)?3:/^[0-9]+khz$/.test(s)?4:/^[0-9]+$/.test(s)?5:6;
+ const x=classify(a),y=classify(b);return x-y||(x===6?a.localeCompare(b):Number.parseInt(a,10)-Number.parseInt(b,10));
+}
+function vfNodeTerm(){return {type:'term',id:vfSeq++,field:'call',value:''}}
+function vfWalk(root,id,cb){if(!root)return root;if(root.id===id)return cb(root);if(root.type==='group')root.children=root.children.map(n=>vfWalk(n,id,cb)).filter(Boolean);else if(root.type==='not')root.child=vfWalk(root.child,id,cb);return root}
+function vfPopulateExisting(lines){
+ const family=$('filterFamily').value;let seenFamily='',input=false;const found=[];
+ for(const line of lines){
+  const hd=line.match(/^\s*(\S+)\s+:\s+(spots|rbn)(?:\s+(input))?\s*$/i);
+  if(hd){seenFamily=hd[2].toLowerCase();input=!!hd[3];continue}
+  const m=line.match(/^\s*filter([0-9])\s+(accept|reject)\s+(.+)$/i);
+  if(m&&seenFamily===family&&!input&&Number(m[1])>=1)found.push({id:vfSeq++,position:m[1],action:m[2].toLowerCase(),expression:m[3].trim()});
+ }
+ vfRules=found;vfCurrent=null;vfHistory=[];$('vfUndo').disabled=true;vfRender();
+}
+function vfRender(){
+ const box=$('vfRules');box.replaceChildren();
+ if(!vfRules.length){const e=document.createElement('span');e.textContent='No output rules loaded for this family';box.append(e)}
+ for(const r of vfRules){const row=document.createElement('div');row.className='vf-rule';
+  const edit=document.createElement('button');edit.type='button';edit.textContent=`#${r.position} ${r.action.toUpperCase()}  ${r.expression}`;edit.title='Edit this rule';edit.onclick=()=>vfOpen(r);row.append(edit);
+  const del=document.createElement('button');del.type='button';del.textContent='×';del.title='Delete rule';del.onclick=()=>vfDeleteRule(r);row.append(del);box.append(row)}
+ $('vfEditor').hidden=!vfCurrent;if(!vfCurrent)return;
+ $('vfTitle').textContent=vfCurrent.existing?'Edit rule':'New rule';$('filterPosition').value=vfCurrent.position;$('filterAction').value=vfCurrent.action;
+ $('vfAdvancedArea').hidden=!vfCurrent.advanced;$('vfAdvancedDiscard').hidden=true;$('vfAdvanced').textContent=vfCurrent.advanced?'← Back to visual editor':'Advanced';$('filterExpression').value=vfCurrent.expression;
+ vfRenderConditions();vfPreview();
+}
+function vfOpen(r){vfSnapshot();vfCurrent={...vfClone(r),existing:true,tree:vfParse(r.expression),advanced:false};vfCurrent.advanced=!vfCurrent.tree;vfRender()}
+function vfNew(){vfSnapshot();const used=new Set(vfRules.map(r=>r.position));const position=Array.from({length:9},(_,i)=>String(i+1)).find(n=>!used.has(n));if(!position){$('vfStatus').textContent='All 9 positions are in use';return}
+ vfCurrent={id:vfSeq++,position,action:'reject',expression:'',tree:null,advanced:false,existing:false};vfRender()}
+function vfExpression(){return vfCurrent.advanced?$('filterExpression').value.trim():vfSerialize(vfCurrent.tree)}
+// Locate balanced parenthesis pairs which contain a top-level AND/OR.
+// Leaf term parentheses are intentionally not decorated.
+function vfPreviewGroups(expression){
+ const stack=[],groups=[];let quote=null,escaped=false;
+ for(let i=0;i<expression.length;i++){
+  const c=expression[i];
+  if(quote){if(escaped)escaped=false;else if(c==='\\')escaped=true;else if(c===quote)quote=null;continue}
+  if(c==='"'||c==="'"){quote=c;continue}
+  if(c==='(')stack.push(i);
+  else if(c===')'&&stack.length){const start=stack.pop(),inside=expression.slice(start+1,i);
+   let depth=0,operator=false,token='';
+   const flush=()=>{if(depth===0&&/^(and|or)$/i.test(token))operator=true;token=''};
+   for(const ch of inside){if(ch==='('){flush();depth++}else if(ch===')'){flush();depth--}else if(/\s/.test(ch)){flush()}else if(depth===0)token+=ch}
+   flush();if(operator)groups.push({start:start+1,end:i});
+  }
+ }
+ // The outermost boolean group is serialized without enclosing parentheses.
+ // Draw its span as well, excluding the command header (reject/spots N).
+ const header=expression.match(/^\s*(?:accept|reject)\/(?:spots|rbn)\s+[0-9]+\s+/i);
+ if(header){
+  let start=header[0].length,end=expression.length;
+  while(start<end&&/\s/.test(expression[start]))start++;
+  while(end>start&&/\s/.test(expression[end-1]))end--;
+  // Only a composite expression has a root group to draw.
+  let depth=0,hasRootOperator=false,token='';
+  const flushRoot=()=>{if(depth===0&&/^(and|or)$/i.test(token))hasRootOperator=true;token=''};
+  for(let i=start;i<end;i++){
+   const c=expression[i];
+   if(c==='('){flushRoot();depth++}
+   else if(c===')'){flushRoot();depth--}
+   else if(/\s/.test(c)){flushRoot()}
+   else if(depth===0)token+=c;
+  }
+  flushRoot();
+  if(hasRootOperator&&!groups.some(g=>g.start===start&&g.end===end))groups.push({start,end,root:true});
+ }
+ return groups.sort((a,b)=>(a.end-a.start)-(b.end-b.start));
+}
+function vfDrawPreview(expression){
+ const host=$('vfPreviewVisual');host.replaceChildren();
+ const groups=vfPreviewGroups(expression),line=document.createElement('div');
+ line.className='vf-preview-line';line.textContent=expression;
+ const top=Math.max(1,...groups.filter((_,i)=>i%2===1).map((_,i)=>i+1));
+ const bottom=Math.max(1,...groups.filter((_,i)=>i%2===0).map((_,i)=>i+1));
+ // One lane per alternating side; overlapping nested spans never hide each other.
+ const above=groups.filter((_,i)=>i%2===1).length,below=groups.filter((_,i)=>i%2===0).length;
+ line.style.marginTop=`${above*7+4}px`;line.style.marginBottom=`${below*7+4}px`;
+ host.append(line);
+ const palette=['#0066ff','#ff0000','#ffff00','#000000','#808080'];
+ groups.forEach((g,i)=>{if(g.end<=g.start)return;const bar=document.createElement('span');bar.className='vf-preview-bar';
+  const side=i%2===0?'bottom':'top',lane=Math.floor(i/2);
+  bar.style.left=`${g.start}ch`;bar.style.width=`${g.end-g.start}ch`;
+  bar.style.backgroundColor=palette[i%palette.length];if(i%palette.length===2)bar.style.boxShadow='0 0 0 0.5px #a68b00';bar.style[side]=`${-8-lane*7}px`;
+  bar.title=`Group ${i+1}: ${expression.slice(g.start,g.end)}`;line.append(bar);
+ });
+}
+function vfPreview(){if(!vfCurrent)return;vfCurrent.expression=vfExpression();const expression=vfCurrent.expression?`${vfCurrent.action}/${$('filterFamily').value} ${vfCurrent.position} ${vfCurrent.expression}`:'Add a condition';$('filterPreviewText').textContent=expression;vfDrawPreview(expression);}
+function vfRenderConditions(){const box=$('vfConditions');box.replaceChildren();if(vfCurrent.advanced)return;
+ const addButton=(parent,label,fn)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=()=>{vfSnapshot();fn();vfRender()};parent.append(b)};
+ const renderNode=(node,host,parent=null,index=0)=>{
+  const row=document.createElement('div');row.className='vf-node '+(node.type==='group'?'vf-group':'');if(node.type==='group'){const depth=(()=>{let d=0,p=host;while(p&&p!==box){if(p.classList?.contains('vf-group'))d++;p=p.parentElement}return d})();row.style.setProperty('--vf-depth',String(depth));row.dataset.logic=node.op.toUpperCase();}host.append(row);
+  if(node.type==='group'){
+   const header=document.createElement('div');header.className='vf-grouphead';header.dataset.label='GROUP';row.append(header);
+   const op=document.createElement('select');for(const x of ['and','or'])op.add(new Option(x.toUpperCase(),x));op.value=node.op;op.onchange=()=>{vfSnapshot();node.op=op.value;row.dataset.logic=node.op.toUpperCase();vfPreview()};header.append(op);
+   addButton(header,'+ Condition',()=>node.children.push(vfNodeTerm()));
+   addButton(header,'+ Group',()=>node.children.push({type:'group',op:'or',children:[vfNodeTerm(),vfNodeTerm()]}));
+   if(parent)addButton(header,'×',()=>parent.children.splice(index,1));
+   node.children.forEach((child,i)=>renderNode(child,row,node,i));return;
+  }
+  if(node.type==='not'){
+   const label=document.createElement('strong');label.textContent='NOT';row.append(label);renderNode(node.child,row);return;
+  }
+  const field=document.createElement('select');for(const [id,label] of vfFields())field.add(new Option(label,id));if(!vfFields().some(f=>f[0]===node.field))field.add(new Option(node.field+' (native)',node.field));field.value=node.field;row.append(field);
+  const slot=document.createElement('span');slot.className='vf-value';row.append(slot);
+  const renderValue=()=>{slot.replaceChildren();if(node.field==='on'){
+   const details=document.createElement('details');const summary=document.createElement('summary');summary.textContent=node.value||'Select bands';details.append(summary);
+   const choices=document.createElement('div');choices.className='vf-bandchoices';const selected=new Set(node.value.split(',').filter(Boolean));
+   for(const band of Object.keys(filterBandCatalog.bands).sort(vfBandOrder)){const label=document.createElement('label'),cb=document.createElement('input');cb.type='checkbox';cb.checked=selected.has(band);cb.onchange=()=>{vfSnapshot();if(cb.checked)selected.add(band);else selected.delete(band);node.value=[...selected].join(',');summary.textContent=node.value||'Select bands';vfPreview()};label.append(cb,document.createTextNode(band));choices.append(label)}details.append(choices);slot.append(details);
+  }else if(/(?:zone|itu)/.test(node.field)){
+   const select=document.createElement('select');select.add(new Option('Zone…',''));const max=/(?:itu)/.test(node.field)?90:40;for(let n=1;n<=max;n++)select.add(new Option(String(n),String(n)));if(node.value&&!Array.from(select.options).some(o=>o.value===node.value))select.add(new Option(node.value,node.value));select.value=node.value;select.onchange=()=>{vfSnapshot();node.value=select.value;vfPreview()};slot.append(select);
+  }else{const input=document.createElement('input');input.value=node.value;input.size=/^(call|spotter)$/.test(node.field)?20:/dxcc/.test(node.field)?6:/(?:^db$|^q$)/.test(node.field)?5:12;input.maxLength=/^(call|spotter)$/.test(node.field)?20:256;input.placeholder=/dxcc/.test(node.field)?'Prefix / number':'Value';input.onfocus=()=>vfSnapshot();input.oninput=()=>{node.value=input.value;vfPreview()};slot.append(input)}};
+  field.onchange=()=>{vfSnapshot();node.field=field.value;node.value='';renderValue();vfPreview()};renderValue();
+  addButton(row,'×',()=>{if(parent)parent.children.splice(index,1);else vfCurrent.tree=null});
+  if(parent&&parent.type==='group'&&parent.children.length>1){addButton(row,'↑',()=>{if(index>0)[parent.children[index-1],parent.children[index]]=[parent.children[index],parent.children[index-1]]});addButton(row,'↓',()=>{if(index<parent.children.length-1)[parent.children[index+1],parent.children[index]]=[parent.children[index],parent.children[index+1]]});}
+ };
+ if(vfCurrent.tree)renderNode(vfCurrent.tree,box);
+ else{const hint=document.createElement('small');hint.textContent='Empty rule — add a condition or group';box.append(hint)}
+}
+function vfDeleteRule(r){if(!confirm(`Delete ${$('filterFamily').value} rule ${r.position} (${r.action})?`))return;if(!authenticated){notice('Log in first.');return}command(`clear/${$('filterFamily').value} ${r.position}`,'filters');vfRules=vfRules.filter(x=>x.id!==r.id);if(vfCurrent?.id===r.id)vfCurrent=null;vfHistory=[];$('vfUndo').disabled=true;vfRender()}
+$('filterLoad').onclick=()=>{vfCurrent=null;vfRender();command(`show/filter ${$('filterFamily').value}`,'filters')};
+$('filterFamily').onchange=()=>{vfRules=[];vfCurrent=null;vfHistory=[];$('vfUndo').disabled=true;vfRender();command(`show/filter ${$('filterFamily').value}`,'filters')};
+$('vfNew').onclick=vfNew;
+$('vfUndo').onclick=()=>{const last=vfHistory.pop();if(!last)return;vfRules=last.rules;vfCurrent=last.current;$('vfUndo').disabled=!vfHistory.length;vfRender()};
+$('vfDiscard').onclick=()=>{vfCurrent=null;vfRender()};
+$('filterPosition').onchange=()=>{vfSnapshot();vfCurrent.position=$('filterPosition').value;vfPreview()};
+$('filterAction').onchange=()=>{vfSnapshot();vfCurrent.action=$('filterAction').value;vfPreview()};
+$('vfAdd').onclick=()=>{if(!vfCurrent)return;if(vfCurrent.advanced){$('vfStatus').textContent='Advanced expressions cannot be edited as visual blocks';return}vfSnapshot();if(!vfCurrent.tree)vfCurrent.tree=vfNodeTerm();else if(vfCurrent.tree.type==='group'&&vfCurrent.tree.op===$('vfJoin').value)vfCurrent.tree.children.push(vfNodeTerm());else if(vfCurrent.tree.type==='group')vfCurrent.tree={type:'group',op:$('vfJoin').value,children:[vfCurrent.tree,vfNodeTerm()]};else vfCurrent.tree={type:'group',op:$('vfJoin').value,children:[vfCurrent.tree,vfNodeTerm()]};vfRender()};
+$('vfWrapAnd').onclick=()=>{if(!vfCurrent||vfCurrent.advanced)return;vfSnapshot();if(!vfCurrent.tree){vfCurrent.tree=vfNodeTerm()}else{vfCurrent.tree={type:'group',op:'and',children:[vfCurrent.tree,vfNodeTerm()]}};vfRender()};
+$('vfAddGroup').onclick=()=>{if(!vfCurrent||vfCurrent.advanced)return;vfSnapshot();const group={type:'group',op:'or',children:[vfNodeTerm(),vfNodeTerm()]};if(!vfCurrent.tree)vfCurrent.tree=group;else vfCurrent.tree={type:'group',op:'and',children:[vfCurrent.tree,group]};vfRender()};
+$('vfAdvanced').onclick=()=>{if(!vfCurrent)return;
+ if(!vfCurrent.advanced){vfSnapshot();vfCurrent.expression=vfExpression();vfCurrent.visualBackup=vfClone(vfCurrent.tree);vfCurrent.advancedOriginal=vfCurrent.expression;vfCurrent.advanced=true;vfRender();return}
+ const expr=$('filterExpression').value.trim();
+ if(expr===vfCurrent.advancedOriginal){vfCurrent.advanced=false;vfCurrent.tree=vfClone(vfCurrent.visualBackup);$('vfStatus').textContent='Visual editor';vfRender();return}
+ const tree=vfParse(expr);
+ if(tree){vfSnapshot();vfCurrent.tree=tree;vfCurrent.advanced=false;vfCurrent.expression=expr;$('vfStatus').textContent='Advanced expression converted';vfRender();return}
+ $('vfStatus').textContent='Cannot convert this expression. Keep editing in Advanced, or use Discard advanced changes.';
+ $('vfAdvancedDiscard').hidden=false;
+};
+$('vfAdvancedDiscard').onclick=()=>{if(!vfCurrent)return;vfCurrent.tree=vfClone(vfCurrent.visualBackup);vfCurrent.advanced=false;vfCurrent.expression=vfSerialize(vfCurrent.tree);$('vfStatus').textContent='Advanced changes discarded';$('vfAdvancedDiscard').hidden=true;vfRender()};
+$('filterExpression').oninput=()=>{if(vfCurrent){vfCurrent.expression=$('filterExpression').value;vfPreview()}};
+$('filterSend').onclick=()=>{if(!vfCurrent||!authenticated){notice('Log in and select a rule first.');return}vfPreview();if(!vfCurrent.expression||/[\r\n]/.test(vfCurrent.expression)){ $('vfStatus').textContent='Invalid or empty expression';return}if(vfRules.some(r=>r.id!==vfCurrent.id&&r.position===vfCurrent.position)){$('vfStatus').textContent='Position already occupied';return}
+ const cmd=$('filterPreviewText').textContent;command(cmd,'filters');vfHistory=[];$('vfUndo').disabled=true;$('vfStatus').textContent='Command sent; reload to confirm';};
+$('vfDelete').onclick=()=>{if(vfCurrent?.existing)vfDeleteRule(vfCurrent);else{vfCurrent=null;vfRender()}};
+$('vfClearAll').onclick=()=>{if(!confirm(`Delete ALL ${$('filterFamily').value} output rules? This cannot be undone after sending.`))return;if(!authenticated){notice('Log in first.');return}command(`clear/${$('filterFamily').value} all`,'filters');vfRules=[];vfCurrent=null;vfHistory=[];$('vfUndo').disabled=true;vfRender()};
+vfRender();
 $('consoleCommand').addEventListener('keydown',e=>{
  if(e.key==='ArrowUp'){e.preventDefault();if(historyPos>0)historyPos--;$('consoleCommand').value=cmdHistory[historyPos]||''}
  if(e.key==='ArrowDown'){e.preventDefault();if(historyPos<cmdHistory.length)historyPos++;$('consoleCommand').value=cmdHistory[historyPos]||''}
@@ -346,7 +524,18 @@ function handle(m){
    const target=pendingCommandTargets[0]||activeTab;const t=responseText(m);
    if(logs[target]){if(t){for(const line of t.split('\n'))logs[target].push(line);if(logs[target].length>500)logs[target]=logs[target].slice(-500);renderLog(target)}}
    else{const out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);if(out&&t){if(target==='console'){const block=document.createElement('div');block.className='consoleResponse';block.textContent=t;out.appendChild(block)}else out.textContent+=t+'\n';out.scrollTop=out.scrollHeight}}
-   if(m.final!==false){finishCommandTarget(target);pendingCommandTargets.shift()}return;
+   const issued=pendingCommandNames[0]||'';
+   const isFilterRead=target==='filters'&&/^show\/filter(?:\s|$)/i.test(issued);
+   if(isFilterRead){if(!vfReadActive){vfReadActive=true;vfReadLines=[]}if(t)vfReadLines.push(...t.split('\n'))}
+   if(m.final!==false){
+     if(isFilterRead){vfPopulateExisting(vfReadLines);vfReadActive=false;vfReadLines=[]}
+     finishCommandTarget(target);pendingCommandTargets.shift();pendingCommandNames.shift();
+     // Re-read the authoritative filter after editing. Never infer success from status=ok.
+     if(target==='filters'&&/^(?:(?:accept|reject)\/(?:spots|rbn)\s|clear\/(?:spots|rbn)\s)/i.test(issued)){
+       const family=issued.match(/^(?:accept|reject)\/(spots|rbn)\s/i)[1];
+       command(`show/filter ${family}`,'filters');
+     }
+   }return;
  }
  if(m.type==='spot_result'){$('spotResult').textContent=responseText(m)||(m.status==='ok'?'Spot accepted by DXSpider':'Spot rejected');if(m.status==='ok')setTimeout(()=>$('spotDialog').close(),500);return}
  if(m.type==='ann_result'){$('annResult').textContent=responseText(m)||(m.status==='ok'?'Announcement accepted by DXSpider':'Announcement rejected');if(m.status==='ok')$('annText').value='';return}
