@@ -19,7 +19,7 @@ use File::Find qw(find);
 use Time::HiRes qw(time);
 use Time::Local qw(timegm);
 
-our $VERSION = '0.16.0';
+our $VERSION = '0.16.2';
 our $SCHEMA_VERSION = 1;
 
 sub new {
@@ -758,7 +758,7 @@ sub _gzip_file_safe {
 sub maintenance_async {
     my ($self,%opt)=@_; my $cb=delete $opt{cb}; die 'maintenance_async requires cb' unless ref($cb) eq 'CODE';
     my $path=$self->{path}; my $root=$self->{local_data_root}; my $parts=$opt{history_path}; my $sp=Mojo::IOLoop::Subprocess->new;
-    $sp->run(sub { require DBI; my%r=(schema_version=>2,collected_at=>time,history_db=>$path);my@st=stat($path);$r{db_bytes}=@st?0+$st[7]:0;for my$s(qw(-wal -shm)){my@x=stat($path.$s);$r{$s eq'-wal'?'wal_bytes':'shm_bytes'}=@x?0+$x[7]:0}my$dbh=DBI->connect("dbi:SQLite:dbname=$path",'','',{RaiseError=>1,PrintError=>0,AutoCommit=>1,sqlite_busy_timeout=>1000,sqlite_open_flags=>0x00000001});my($count,$oldest,$newest)=$dbh->selectrow_array('SELECT COUNT(*),MIN(collected_at),MAX(collected_at) FROM samples');$r{samples}=0+($count||0);$r{oldest_at}=defined$oldest?0+$oldest:undef;$r{newest_at}=defined$newest?0+$newest:undef;my($qc)=$dbh->selectrow_array('PRAGMA quick_check');$r{quick_check}=defined$qc?"$qc":'unknown';$dbh->disconnect;
+    $sp->run(sub { require DBI; my%r=(schema_version=>2,collected_at=>time,history_db=>$path);my@st=stat($path);$r{db_bytes}=@st?0+$st[7]:0;for my$s(qw(-wal -shm)){my@x=stat($path.$s);$r{$s eq'-wal'?'wal_bytes':'shm_bytes'}=@x?0+$x[7]:0}my$dbh=DBI->connect("dbi:SQLite:dbname=$path",'','',{RaiseError=>1,PrintError=>0,AutoCommit=>1,sqlite_busy_timeout=>1000,sqlite_open_flags=>0x00000001});my($count,$oldest,$newest)=$dbh->selectrow_array('SELECT COUNT(*),MIN(collected_at),MAX(collected_at) FROM samples');$r{samples}=0+($count||0);$r{oldest_at}=defined$oldest?0+$oldest:undef;$r{newest_at}=defined$newest?0+$newest:undef;$r{quick_check}='not checked'; # Expensive PRAGMA quick_check is an explicit offline/on-demand operation.$dbh->disconnect;
         if(open(my$df,'-|','df','-Pk',$root)){my@l=<$df>;close$df;if(@l>1){my@f=split/\s+/,$l[-1];if(@f>=6){$r{fs_total_bytes}=1024*(0+$f[1]);$r{fs_used_bytes}=1024*(0+$f[2]);$r{fs_available_bytes}=1024*(0+$f[3]);$r{fs_used_percent}=0+($f[4]=~s/%//r)}}}
         my@backups;if(opendir(my$dh,$root)){while(my$n=readdir$dh){next unless$n=~/^dxweb-admin.*-backup-/;my@x=stat("$root/$n");push@backups,{name=>$n,mtime=>0+($x[9]||0)}if@x}closedir$dh}@backups=sort{$b->{mtime}<=>$a->{mtime}}@backups;$r{backup_count}=scalar@backups;$r{latest_backup}=$backups[0]if@backups;
         $r{history_browser}=_history_tree_snapshot($root,$parts);$r{archive_dir}="$root/archives";return\%r;

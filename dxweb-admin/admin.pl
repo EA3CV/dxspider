@@ -1338,7 +1338,7 @@ hook before_server_start => sub( $server, $app ) {
 };
 get '/'                   => sub($c) { $c->reply->static('index.html') };
 get '/admin-version.json' => sub($c) {
-    $c->render( json => { name => 'DXSpider Web Admin', version => '0.78.5' } );
+    $c->render( json => { name => 'DXSpider Web Admin', version => '0.78.9' } );
 };
 get '/healthz' => sub($c) {
     $c->render(
@@ -1452,11 +1452,7 @@ sub v040_warm_caches() {
             v040_timeline_async( '15m', sub { } );
         }
     );
-    Mojo::IOLoop->timer(
-        6.0 => sub {
-            v040_maintenance_async( [], sub { } );
-        }
-    );
+    # Maintenance and SQLite quick_check run on explicit request only.
 }
 
 websocket '/ws' => sub($c) {
