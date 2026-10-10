@@ -14,8 +14,9 @@ untrusted clients.
 
 The administrative backend is dxweb-admin/admin.pl. It uses a local-only
 DXSpider transport at 127.0.0.1 and DXS_PORT (default 27754). DXSpider
-allocates its #WEB-n technical channel dynamically. Browser sessions
-must authenticate as DXSpider users with SYSOP privilege 9 or higher.
+allocates its #WEB-n technical channel dynamically. Browser sessions authenticate as DXSpider users. Privilege >=5 permits
+read-only access to authorized views; privilege >=9 is required for
+administrative changes. Sensitive registration data is masked for priv 5.
 
 The application exposes /healthz and /admin-version.json. The latter
 reports the application version independently of the DXSpider Git build.
@@ -24,6 +25,20 @@ It also provides an asynchronous /update-status.json endpoint.
 Its operation, registration, supervision, metrics, timeline and console
 functions depend on the corresponding DXSpider backend capabilities.
 The historical UI-V2-NOTES.txt references files from an older external
-release package; this repository's installation guide is INSTALL.txt.
+release package; this repository's installation guide is INSTALL.
 
-For installation, see INSTALL.txt. User Web is independent and optional.
+For installation, see INSTALL. User Web is independent and optional.
+
+CURRENT DEPLOYMENT AND DOCUMENTATION
+------------------------------------
+The reference diagrams are dxweb/docs/DXWeb_Configuration_ES.png and
+dxweb/docs/DXWeb_Configuration_EN.png. Direct listeners use 7380/7381;
+with the supplied Nginx examples, the public listeners remain 7380/7381
+and the application backends move to loopback 7480/7481. Both connect
+to DXSpider IntMsg on 127.0.0.1:27754 by default.
+
+Current access: authenticated DXUser privilege >=5 can use permitted
+read-only supervision views; administrative changes require privilege >=9.
+Sensitive registration information is restricted by backend authorization.
+The spots display preferences are browser-local and separated by callsign
+and application, not synchronized between browsers or devices.

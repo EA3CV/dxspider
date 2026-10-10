@@ -2,7 +2,7 @@ DXSPIDER USER WEB - INSTALLATION
 ================================
 
 This procedure installs DXWeb only. DXWeb Admin is optional and has a
-separate installation guide in dxweb-admin/INSTALL.txt.
+separate installation guide in dxweb-admin/INSTALL.
 
 Prerequisite: DXSpider and its standard dependencies are already installed.
 The local DXSpider IntMsg listener must accept the #WEB transport on
@@ -80,3 +80,10 @@ and state=ready. A disconnected backend may return HTTP 503. Open the
 browser UI and test anonymous reception, Login and registration.
 
 DXWeb Admin does not need to be installed for DXWeb to operate.
+
+Configuration diagrams (Spanish / English):
+  /spider/dxweb/docs/DXWeb_Configuration_ES.png
+  /spider/dxweb/docs/DXWeb_Configuration_EN.png
+See /spider/dxweb/docs/README-nginx for the example reverse-proxy setup.
+DXSpider WebCluster uses the IntMsg listener (normally 127.0.0.1:27754),
+not the traditional DXSpider client/node listener.

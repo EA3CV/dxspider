@@ -2,7 +2,7 @@ DXSPIDER WEB ADMIN - INSTALLATION
 =================================
 
 This procedure installs DXWeb Admin only. Normal User Web is optional and
-has a separate installation guide in dxweb/INSTALL.txt.
+has a separate installation guide in dxweb/INSTALL.
 
 Prerequisite: DXSpider and its standard dependencies are already installed.
 The local DXSpider IntMsg listener must accept the #WEB transport on
@@ -19,6 +19,10 @@ Install and start the service (run as root):
         /etc/systemd/system/dxweb-admin.service
     systemctl daemon-reload
     systemctl enable --now dxweb-admin.service
+
+For direct access (without a reverse proxy):
+
+    MOJO_REVERSE_PROXY=0
 
 The service starts /spider/dxweb-admin/admin.pl with:
 
@@ -82,3 +86,10 @@ link is established;
 otherwise it may return HTTP 503. Test SYSOP Login/Logout in the browser.
 
 DXWeb User does not need to be installed for Web Admin to operate.
+
+Configuration diagrams (Spanish / English):
+  /spider/dxweb/docs/DXWeb_Configuration_ES.png
+  /spider/dxweb/docs/DXWeb_Configuration_EN.png
+See /spider/dxweb/docs/README-nginx for the example reverse-proxy setup.
+DXSpider WebCluster uses the IntMsg listener (normally 127.0.0.1:27754),
+not the traditional DXSpider client/node listener.

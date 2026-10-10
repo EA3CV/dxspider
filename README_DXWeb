@@ -1,122 +1,56 @@
 DXSPIDER WEB INTEGRATION
 ========================
 
-DXSpider provides a native interface for connecting WebCluster applications
-to a DXSpider node.
+DXSpider supplies a native WebCluster interface used by two independent
+reference applications: dxweb/ (user frontend) and dxweb-admin/ (administration
+and supervision). DXSpider remains authoritative for command validation,
+protocol processing and user management. Browser sessions do not require
+individual traditional DXSpider network connections.
 
-This interface allows web applications to communicate with DXSpider without
-requiring a separate traditional DXSpider connection for every web user.
-It provides a foundation for developing modern WebClusters while retaining
-DXSpider as the authoritative backend for protocol processing, user
-management and command validation.
+APPLICATIONS
+------------
+DXWeb: dxweb/app.pl; direct HTTP port 7380.
+DXWeb Admin: dxweb-admin/admin.pl; direct HTTP port 7381.
+Both connect through independent technical #WEB-n connections to the DXSpider
+IntMsg listener, normally 127.0.0.1:27754 (TCP). The technical transport
+is not an authenticated browser identity.
 
-Two reference web applications are provided with the DXSpider distribution.
+ACCESS MODES
+------------
+Without Nginx:
+  Browser -> DXWeb :7380 or DXWeb Admin :7381 -> DXSpider :27754
 
+With Nginx (examples in dxweb/docs/):
+  Browser -> Nginx :7380 -> DXWeb 127.0.0.1:7480 -> DXSpider :27754
+  Browser -> Nginx :7381 -> Admin 127.0.0.1:7481 -> DXSpider :27754
 
-1. DXWEB - USER WEB FRONTEND
----------------------------
+The application listener ports must be changed when enabling Nginx; do not
+bind Nginx and an application to the same address and port. Use HTTPS for
+public authenticated or administrative access. Never expose backend ports
+7480/7481 or the DXSpider IntMsg listener to untrusted networks.
 
-Directory: dxweb/
+CONFIGURATION DIAGRAMS
+----------------------
+  dxweb/docs/DXWeb_Configuration_ES.png (Spanish)
+  dxweb/docs/DXWeb_Configuration_EN.png (English)
 
-DXWeb is a functional, browser-based user frontend for DXSpider.
+INSTALLATION AND OPERATION
+--------------------------
+  dxweb/README, dxweb/INSTALL
+  dxweb-admin/README, dxweb-admin/INSTALL
+  dxweb/docs/README-nginx
+  dxweb/docs/dxweb-http.conf.example
+  dxweb/docs/dxweb-https.conf.example
 
-It demonstrates how the native WebCluster interface can be used to provide
-access to DXSpider services through a modern web application.
+PROTOCOL
+--------
+  WebCluster_DXSpider_Protocol (protocol specification)
+  dxweb/PROTOCOL.txt (trust boundaries and application behavior)
 
-DXWeb serves both as a usable frontend for radio amateurs and as a reference
-implementation for developers wishing to build their own WebCluster
-applications.
+The two applications can be installed independently. The Nginx examples
+are optional and must be adapted to the actual deployment.
 
-Its implementation illustrates the integration between a web application,
-its connected users and the DXSpider backend.
-
-Installation instructions and application-specific documentation are
-available in the dxweb/ directory.
-
-
-2. DXWEB ADMIN - WEB ADMINISTRATION AND SUPERVISION
---------------------------------------------------
-
-Directory: dxweb-admin/
-
-DXWeb Admin provides a browser-based environment for administering and
-supervising a DXSpider node.
-
-It includes administrative capabilities and operational information intended
-to help SYSOPs monitor and manage their systems.
-
-DXWeb Admin is a separate application from the user frontend. It can be
-installed and operated independently, according to the requirements of the
-deployment.
-
-Installation instructions and application-specific documentation are
-available in the dxweb-admin/ directory.
-
-
-3. NATIVE WEBCLUSTER INTEGRATION
--------------------------------
-
-The native DXSpider WebCluster interface is not limited to the two
-applications supplied with the distribution.
-
-Third-party developers can use the same interface to create their own
-WebClusters and integrate them directly with DXSpider.
-
-The interface is designed to support multiple logical web users over a
-technical connection to DXSpider, avoiding the need to establish a separate
-DXSpider network connection for every browser session.
-
-DXSpider remains responsible for validating and processing the operations
-submitted through this interface.
-
-
-4. PROTOCOL SPECIFICATION
--------------------------
-
-Document: WebCluster_DXSpider_Protocol
-
-Developers intending to implement a new WebCluster should consult this
-document.
-
-It describes the native communication protocol between a WebCluster
-application and DXSpider and serves as the technical reference for
-developing compatible implementations.
-
-The protocol specification should be read alongside the DXWeb reference
-implementation.
-
-
-5. DOCUMENTATION
-----------------
-
-The distribution includes two application directories containing installation
-instructions and supporting documentation:
-
-  dxweb/        User frontend, installation instructions, Nginx reverse-proxy
-                examples and implementation reference.
-
-  dxweb-admin/  Web administration and supervision, installation instructions
-                and supporting documentation.
-
-For protocol-level integration, refer to WebCluster_DXSpider_Protocol.
-
-
-6. DEPLOYMENT
--------------
-
-DXWeb and DXWeb Admin can be deployed independently.
-
-Both support direct HTTP operation or deployment behind a reverse proxy such
-as Nginx, including HTTPS and WebSocket connections.
-
-For public deployments, HTTPS is recommended, particularly for authenticated
-sessions and administrative access.
-
-Refer to the corresponding installation guides for configuration, ports,
-security considerations and service management.
-
-
-DXWeb and DXWeb Admin provide working examples of what can be built using the
-native DXSpider WebCluster interface. They are not intended to restrict
-third-party implementations to a particular frontend technology or
-user-interface design.
+CONFIGURATION DIAGRAMS
+----------------------
+  dxweb/docs/DXWeb_Configuration_ES.png
+  dxweb/docs/DXWeb_Configuration_EN.png

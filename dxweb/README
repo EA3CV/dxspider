@@ -30,5 +30,16 @@ version. Do not tag a new release without checking its release history. The
 installer header 2.6.0 is its installer version, not
 proof of the current DXWeb application release.
 
-For installation see INSTALL.txt. For historical test and protocol records
+For installation see INSTALL. For historical test and protocol records
 see VALIDATION.txt, PROTOCOL.txt, PROTOCOL-v2.txt and CHANGES.txt.
+
+CURRENT DEPLOYMENT AND DOCUMENTATION
+------------------------------------
+The reference diagrams are dxweb/docs/DXWeb_Configuration_ES.png and
+dxweb/docs/DXWeb_Configuration_EN.png. Direct listeners use 7380/7381;
+with the supplied Nginx examples, the public listeners remain 7380/7381
+and the application backends move to loopback 7480/7481. Both connect
+to DXSpider IntMsg on 127.0.0.1:27754 by default.
+
+Authenticated spot display preferences are saved in browser localStorage
+by callsign and application; they are not synchronized across browsers.
