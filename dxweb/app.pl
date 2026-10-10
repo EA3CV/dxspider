@@ -688,4 +688,11 @@ websocket '/ws' => sub($c) {
         }
     );
 };
-app->start;
+# Default standalone listener; explicit Mojolicious arguments take precedence.
+if (!@ARGV) {
+    my $host = $ENV{DXWEB_HOST} // '127.0.0.1';
+    my $port = $ENV{DXWEB_PORT} // 7380;
+    app->start('daemon', '-l', "http://$host:$port");
+} else {
+    app->start;
+}

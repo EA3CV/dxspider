@@ -791,7 +791,7 @@ sub _auth_request
 		# technical dxweb-admin transport must already be local (checked during
 		# HELLO), the account must have privilege >= 1, and a non-empty DXUser
 		# password must match.  Browser/client supplied privilege is ignored.
-		unless ($user && $dx_priv >= 1) {
+		unless ($user && $dx_priv >= 5) {
 			$self->_error($id, 'auth', 'admin_privilege_required', {call => $call});
 			return;
 		}
@@ -1220,7 +1220,8 @@ sub _registration_ready
 
 sub _registration_admin
 {
-	my ($self, $req) = @_;
+	my ($self, $req, $minimum_priv) = @_;
+	$minimum_priv = 9 unless defined $minimum_priv;
 	return (undef, 'admin_context_required') unless ($self->{web_role} || '') eq 'dxweb-admin';
 	my $call = _normalise_user_call($req->{call});
 	return (undef, 'invalid_call') unless $call;
@@ -1228,7 +1229,7 @@ sub _registration_admin
 	return (undef, 'not_owned') unless $owned;
 	return (undef, 'not_authenticated') unless $owned->{authenticated};
 	return (undef, 'password_required') unless $owned->{password_used};
-	return (undef, 'admin_privilege_required') unless ($owned->{priv} || 0) >= 9;
+	return (undef, 'admin_privilege_required') unless ($owned->{priv} || 0) >= $minimum_priv;
 	return ($call, undef);
 }
 
@@ -1244,7 +1245,7 @@ sub _supervisor_request
 	                 !defined($req->{call}) &&
 	                 $what =~ /^(?:status|connections|traffic|spot_ranks|rbn|self_health)$/) ? 1 : 0;
 	unless ($technical) {
-		my ($call, $err) = $self->_registration_admin($req);
+		my ($call, $err) = $self->_registration_admin($req, 5);
 		unless ($call) { $self->_error($id, 'supervisor', $err); return; }
 	}
 	unless ($what =~ /^(?:status|connections|traffic|spot_ranks|web|rbn|self_health|topology)$/) {
@@ -1283,8 +1284,13 @@ sub _registration_pending
 {
 	my ($self, $req) = @_;
 	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_pending','registration_unavailable'); return; }
-	my ($call,$err)=$self->_registration_admin($req); unless($call){$self->_error($id,'reg_pending',$err);return}
+	my ($call,$err)=$self->_registration_admin($req,5); unless($call){$self->_error($id,'reg_pending',$err);return}
 	my @rows=sort {($b->{created_at}||0)<=>($a->{created_at}||0)||($b->{id}||0)<=>($a->{id}||0)} DXReg::list_pending();
+	my $owned = $self->{web_users}{$call};
+	if (($owned->{priv} || 0) < 9) {
+		my %public = map { $_ => 1 } qw(id call status requested_ssids accepted_ssids affected_ssids affected_calls created_at processed_at processed_by language source);
+		@rows = map { my $row = $_; ref($row) eq 'HASH' ? { map { $_ => $row->{$_} } grep { $public{$_} } keys %$row } : {} } @rows;
+	}
 	$self->_response($id,'ok','reg_pending',{result=>\@rows});
 }
 
@@ -1292,8 +1298,13 @@ sub _registration_history
 {
 	my ($self, $req) = @_;
 	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_history','registration_unavailable'); return; }
-	my ($call,$err)=$self->_registration_admin($req); unless($call){$self->_error($id,'reg_history',$err);return}
+	my ($call,$err)=$self->_registration_admin($req,5); unless($call){$self->_error($id,'reg_history',$err);return}
 	my @rows=DXReg::list_history();
+	my $owned = $self->{web_users}{$call};
+	if (($owned->{priv} || 0) < 9) {
+		my %public = map { $_ => 1 } qw(id call status requested_ssids accepted_ssids affected_ssids affected_calls created_at processed_at processed_by language source);
+		@rows = map { my $row = $_; ref($row) eq 'HASH' ? { map { $_ => $row->{$_} } grep { $public{$_} } keys %$row } : {} } @rows;
+	}
 	$self->_response($id,'ok','reg_history',{result=>\@rows});
 }
 
@@ -1301,9 +1312,14 @@ sub _registration_search
 {
 	my ($self, $req) = @_;
 	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_search','registration_unavailable'); return; }
-	my ($call,$err)=$self->_registration_admin($req); unless($call){$self->_error($id,'reg_search',$err);return}
+	my ($call,$err)=$self->_registration_admin($req,5); unless($call){$self->_error($id,'reg_search',$err);return}
 	my $query=_wc_text($req->{query},0); unless(defined$query){$self->_error($id,'reg_search','bad_arguments');return}
 	my @rows=DXReg::search_history($query);
+	my $owned = $self->{web_users}{$call};
+	if (($owned->{priv} || 0) < 9) {
+		my %public = map { $_ => 1 } qw(id call status requested_ssids accepted_ssids affected_ssids affected_calls created_at processed_at processed_by language source);
+		@rows = map { my $row = $_; ref($row) eq 'HASH' ? { map { $_ => $row->{$_} } grep { $public{$_} } keys %$row } : {} } @rows;
+	}
 	$self->_response($id,'ok','reg_search',{result=>\@rows});
 }
 

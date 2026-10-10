@@ -5,7 +5,7 @@
  *
  * Copyright (c) 2026 Dirk Koopman G1TLH
  */
-// DXSpider Web Supervision 0.60.8
+// DXSpider Web Supervision 0.60.9
 // Date: 2026-09-16
 'use strict';
 const $=id=>document.getElementById(id);
@@ -36,6 +36,7 @@ function spotFontApply(value,save=false){
  const reset=$('spotFontReset');if(reset)reset.textContent=spotFontPercent+' %';
  if(save&&authenticated&&authUser){try{localStorage.setItem(spotFontKeyBase+authUser.toUpperCase(),String(spotFontPercent))}catch(_){}}
  if(typeof updateSpotLayout==='function')updateSpotLayout();
+ if(save&&typeof spotPresentationSave==='function')spotPresentationSave();
 }
 function spotFontForSession(){
  let value=100;
@@ -45,21 +46,21 @@ function spotFontForSession(){
 $('spotFontDown').onclick=()=>spotFontApply(spotFontPercent-10,true);
 $('spotFontUp').onclick=()=>spotFontApply(spotFontPercent+10,true);
 $('spotFontReset').onclick=()=>spotFontApply(100,true);
-function loginState(ok,m={}){authenticated=ok;document.body.classList.toggle('authenticated',ok);authUser=ok?(m.call||authUser):null;authPriv=ok?Number(m.priv||0):0;document.querySelectorAll('.mainTabs [data-section]').forEach(b=>{const denied=ok&&authPriv<9&&SYSOP_SECTIONS.has(b.dataset.section);b.style.display='';b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 9':'';b.classList.toggle('sysopDenied',denied);b.style.filter=''});document.querySelectorAll('.v2NavBtn[data-v2-target]').forEach(b=>{const denied=ok&&authPriv<9&&SYSOP_SECTIONS.has(b.dataset.v2Target);b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 9':'';b.classList.toggle('sysopDenied',denied)});if(ok&&authPriv<9&&SYSOP_SECTIONS.has(activeSection))selectSection('operation');$('loginButton').textContent=ok?`Logout ${authUser}`:'Login';setLocked(!ok);spotFontForSession()}
+function loginState(ok,m={}){authenticated=ok;document.body.classList.toggle('authenticated',ok);authUser=ok?(m.call||authUser):null;authPriv=ok?Number(m.priv||0):0;document.querySelectorAll('#deleteUserOpen, #historyCompress, #historyDelete, #maintenanceUpdates button, .opCommandForm button, #consoleForm button, #filterForm button').forEach(b=>{b.disabled=ok&&authPriv<9;b.hidden=ok&&authPriv<9&&b.id==='deleteUserOpen'});document.querySelectorAll('.mainTabs [data-section]').forEach(b=>{const denied=ok&&authPriv<5&&SYSOP_SECTIONS.has(b.dataset.section);b.style.display='';b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 5':'';b.classList.toggle('sysopDenied',denied);b.style.filter=''});document.querySelectorAll('.v2NavBtn[data-v2-target]').forEach(b=>{const denied=ok&&authPriv<5&&SYSOP_SECTIONS.has(b.dataset.v2Target);b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 5':'';b.classList.toggle('sysopDenied',denied)});if(ok&&authPriv<5&&SYSOP_SECTIONS.has(activeSection))selectSection('operation');$('loginButton').textContent=ok?`Logout ${authUser}`:'Login';setLocked(!ok);spotFontForSession();spotPresentationRestore()}
 function notice(t){$('noticeText').textContent=t;$('noticeDialog').showModal()}
 $('noticeClose').onclick=()=>$('noticeDialog').close();
 function showLogin(msg=''){if($('loginDialog').open)return;$('loginError').textContent=msg;$('loginDialog').showModal();$('loginCall').focus()}
 function connect(){const proto=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${proto}://${location.host}/ws`);ws.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error('admin message error',err,e.data)}};ws.onclose=()=>{supervisorInflight.clear();authenticated=false;logoutPending=false;loginState(false);$('status').textContent='disconnected';setTimeout(connect,2000)}}
 $('loginButton').onclick=()=>{if(authenticated){if(logoutPending)return;logoutPending=true;send({type:'logout'});$('loginButton').textContent='Logging out…'}else showLogin()};
 $('loginForm').addEventListener('submit',e=>{e.preventDefault();const call=$('loginCall').value.trim().toUpperCase(),password=$('loginPass').value;if(!call||!password){$('loginError').textContent='Callsign and password are required.';return}$('loginSubmit').disabled=true;if(!send({type:'auth',call,password})){$('loginSubmit').disabled=false;$('loginError').textContent='DXSpider connection is not ready';return}$('loginPass').value=''});
-function selectSection(id){if(authenticated&&authPriv<9&&SYSOP_SECTIONS.has(id))return;activeSection=id;document.querySelectorAll('.mainTabs button').forEach(b=>b.classList.toggle('active',b.dataset.section===id));document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.id===id));if(authenticated&&id==='registration')loadPending();if(authenticated&&id==='supervision')selectSupervision(activeSupervisionPanel);if(authenticated&&id==='metrics')requestMetrics();if(authenticated&&id==='timeline')requestTimeline()}
+function selectSection(id){if(authenticated&&authPriv<5&&SYSOP_SECTIONS.has(id))return;activeSection=id;document.querySelectorAll('.mainTabs button').forEach(b=>b.classList.toggle('active',b.dataset.section===id));document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.id===id));if(authenticated&&id==='registration')loadPending();if(authenticated&&id==='supervision')selectSupervision(activeSupervisionPanel);if(authenticated&&id==='metrics')requestMetrics();if(authenticated&&id==='timeline')requestTimeline()}
 document.querySelectorAll('.mainTabs button[data-section]').forEach(b=>b.onclick=()=>{if(b.disabled||b.getAttribute('aria-disabled')==='true')return;selectSection(b.dataset.section)});
 $('quickConsole').onclick=()=>{selectSection('consoleSection');$('consoleCommand').focus()};
 function selectPanel(id){activePanel=id;document.querySelectorAll('#operationTabs button').forEach(b=>b.classList.toggle('active',b.dataset.panel===id));document.querySelectorAll('#operation .panel').forEach(p=>p.classList.toggle('active',p.id===id))}
 document.querySelectorAll('#operationTabs button').forEach(b=>b.onclick=()=>selectPanel(b.dataset.panel));
 function selectReg(id){document.querySelectorAll('#registrationTabs button').forEach(b=>b.classList.toggle('active',b.dataset.regpanel===id));document.querySelectorAll('.regPanel').forEach(p=>p.classList.toggle('active',p.id===id));if(authenticated&&id==='pending')loadPending();if(authenticated&&id==='history')loadHistory()}
 document.querySelectorAll('#registrationTabs button').forEach(b=>b.onclick=()=>selectReg(b.dataset.regpanel));
-function command(cmd,target='console'){if(!authenticated)return;cmd=cmd.trim();if(!cmd)return;if(!cmdHistory.length||cmdHistory.at(-1)!==cmd)cmdHistory.push(cmd);historyPos=cmdHistory.length;if(target==='console'){const l=document.createElement('div');l.className='consoleCommandLine';l.textContent=`> ${cmd}`;$('consoleOutput').appendChild(l)}pendingCommandTargets.push(target);send({type:'command',command:cmd})}
+function command(cmd,target='console'){if(!authenticated||authPriv<9)return;cmd=cmd.trim();if(!cmd)return;if(!cmdHistory.length||cmdHistory.at(-1)!==cmd)cmdHistory.push(cmd);historyPos=cmdHistory.length;if(target==='console'){const l=document.createElement('div');l.className='consoleCommandLine';l.textContent=`> ${cmd}`;$('consoleOutput').appendChild(l)}pendingCommandTargets.push(target);send({type:'command',command:cmd})}
 $('consoleForm').addEventListener('submit',e=>{e.preventDefault();const v=$('consoleCommand').value;$('consoleCommand').value='';command(v,'console')});
 $('filterForm').addEventListener('submit',e=>{e.preventDefault();const v=$('filterCommand').value;$('filterCommand').value='';command(v,'filters')});
 
@@ -75,7 +76,9 @@ function spotFilterChanged(k){
 }
 // Spot submission uses the existing DXS spot action; the server enforces SYSOP privilege.
 $('spotOpen').onclick=()=>{if(!authenticated||authPriv<9){notice('SYSOP login required to send a spot.');return}$('spotResult').textContent='';$('spotDialog').showModal()};
-$('spotCancel').onclick=()=>$('spotDialog').close();
+$('spotCancel').onclick=()=>spotCancelPending();
+function spotCancelPending(){const d=$('spotDialog');d.close();$('spotResult').textContent='';$('spotForm').reset();$('spotSubmit').disabled=false}
+$('spotDialog').addEventListener('cancel',()=>{$('spotResult').textContent='';$('spotForm').reset();$('spotSubmit').disabled=false});
 $('spotForm').addEventListener('submit',e=>{e.preventDefault();if(!authenticated||authPriv<9)return;const freq=$('spotFreq').value.trim(),dxcall=$('spotDx').value.trim().toUpperCase(),comment=$('spotComment').value.trim();if(!freq||!dxcall)return;$('spotSubmit').disabled=true;$('spotResult').textContent='Sending…';if(!send({type:'spot',freq,dxcall,comment})){$('spotSubmit').disabled=false;$('spotResult').textContent='Admin connection is not ready.'}});
 $('showHuman').onchange=()=>spotFilterChanged('human');$('showRbn').onchange=()=>spotFilterChanged('rbn');
 
@@ -142,7 +145,7 @@ geoLoadPrefix();
 const spotCore=[['type','C/R',44],['utc','UTC',58],['freq','Freq',120],['dx','DX',120],['spotter','Spotter',120],['comment','Comment',80]];
 const spotExtras=[['loc','Locator',78],['cq','CQ Zone',65],['itu','ITU Zone',65]];
 let spotVisibleColumns=[],spotCommentPreferred=null,spotResizeActive=false;
-try{const v=Number(localStorage.getItem('dxweb.spots.commentWidth'));if(v>=80&&v<=1200)spotCommentPreferred=v}catch(_){}
+
 function spotSelected(){return new Set([...document.querySelectorAll('[data-spot-group]:checked')].map(e=>e.dataset.spotGroup))}
 function updateSpotLayout(){
  const table=document.querySelector('.spotTable'),area=table?.closest('.spotResultArea');if(!area)return;
@@ -180,7 +183,7 @@ $('spotHeaders').addEventListener('pointerdown',e=>{
  e.preventDefault();spotResizeActive=true;
  const startX=e.clientX,startWidth=spotVisibleColumns.find(x=>x.key==='comment')?.w||80;
  const move=ev=>{spotCommentPreferred=Math.max(80,Math.min(1200,startWidth+ev.clientX-startX));updateSpotLayout()};
- const done=()=>{spotResizeActive=false;window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',done);window.removeEventListener('pointercancel',done);try{localStorage.setItem('dxweb.spots.commentWidth',String(Math.round(spotCommentPreferred)))}catch(_){}updateSpotLayout()};
+ const done=()=>{spotResizeActive=false;window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',done);window.removeEventListener('pointercancel',done);spotPresentationSave();updateSpotLayout()};
  window.addEventListener('pointermove',move);window.addEventListener('pointerup',done);window.addEventListener('pointercancel',done);
 });
 window.addEventListener('load',updateSpotLayout);
@@ -199,11 +202,11 @@ function ssids(r){return compactSsids(r.accepted_ssids||r.requested_ssids||r.aff
 function loadPending(){send({type:'reg_pending'})} function loadHistory(){send({type:'reg_history'})}
 $('pendingRefresh').onclick=loadPending;$('historyRefresh').onclick=loadHistory;
 $('regSearchForm').addEventListener('submit',e=>{e.preventDefault();const q=$('regSearch').value.trim();if(q)send({type:'reg_search',query:q})});
-function renderPending(rows){$('pendingRows').innerHTML=(rows||[]).map(r=>`<tr><td>#${esc(r.id)}</td><td>${esc(r.call)}</td><td>${esc(compactSsids(r.requested_ssids||[]))}</td><td>${esc(r.name||'-')}</td><td>${esc(r.email||'-')}</td><td>${esc(r.ip||'-')}</td><td>${esc(fmtTime(r.created_at))}</td><td>${esc(r.comment||'-')}</td><td><div class="regActions"><button data-reg-id="${esc(r.id)}" data-reg-action="accept">Accept</button><button data-reg-id="${esc(r.id)}" data-reg-action="reject">Reject</button></div></td></tr>`).join('')||'<tr><td colspan="9">No pending registration requests.</td></tr>';document.querySelectorAll('[data-reg-action]').forEach(b=>b.onclick=()=>openDecision(b.dataset.regId,b.dataset.regAction,rows))}
-function renderHistory(rows,target='historyRows'){$(target).innerHTML=(rows||[]).map(r=>`<tr><td>#${esc(r.id)}</td><td>${esc(r.call)}</td><td>${esc(ssids(r))}</td><td class="status-${esc(r.status)}">${esc(r.status||'-')}</td><td>${esc(r.name||'-')}</td><td>${esc(r.email||'-')}</td><td>${esc(fmtTime(r.created_at))}</td><td>${esc(fmtTime(r.processed_at))}</td><td>${esc(r.processed_by||'-')}</td><td>${esc(r.note??'-')}</td></tr>`).join('')||'<tr><td colspan="10">No matching registration records.</td></tr>'}
+function renderPending(rows){$('pendingRows').innerHTML=(rows||[]).map(r=>`<tr><td>#${esc(r.id)}</td><td>${esc(r.call)}</td><td>${esc(compactSsids(r.requested_ssids||[]))}</td><td>${esc(r.name||'-')}</td><td>${authPriv>=9?esc(r.email||'-'):'Restricted'}</td><td>${authPriv>=9?esc(r.ip||'-'):'Restricted'}</td><td>${esc(fmtTime(r.created_at))}</td><td>${authPriv>=9?esc(r.comment||'-'):'Restricted'}</td><td><div class="regActions" style="display:${authPriv>=9?'':'none'}"><button data-reg-id="${esc(r.id)}" data-reg-action="accept">Accept</button><button data-reg-id="${esc(r.id)}" data-reg-action="reject">Reject</button></div></td></tr>`).join('')||'<tr><td colspan="9">No pending registration requests.</td></tr>';document.querySelectorAll('[data-reg-action]').forEach(b=>b.onclick=()=>openDecision(b.dataset.regId,b.dataset.regAction,rows))}
+function renderHistory(rows,target='historyRows'){$(target).innerHTML=(rows||[]).map(r=>`<tr><td>#${esc(r.id)}</td><td>${esc(r.call)}</td><td>${esc(ssids(r))}</td><td class="status-${esc(r.status)}">${esc(r.status||'-')}</td><td>${esc(r.name||'-')}</td><td>${authPriv>=9?esc(r.email||'-'):'Restricted'}</td><td>${esc(fmtTime(r.created_at))}</td><td>${esc(fmtTime(r.processed_at))}</td><td>${esc(r.processed_by||'-')}</td><td>${authPriv>=9?esc(r.note??'-'):'Restricted'}</td></tr>`).join('')||'<tr><td colspan="10">No matching registration records.</td></tr>'}
 let decisionId=null;
 let decisionAction=null;
-function openDecision(id,action,rows){
+function openDecision(id,action,rows){if(authPriv<9)return;
  decisionId=Number(id);
  decisionAction=action==='reject'?'reject':'accept';
  const r=(rows||[]).find(x=>Number(x.id)===decisionId)||{};
@@ -219,7 +222,7 @@ function openDecision(id,action,rows){
 }
 $('regAccept').onclick=()=>decision('accept');
 $('regReject').onclick=()=>decision('reject');
-function decision(action){
+function decision(action){if(authPriv<9)return;
  if(!decisionId||action!==decisionAction)return;
  $('regAccept').disabled=true;
  $('regReject').disabled=true;
@@ -230,7 +233,7 @@ function decision(action){
   $('regActionResult').textContent='DXSpider connection is not ready.';
  }
 }
-$('deleteUserOpen').onclick=()=>{
+$('deleteUserOpen').onclick=()=>{if(authPriv<9)return;
  $('deleteUserCall').value='';
  $('deleteUserNote').value='';
  $('deleteUserResult').textContent='';
@@ -240,7 +243,7 @@ $('deleteUserOpen').onclick=()=>{
 $('deleteUserCancel').onclick=(e)=>{ e.preventDefault(); $('deleteUserDialog').close(); };
 $('regActionCancel').onclick=(e)=>{ e.preventDefault(); $('regActionDialog').close(); decisionId=null; decisionAction=null; };
 $('deleteUserForm').addEventListener('submit',e=>{
- e.preventDefault();
+ e.preventDefault();if(authPriv<9)return;
  const target=$('deleteUserCall').value.trim().toUpperCase().replace(/-\d+$/,'');
  if(!target)return;
  $('deleteUserConfirm').disabled=true;
@@ -271,8 +274,8 @@ function finishCommandTarget(target){
  }
  out.scrollTop=out.scrollHeight;
 }
-function handle(m){if(m.type==='status'){$('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===false){logoutPending=false;if(authenticated)clearSessionContent();loginState(false);setLocked(true);if(m.state==='ready'&&!$('loginDialog').open)showLogin()}return}if(m.type==='auth'||m.type==='auth_result'){$('loginSubmit').disabled=false;if(m.status==='ok'){clearSessionContent();loginState(true,m);$('loginDialog').close();$('loginError').textContent='';if(authPriv>=9)loadPending();setTimeout(()=>{if(authenticated)requestMetrics()},250);setTimeout(()=>{if(authenticated&&authPriv>=9)requestMaintenance([])},2500)}else{loginState(false);$('loginError').textContent=m.error==='admin_privilege_required'?'DXSpider privilege 1 is required for login (privilege 9 for administrative actions).':m.error==='password_required'?'A valid DXSpider password is required.':(m.error||'Authentication failed');showLogin($('loginError').textContent)}return}if(m.type==='logout_result'){logoutPending=false;loginState(false);showLogin();return}if(!authenticated)return;if(m.type==='reg_pending_result'){if(m.status==='ok')renderPending(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_history_result'){if(m.status==='ok')renderHistory(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_search_result'){if(m.status==='ok')renderHistory(m.result||[],'searchRows');else notice(responseText(m));return}if(m.type==='reg_accept_result'||m.type==='reg_reject_result'){const expected=decisionAction?`reg_${decisionAction}_result`:null;if(expected&&m.type!==expected){$('regActionResult').textContent=`Unexpected registration response: ${m.type}`;return}if(m.status==='ok'){const accepted=m.type==='reg_accept_result';const pw=accepted&&m.result&&m.result.password?` Password: ${m.result.password}`:'';$('regActionResult').textContent=(accepted?'Accepted.':'Rejected.')+pw;setTimeout(()=>{$('regActionDialog').close();decisionId=null;decisionAction=null;loadPending();loadHistory()},900)}else{$('regAccept').disabled=false;$('regReject').disabled=false;$('regActionResult').textContent=responseText(m)}return}if(m.type==='reg_delete_user_result'){$('deleteUserConfirm').disabled=false;if(m.status==='ok'){const calls=(m.result&&m.result.affected_calls)||[];$('deleteUserResult').textContent=`Deleted ${calls.length} DXUser record(s): ${calls.join(', ')}`;loadHistory();setTimeout(()=>$('deleteUserDialog').close(),1200)}else{$('deleteUserResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Delete failed'))}return}
- if(m.type==='spot_result'){$('spotSubmit').disabled=false;$('spotResult').textContent=responseText(m)||(m.status==='ok'?'Spot accepted by DXSpider':'Spot rejected');if(m.status==='ok')setTimeout(()=>$('spotDialog').close(),500);return}if(m.type==='feed'){acceptFeed(m);return}if(m.type==='command_result'){const target=pendingCommandTargets[0]||activePanel,t=responseText(m),out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);if(logs[target]){if(t){logs[target].push(...t.split('\n'));renderLog(target)}}else if(out&&t){if(target==='console'){const b=document.createElement('div');b.className='consoleResponse';b.textContent=t;out.appendChild(b)}else out.textContent+=t+'\n';out.scrollTop=out.scrollHeight}if(m.final!==false){finishCommandTarget(target);pendingCommandTargets.shift()}}}
+function handle(m){if(m.type==='status'){$('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===false){logoutPending=false;if(authenticated)clearSessionContent();loginState(false);setLocked(true);if(m.state==='ready'&&!$('loginDialog').open)showLogin()}return}if(m.type==='auth'||m.type==='auth_result'){$('loginSubmit').disabled=false;if(m.status==='ok'){clearSessionContent();loginState(true,m);$('loginDialog').close();$('loginError').textContent='';if(authPriv>=5)loadPending();setTimeout(()=>{if(authenticated)requestMetrics()},250);setTimeout(()=>{if(authenticated&&authPriv>=9)requestMaintenance([])},2500)}else{loginState(false);$('loginError').textContent=m.error==='admin_privilege_required'?'DXSpider privilege 5 is required for login (privilege 9 for administrative actions).':m.error==='password_required'?'A valid DXSpider password is required.':(m.error||'Authentication failed');showLogin($('loginError').textContent)}return}if(m.type==='logout_result'){logoutPending=false;loginState(false);showLogin();return}if(!authenticated)return;if(m.type==='reg_pending_result'){if(m.status==='ok')renderPending(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_history_result'){if(m.status==='ok')renderHistory(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_search_result'){if(m.status==='ok')renderHistory(m.result||[],'searchRows');else notice(responseText(m));return}if(m.type==='reg_accept_result'||m.type==='reg_reject_result'){const expected=decisionAction?`reg_${decisionAction}_result`:null;if(expected&&m.type!==expected){$('regActionResult').textContent=`Unexpected registration response: ${m.type}`;return}if(m.status==='ok'){const accepted=m.type==='reg_accept_result';const pw=accepted&&m.result&&m.result.password?` Password: ${m.result.password}`:'';$('regActionResult').textContent=(accepted?'Accepted.':'Rejected.')+pw;setTimeout(()=>{$('regActionDialog').close();decisionId=null;decisionAction=null;loadPending();loadHistory()},900)}else{$('regAccept').disabled=false;$('regReject').disabled=false;$('regActionResult').textContent=responseText(m)}return}if(m.type==='reg_delete_user_result'){$('deleteUserConfirm').disabled=false;if(m.status==='ok'){const calls=(m.result&&m.result.affected_calls)||[];$('deleteUserResult').textContent=`Deleted ${calls.length} DXUser record(s): ${calls.join(', ')}`;loadHistory();setTimeout(()=>$('deleteUserDialog').close(),1200)}else{$('deleteUserResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Delete failed'))}return}
+ if(m.type==='spot_result'){if(!$('spotDialog').open)return;$('spotSubmit').disabled=false;$('spotResult').textContent=responseText(m)||(m.status==='ok'?'Spot accepted by DXSpider':'Spot rejected');if(m.status==='ok')setTimeout(()=>$('spotDialog').close(),500);return}if(m.type==='feed'){acceptFeed(m);return}if(m.type==='command_result'){const target=pendingCommandTargets[0]||activePanel,t=responseText(m),out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);if(logs[target]){if(t){logs[target].push(...t.split('\n'));renderLog(target)}}else if(out&&t){if(target==='console'){const b=document.createElement('div');b.className='consoleResponse';b.textContent=t;out.appendChild(b)}else out.textContent+=t+'\n';out.scrollTop=out.scrollHeight}if(m.final!==false){finishCommandTarget(target);pendingCommandTargets.shift()}}}
 loginState(false);connect();
 
 
@@ -745,7 +748,7 @@ handle=function(m){
  const nav=document.querySelectorAll('.v2NavBtn');
  function sectionClick(name){const b=document.querySelector(`.mainTabs [data-section="${name}"]`);if(b)b.click()}
  function mark(name){nav.forEach(b=>b.classList.toggle('active',b.dataset.v2Target===name));const t=titles[name]||[name,''];setText('v2PageTitle',t[0]);setText('v2PageSubtitle',t[1]);document.body.classList.toggle('v2-console-wide',name==='console')}
- function go(name){if(authenticated&&authPriv<9&&SYSOP_SECTIONS.has(name))return;mark(name);if(name==='console'){selectSection('consoleSection');setTimeout(()=>document.getElementById('consoleCommand')?.focus(),0)}else{sectionClick(name);if(name==='operation')setTimeout(()=>document.querySelector('#operationTabs [data-panel="spots"]')?.click(),0)}}
+ function go(name){if(authenticated&&authPriv<5&&SYSOP_SECTIONS.has(name))return;mark(name);if(name==='console'){selectSection('consoleSection');setTimeout(()=>document.getElementById('consoleCommand')?.focus(),0)}else{sectionClick(name);if(name==='operation')setTimeout(()=>document.querySelector('#operationTabs [data-panel="spots"]')?.click(),0)}}
  nav.forEach(b=>b.addEventListener('click',()=>{if(b.disabled||b.getAttribute('aria-disabled')==='true')return;go(b.dataset.v2Target)}));
  const st=document.getElementById('status'),side=document.getElementById('v2SideStatus');if(st&&side)new MutationObserver(()=>side.textContent=st.textContent||'DXSpider link').observe(st,{childList:true,subtree:true,characterData:true});
  setTimeout(()=>go('operation'),0);
@@ -802,3 +805,36 @@ function v041InstallHelp(){
  document.querySelectorAll('#diagnostics th,#maintenance th,#timeline th').forEach(e=>{if(!e.title){const n=(e.textContent||'').trim();if(n)e.title=`${n} column.`}});
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',v041InstallHelp);else v041InstallHelp();
+
+// Per-callsign presentation settings; browser-local and independent for each application.
+const spotPresentationKeyBase='dxspider.dxweb-admin.spotPresentation.';
+function spotPresentationSave(){
+ if(!authenticated||!authUser)return;
+ const settings={human:$('showHuman').checked,rbn:$('showRbn').checked,
+  font:spotFontPercent,locator:$('userLocator').value.trim().toUpperCase(),
+  groups:[...document.querySelectorAll('[data-spot-group]:checked')].map(x=>x.dataset.spotGroup),
+  commentWidth:spotCommentPreferred};
+ try{localStorage.setItem(spotPresentationKeyBase+authUser.toUpperCase(),JSON.stringify(settings))}catch(_){}
+}
+function spotPresentationRestore(){
+ let saved=null;
+ if(authenticated&&authUser){try{saved=JSON.parse(localStorage.getItem(spotPresentationKeyBase+authUser.toUpperCase()))}catch(_){}}
+ const groups=new Set(saved&&Array.isArray(saved.groups)?saved.groups:[]);
+ for(const box of document.querySelectorAll('[data-spot-group]'))box.checked=groups.has(box.dataset.spotGroup);
+ const loc=saved&&typeof saved.locator==='string'?saved.locator:'';
+ $('userLocator').value=geoLocator(loc)?loc:'';
+ spotCommentPreferred=saved&&Number.isFinite(saved.commentWidth)&&saved.commentWidth>=80&&saved.commentWidth<=1200?saved.commentWidth:null;
+ if(saved&&typeof saved.human==='boolean'&&typeof saved.rbn==='boolean'){
+  $('showHuman').checked=saved.human;$('showRbn').checked=saved.rbn;
+ }else{$('showHuman').checked=true;$('showRbn').checked=false}
+ spotFontApply(saved&&Number.isFinite(saved.font)?saved.font:100,false);
+ spotItems=[];spotCounts={human:0,rbn:0};
+ updateSpotLayout();renderSpots();
+}
+function spotPresentationBind(){
+ for(const id of ['showHuman','showRbn'])$(id).addEventListener('change',spotPresentationSave);
+ for(const box of document.querySelectorAll('[data-spot-group]'))box.addEventListener('change',spotPresentationSave);
+ $('userLocator').addEventListener('input',()=>{if($('userLocator').validity.valid)spotPresentationSave()});
+}
+
+spotPresentationBind();

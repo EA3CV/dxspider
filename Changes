@@ -1,3 +1,6 @@
+10Oct26======================================================================
+1. Added per-user persistence of display preferences has been added to both 
+   DXWeb versions.
 09Oct26======================================================================
 1. DXWeb and Web Admin: Improved automatic window resizing to preserve 
    essential spot table columns. Added distance and bearing calculations when 

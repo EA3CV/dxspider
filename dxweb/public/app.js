@@ -5,7 +5,7 @@
  *
  * Copyright (c) 2026 Dirk Koopman G1TLH
  */
-// DXSpider Web 2.8.29
+// DXSpider Web 2.8.30
 // Date: 2026-09-16
 'use strict';
 const $=id=>document.getElementById(id);
@@ -26,6 +26,7 @@ function spotFontApply(value,save=false){
  const reset=$('spotFontReset');if(reset)reset.textContent=spotFontPercent+' %';
  if(save&&authenticated&&authUser){try{localStorage.setItem(spotFontKeyBase+authUser.toUpperCase(),String(spotFontPercent))}catch(_){}}
  if(typeof updateSpotLayout==='function')updateSpotLayout();
+ if(save&&typeof spotPresentationSave==='function')spotPresentationSave();
 }
 function spotFontForSession(){
  let value=100;
@@ -35,11 +36,27 @@ function spotFontForSession(){
 $('spotFontDown').onclick=()=>spotFontApply(spotFontPercent-10,true);
 $('spotFontUp').onclick=()=>spotFontApply(spotFontPercent+10,true);
 $('spotFontReset').onclick=()=>spotFontApply(100,true);
+const spotFeedKeyBase='dxspider.dxweb.spotFeeds.';
+function spotFeedSave(){
+ if(!authenticated||!authUser)return;
+ try{localStorage.setItem(spotFeedKeyBase+authUser.toUpperCase(),JSON.stringify({human:$('showHuman').checked,rbn:$('showRbn').checked}))}catch(_){}
+}
+function spotFeedRestore(){
+ let human=true,rbn=false;
+ if(authenticated&&authUser){
+  try{const raw=localStorage.getItem(spotFeedKeyBase+authUser.toUpperCase());if(raw!==null){const v=JSON.parse(raw);if(v&&typeof v.human==='boolean'&&typeof v.rbn==='boolean'){human=v.human;rbn=v.rbn}}}catch(_){}
+ }
+ $('showHuman').checked=human;$('showRbn').checked=rbn;
+ spotCounts={human:0,rbn:0};spotItems=[];renderSpots();
+}
+
 function loginState(ok,m={}){
  authenticated=ok;document.body.classList.toggle('authenticated',ok);document.body.classList.toggle('anonymous',!ok); authUser=ok?(m.call||authUser):null;authRegistered=ok?Boolean(m.registered):false;passwordUsed=ok?Boolean(m.password_used):false;
  $('loginButton').textContent=ok?`Logout ${authUser}`:'Login';
  updateRegistrationAccess();
  spotFontForSession();
+ spotFeedRestore();
+ spotPresentationRestore();
 }
 function updateRegistrationAccess(){
  const loggedIn=authenticated,registered=authenticated&&authRegistered;
@@ -52,6 +69,7 @@ function updateRegistrationAccess(){
  if($('showHuman'))$('showHuman').disabled=false;
  if($('showRbn'))$('showRbn').disabled=false;
  if(!loggedIn){if($('showHuman'))$('showHuman').checked=true;if($('showRbn'))$('showRbn').checked=false}
+ const register=$('registerButton');if(register){const hide=loggedIn&&passwordUsed;const wrapper=register.closest('.registerHelp');if(wrapper)wrapper.hidden=hide;register.hidden=hide;}
  const badge=$('anonymousBadge');if(badge)badge.hidden=loggedIn;
 }
 
@@ -124,9 +142,13 @@ $('loginForm').addEventListener('submit',e=>{
  if(!send({type:'auth',call,password:$('loginPass').value})){$('loginSubmit').disabled=false;$('loginError').textContent='DXSpider connection is not ready';return}
  $('loginPass').value='';
 });
+function spotCancelPending(){const d=$('spotDialog');d.close();$('spotResult').textContent='';$('spotForm').reset()}
+$('spotCancel').onclick=spotCancelPending;
+$('spotDialog').addEventListener('cancel',()=>{$('spotResult').textContent='';$('spotForm').reset()});
 $('spotOpen').onclick=()=>{if(!authenticated){notice('Only users who have logged in can access this function.');return}if(!authRegistered){notice('You must be registered on this node to use this function. Use the Register option.');return}$('spotResult').textContent='';$('spotDialog').showModal()};
 $('spotForm').addEventListener('submit',e=>{
- if(e.submitter&&e.submitter.value==='cancel')return;e.preventDefault();
+ e.preventDefault();
+ if(e.submitter&&e.submitter.value==='cancel'){spotCancelPending();return}
  if(!(authenticated&&authRegistered)){notice('You must be registered on this node to use this function. Use the Register option.');return}
  send({type:'spot',freq:$('spotFreq').value.trim(),dxcall:$('spotDx').value.trim().toUpperCase(),comment:$('spotComment').value.trim()});
 });
@@ -338,7 +360,7 @@ function spotFilterChanged(k){
  spotItems=spotItems.filter(x=>x.type!==k);
  renderSpots();
 }
-$('showHuman').onchange=()=>spotFilterChanged('human');$('showRbn').onchange=()=>spotFilterChanged('rbn');
+$('showHuman').onchange=()=>{spotFilterChanged('human');spotFeedSave()};$('showRbn').onchange=()=>{spotFilterChanged('rbn');spotFeedSave()};
 
 
 // Browser-only great-circle calculations; the prefix map is generated offline
@@ -404,7 +426,7 @@ geoLoadPrefix();
 const spotCore=[['type','C/R',44],['utc','UTC',58],['freq','Freq',120],['dx','DX',120],['spotter','Spotter',120],['comment','Comment',80]];
 const spotExtras=[['loc','Locator',78],['cq','CQ Zone',65],['itu','ITU Zone',65]];
 let spotVisibleColumns=[],spotCommentPreferred=null,spotResizeActive=false;
-try{const v=Number(localStorage.getItem('dxweb.spots.commentWidth'));if(v>=80&&v<=1200)spotCommentPreferred=v}catch(_){}
+
 function spotSelected(){return new Set([...document.querySelectorAll('[data-spot-group]:checked')].map(e=>e.dataset.spotGroup))}
 function updateSpotLayout(){
  const table=document.querySelector('.spotTable'),area=table?.closest('.spotResultArea');if(!area)return;
@@ -442,7 +464,7 @@ $('spotHeaders').addEventListener('pointerdown',e=>{
  e.preventDefault();spotResizeActive=true;
  const startX=e.clientX,startWidth=spotVisibleColumns.find(x=>x.key==='comment')?.w||80;
  const move=ev=>{spotCommentPreferred=Math.max(80,Math.min(1200,startWidth+ev.clientX-startX));updateSpotLayout()};
- const done=()=>{spotResizeActive=false;window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',done);window.removeEventListener('pointercancel',done);try{localStorage.setItem('dxweb.spots.commentWidth',String(Math.round(spotCommentPreferred)))}catch(_){}updateSpotLayout()};
+ const done=()=>{spotResizeActive=false;window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',done);window.removeEventListener('pointercancel',done);spotPresentationSave();updateSpotLayout()};
  window.addEventListener('pointermove',move);window.addEventListener('pointerup',done);window.addEventListener('pointercancel',done);
 });
 window.addEventListener('load',updateSpotLayout);
@@ -537,7 +559,7 @@ function handle(m){
      }
    }return;
  }
- if(m.type==='spot_result'){$('spotResult').textContent=responseText(m)||(m.status==='ok'?'Spot accepted by DXSpider':'Spot rejected');if(m.status==='ok')setTimeout(()=>$('spotDialog').close(),500);return}
+ if(m.type==='spot_result'){if(!$('spotDialog').open)return;$('spotResult').textContent=responseText(m)||(m.status==='ok'?'Spot accepted by DXSpider':'Spot rejected');if(m.status==='ok')setTimeout(()=>$('spotDialog').close(),500);return}
  if(m.type==='ann_result'){$('annResult').textContent=responseText(m)||(m.status==='ok'?'Announcement accepted by DXSpider':'Announcement rejected');if(m.status==='ok')$('annText').value='';return}
  if(m.type==='feed'){if(!logoutPending)acceptFeed(m);return}
 }
@@ -545,3 +567,36 @@ loginState(false);
 connect();
 
 updateRegistrationAccess();
+
+// Per-callsign presentation settings; browser-local and independent for each application.
+const spotPresentationKeyBase='dxspider.dxweb.spotPresentation.';
+function spotPresentationSave(){
+ if(!authenticated||!authUser)return;
+ const settings={human:$('showHuman').checked,rbn:$('showRbn').checked,
+  font:spotFontPercent,locator:$('userLocator').value.trim().toUpperCase(),
+  groups:[...document.querySelectorAll('[data-spot-group]:checked')].map(x=>x.dataset.spotGroup),
+  commentWidth:spotCommentPreferred};
+ try{localStorage.setItem(spotPresentationKeyBase+authUser.toUpperCase(),JSON.stringify(settings))}catch(_){}
+}
+function spotPresentationRestore(){
+ let saved=null;
+ if(authenticated&&authUser){try{saved=JSON.parse(localStorage.getItem(spotPresentationKeyBase+authUser.toUpperCase()))}catch(_){}}
+ const groups=new Set(saved&&Array.isArray(saved.groups)?saved.groups:[]);
+ for(const box of document.querySelectorAll('[data-spot-group]'))box.checked=groups.has(box.dataset.spotGroup);
+ const loc=saved&&typeof saved.locator==='string'?saved.locator:'';
+ $('userLocator').value=geoLocator(loc)?loc:'';
+ spotCommentPreferred=saved&&Number.isFinite(saved.commentWidth)&&saved.commentWidth>=80&&saved.commentWidth<=1200?saved.commentWidth:null;
+ if(saved&&typeof saved.human==='boolean'&&typeof saved.rbn==='boolean'){
+  $('showHuman').checked=saved.human;$('showRbn').checked=saved.rbn;
+ }else{$('showHuman').checked=true;$('showRbn').checked=false}
+ spotFontApply(saved&&Number.isFinite(saved.font)?saved.font:100,false);
+ spotItems=[];spotCounts={human:0,rbn:0};
+ updateSpotLayout();renderSpots();
+}
+function spotPresentationBind(){
+ for(const id of ['showHuman','showRbn'])$(id).addEventListener('change',spotPresentationSave);
+ for(const box of document.querySelectorAll('[data-spot-group]'))box.addEventListener('change',spotPresentationSave);
+ $('userLocator').addEventListener('input',()=>{if($('userLocator').validity.valid)spotPresentationSave()});
+}
+
+spotPresentationBind();

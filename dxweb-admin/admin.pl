@@ -27,7 +27,7 @@ use DXWebBurstSnapshot;
 my $DXS_HOST   = '127.0.0.1'; # security boundary: admin transport is local-only
 my $DXS_PORT   = $ENV{DXS_PORT}      // 27754;
 my $DXWEB_HOST = $ENV{DXWEB_HOST}    // '0.0.0.0';
-my $DXWEB_PORT = $ENV{DXWEB_PORT}    // 7481;        # definitive Admin UI port
+my $DXWEB_PORT = $ENV{DXWEB_PORT}    // 7381;        # default Admin UI port
 my $RECONNECT  = $ENV{RECONNECT_SEC} // 3;
 my $MAX_INPUT_BYTES           = $ENV{MAX_INPUT_BYTES}           // 262144;
 my $MAX_HISTORY               = $ENV{MAX_HISTORY}               // 250;
@@ -552,7 +552,7 @@ sub handle_response($msg) {
         if ( ( $msg->{status} // '' ) eq 'ok' ) {
             my $priv = 0 + ( $msg->{priv} // 0 );
             my $pw   = $msg->{password_used} ? 1 : 0;
-            if ( !$pw || $priv < 1 ) {
+            if ( !$pw || $priv < 5 ) {
                 $counters{auth_failed}++;
                 send_dxs(
                     {
@@ -1338,7 +1338,7 @@ hook before_server_start => sub( $server, $app ) {
 };
 get '/'                   => sub($c) { $c->reply->static('index.html') };
 get '/admin-version.json' => sub($c) {
-    $c->render( json => { name => 'DXSpider Web Admin', version => '0.78.4' } );
+    $c->render( json => { name => 'DXSpider Web Admin', version => '0.78.5' } );
 };
 get '/healthz' => sub($c) {
     $c->render(
@@ -1515,7 +1515,9 @@ websocket '/ws' => sub($c) {
                 return;
             }
             return unless $clients{$id}{authenticated};
-            if ( ( $clients{$id}{priv} // 0 ) < 9 && $t ne 'command' ) {
+            my $read_only = $t =~ /^(?:reg_pending|reg_history|reg_search|supervisor_overview|supervisor_history|history_metrics|history_timeline|supervisor_system|supervisor_(?:status|connections|traffic|web|rbn|self_health|topology))$/;
+            my $required_priv = $read_only ? 5 : 9;
+            if ( ( $clients{$id}{priv} // 0 ) < $required_priv ) {
                 ws_send_guarded(
                     $id,
                     encode_json(
@@ -1585,7 +1587,7 @@ websocket '/ws' => sub($c) {
                     sub {
                         my ( $err, $result ) = @_;
                         return
-                          unless $clients{$id} && $clients{$id}{authenticated};
+                          unless $clients{$id} && $clients{$id}{authenticated} && ($clients{$id}{priv} // 0) >= 5;
                         my $o = $err
                           ? {
                             type   => 'history_metrics_result',
@@ -1617,7 +1619,7 @@ websocket '/ws' => sub($c) {
                     sub {
                         my ( $err, $result ) = @_;
                         return
-                          unless $clients{$id} && $clients{$id}{authenticated};
+                          unless $clients{$id} && $clients{$id}{authenticated} && ($clients{$id}{priv} // 0) >= 5;
                         my $o = $err
                           ? {
                             type   => 'history_timeline_result',
@@ -1687,7 +1689,7 @@ websocket '/ws' => sub($c) {
                         my ( $err, $result ) = @_;
                         $maintenance_action_inflight = 0;
                         return
-                          unless $clients{$id} && $clients{$id}{authenticated};
+                          unless $clients{$id} && $clients{$id}{authenticated} && ($clients{$id}{priv} // 0) >= 5;
                         my $o = $err
                           ? {
                             type   => 'maintenance_history_action_result',
@@ -1718,7 +1720,7 @@ websocket '/ws' => sub($c) {
                     sub {
                         my ( $err, $result ) = @_;
                         return
-                          unless $clients{$id} && $clients{$id}{authenticated};
+                          unless $clients{$id} && $clients{$id}{authenticated} && ($clients{$id}{priv} // 0) >= 5;
                         if ( !$err && ref($result) eq 'HASH' ) {
                             $result->{system} = local_system_snapshot();
                         }
@@ -1820,7 +1822,7 @@ websocket '/ws' => sub($c) {
     $c->on( finish => sub { release_client( $id, 'browser_finish' ) } );
 };
 
-# DXWeb Admin uses 7481 by default when started directly without an
+# DXWeb Admin uses 7381 by default when started directly without an
 # explicit Mojolicious command.  An explicit command line still wins, e.g.
 #   perl admin.pl daemon -l http://127.0.0.1:7310
 if ( !@ARGV ) {
