@@ -1,89 +1,83 @@
-DXSPIDER USER WEB - INSTALLATION
-================================
+DXWEB - INSTALLATION AND CONFIGURATION (native /spider)
+========================================================================
 
-This procedure installs DXWeb only. DXWeb Admin is optional and has a
-separate installation guide in dxweb-admin/INSTALL.
+PORTS AND TOPOLOGY (native /spider)
 
-Prerequisite: DXSpider and its standard dependencies are already installed.
-The local DXSpider IntMsg listener must accept the #WEB transport on
-127.0.0.1:27754 (or the address and port configured for this deployment).
-Ensure that DXSpider has the matching Web.pm/#WEB protocol implementation.
+Mode                 DXWeb HTTP        Admin HTTP        DXSpider IntMsg
+DIRECT (default)     0.0.0.0:7380      0.0.0.0:7381      127.0.0.1:27754
+NGINX SAME HOST      127.0.0.1:7480    127.0.0.1:7481    127.0.0.1:27754
+Nginx public ports   7380             7381             not proxied
 
-The Git checkout must contain /spider/dxweb/app.pl, start.sh and public/.
-The service definition is supplied as /spider/dxweb.service.
+0.0.0.0 is a bind address, not a URL: browse to the server's real IP or DNS name.
+The DXSpider technical port 27754 is not the browser port.
+Direct Admin on unencrypted HTTP exposes credentials: limit access to a trusted
+network, or use a properly configured HTTPS reverse proxy for remote use.
 
-Install and start the service (run as root):
+The provided Nginx templates assume Nginx and both web processes share a host.
+If Nginx is on ANOTHER server, 127.0.0.1 in proxy_pass points to that other
+server, not to DXSpider. These templates are NOT a verified remote-Nginx setup.
+Such a deployment requires a separately secured upstream, firewall/TLS design,
+and a review of the source-IP and WebSocket Origin trust logic; do not simply
+replace 127.0.0.1 with a public address and set MOJO_REVERSE_PROXY=1.
 
-    cd /spider
-    install -m 0644 dxweb.service /etc/systemd/system/dxweb.service
-    systemctl daemon-reload
-    systemctl enable --now dxweb.service
+VARIABLES AND TRUST
 
-The service starts /spider/dxweb/start.sh from /spider/dxweb and uses:
+DXS_HOST (DXWeb only): address of the OUTBOUND DXSpider IntMsg peer; default
+127.0.0.1. DXS_PORT: technical port, default 27754. DXWeb Admin's backend
+address is fixed to 127.0.0.1 in the reviewed code; DXS_PORT is configurable.
 
-    DXS_HOST=127.0.0.1
-    DXS_PORT=27754
-    HTTP_HOST=0.0.0.0
-    HTTP_PORT=7380
+HTTP_HOST / HTTP_PORT (DXWeb): browser listener bind and port.
+DXWEB_HOST / DXWEB_PORT (Admin): corresponding Admin listener bind and port.
+0.0.0.0 listens on all IPv4 interfaces; 127.0.0.1 is loopback only.
 
-Direct mode
------------
+MOJO_REVERSE_PROXY=0 is the default for direct use. With trusted same-host
+Nginx set it to 1 in the systemd service environment. It instructs Mojolicious
+to interpret reverse-proxy headers; it neither starts Nginx nor changes ports.
+The application's WebSocket source-IP/Origin handling also has explicit
+loopback-specific checks: do not treat MOJO_REVERSE_PROXY=1 as a generic trust
+or security switch. Nginx must overwrite forwarded headers, not pass arbitrary
+client-supplied values through. Keep backend ports inaccessible externally.
 
-The defaults expose DXWeb directly on TCP port 7380:
+INSTALLATION: DIRECT MODE (default; no Nginx)
 
-    HTTP_HOST=0.0.0.0
-    HTTP_PORT=7380
+Application files must already be installed under /spider/dxweb.
+Use the unit from /spider/dxweb.service (not the nginx example):
+  cd /spider
+  install -m 0644 dxweb.service /etc/systemd/system/dxweb.service
+  systemctl daemon-reload
+  systemctl enable --now dxweb.service
+  curl -fsS http://127.0.0.1:7380/healthz
 
-Leave MOJO_REVERSE_PROXY unset (or set it to 0) when clients connect
-directly to DXWeb.
+Service values: HTTP_HOST=0.0.0.0; HTTP_PORT=7380; MOJO_REVERSE_PROXY=0.
+Entrypoint: /spider/dxweb/start.pl.
 
-Reverse-proxy mode
-------------------
+INSTALLATION: OPTIONAL NGINX ON THE SAME HOST
 
-A tested Nginx layout keeps the public port unchanged and moves the
-application listener to a loopback-only backend:
+Nginx listens publicly on 7380; application listens privately on
+127.0.0.1:7480. Do not run direct and Nginx public listeners on the
+same ports simultaneously. Back up the current unit before switching.
+  cd /spider
+  cp -p /etc/systemd/system/dxweb.service /root/dxweb.service.before-nginx
+  install -m 0644 dxweb.service.nginx.example /etc/systemd/system/dxweb.service
+  systemctl daemon-reload
+  systemctl restart dxweb.service
+  curl -fsS http://127.0.0.1:7480/healthz
 
-    public/Nginx :7380 -> DXWeb 127.0.0.1:7480
+Service values: HTTP_HOST=127.0.0.1; HTTP_PORT=7480; MOJO_REVERSE_PROXY=1.
+Configure ONE of the supplied Nginx HTTP or HTTPS examples, after editing
+FQDN and certificate paths as applicable; run nginx -t before reloading.
+See /spider/dxweb/docs/README-nginx for complete commands and subdirectories.
 
-Configure DXWeb with:
+VERIFICATION AND ROLLBACK
 
-    HTTP_HOST=127.0.0.1
-    HTTP_PORT=7480
-    MOJO_REVERSE_PROXY=1
-
-Nginx must proxy WebSocket upgrades and replace, rather than trust,
-client-supplied forwarding headers. For example:
-
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $remote_addr;
-    proxy_set_header X-Forwarded-Proto $scheme;
-
-With MOJO_REVERSE_PROXY=1 the backend listener is a security boundary:
-do not expose TCP 7480 directly to untrusted clients. Only the trusted
-reverse proxy should be able to reach it.
-
-Edit the unit and run systemctl daemon-reload if these defaults differ.
-Do not run dxweb/install.pl against the same Git checkout: that installer
-moves and copies entire trees and is intended for separate distributions.
-
-Verify only this service:
-
-    systemctl status dxweb.service --no-pager
-    curl -i http://127.0.0.1:7380/healthz
-
-When the DXSpider link is established, /healthz should return HTTP 200
-and state=ready. A disconnected backend may return HTTP 503. Open the
-browser UI and test anonymous reception, Login and registration.
-
-DXWeb Admin does not need to be installed for DXWeb to operate.
-
-Configuration diagrams (Spanish / English):
-  /spider/dxweb/docs/DXWeb_Configuration_ES.png
-  /spider/dxweb/docs/DXWeb_Configuration_EN.png
-See /spider/dxweb/docs/README-nginx for the example reverse-proxy setup.
-DXSpider WebCluster uses the IntMsg listener (normally 127.0.0.1:27754),
-not the traditional DXSpider client/node listener.
+After any change to service units: systemctl daemon-reload; restart only the
+relevant web service, NOT DXSpider. For direct mode:
+  systemctl is-active dxweb.service dxweb-admin.service
+  ss -ltnp | grep -E ':(7380|7381) '
+  curl -fsS http://127.0.0.1:7380/healthz
+  curl -fsS http://127.0.0.1:7381/healthz
+Check state=ready in the returned JSON; HTTP 200 alone is not a full UI test.
+Check login, spots, Console, Filters SH/FILTER and font controls in a browser.
+For Nginx also test HTTP(S), WebSocket upgrade, login and correct client IP.
+Subdirectory operation has NOT been certified by an end-to-end Nginx test.
+Keep backups of the original service units and documentation for rollback.

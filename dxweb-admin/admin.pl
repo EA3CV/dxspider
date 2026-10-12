@@ -8,18 +8,30 @@
 #
 # Copyright (c) 2026 Dirk Koopman G1TLH
 #
-# DXSpider Web Admin 0.78.3
-# Date: 2026-10-05
+# DXSpider Web Admin: version defined exclusively in VERSION
 use strict;
 use warnings;
 use utf8;
 use Mojolicious::Lite -signatures;
 use POSIX ();
 use Mojo::IOLoop;
+use Mojo::URL;
+use Socket qw(AF_INET AF_INET6 inet_pton);
 use Mojo::IOLoop::Subprocess;
 use Mojo::JSON  qw(encode_json decode_json);
 use Time::HiRes qw(time);
 use FindBin;
+
+# Single source of truth for the Admin release version.
+my $ADMIN_VERSION = do {
+    my $file = "$FindBin::Bin/VERSION";
+    open my $fh, "<", $file or die "Cannot read $file: $!";
+    my $version = <$fh> // die "Empty $file";
+    close $fh or die "Cannot close $file: $!";
+    $version =~ s/\s+\z//;
+    $version =~ /\A\d+\.\d+(?:\.\d+)?\z/ or die "Invalid version in $file";
+    $version;
+};
 use lib "$FindBin::Bin/lib";
 use DXWebHistory;
 use DXWebBurstSnapshot;
@@ -39,6 +51,7 @@ my $MAX_WS_MESSAGE_BYTES      = $ENV{MAX_WS_MESSAGE_BYTES}      // 524288;
 my $REPLAY_BATCH              = $ENV{REPLAY_BATCH}              // 8;
 my $FANOUT_BATCH              = $ENV{FANOUT_BATCH}              // 32;
 my $REQUEST_TIMEOUT           = $ENV{REQUEST_TIMEOUT_SEC}       // 10;
+my $ORPHAN_AUTH_TIMEOUT = $ENV{ORPHAN_AUTH_TIMEOUT_SEC} // 120;
 my $MAX_BROWSER_MESSAGE_BYTES = $ENV{MAX_BROWSER_MESSAGE_BYTES} // 65536;
 my $MAX_PENDING_TOTAL         = $ENV{MAX_PENDING_TOTAL}         // 256;
 my $MAX_PENDING_PER_CLIENT    = $ENV{MAX_PENDING_PER_CLIENT}    // 16;
@@ -96,7 +109,10 @@ sub maintenance_update_action( $cid, $action ) {
         },
         sub {
             my ( $sub, $err, $res ) = @_;
-            return unless $clients{$cid} && $clients{$cid}{authenticated};
+            # Maintenance is a privileged operation: recheck privileges
+            # before returning asynchronous results to the browser.
+            return unless $clients{$cid} && $clients{$cid}{authenticated}
+              && ($clients{$cid}{priv} // 0) >= 9;
             my $ok  = !$err && ref($res) eq 'HASH' && ( $res->{rc} // 1 ) == 0;
             my @out = $ok ? @{ $res->{output} || [] } : ();
             push @out, join( ' ', @cmd ) unless @out;
@@ -197,15 +213,27 @@ sub client_status($id) {
     return $o;
 }
 
+sub cancel_pending_auth($rid) {
+    my $p = delete $pending{$rid} or return;
+    Mojo::IOLoop->remove($p->{timer}) if $p->{timer};
+    return unless ($p->{action} // '') eq 'auth';
+    send_dxs({type => 'auth_cancel', id => $request_id++, auth_id => 0 + $rid,
+              call => $p->{call}}) if $p->{call} && $stream;
+}
+
 sub release_client( $id, $reason = 'browser_disconnect' ) {
     my $cl = $clients{$id} or return;
     if ( $cl->{authenticated} && $cl->{call} && $state{state} eq 'ready' ) {
         send_dxs(
-            { type => 'user_del', id => $request_id++, call => $cl->{call} } );
+            { type => 'user_del', id => $request_id++, call => $cl->{call}, generation => $cl->{generation} } );
     }
     delete $clients{$id};
     for my $rid ( keys %pending ) {
         if ( $pending{$rid}{client} == $id ) {
+            if (($pending{$rid}{action} // '') eq 'auth') {
+                cancel_pending_auth($rid);
+                next;
+            }
             my $p = delete $pending{$rid};
             Mojo::IOLoop->remove( $p->{timer} ) if $p && $p->{timer};
         }
@@ -381,26 +409,22 @@ sub send_dxs($o) {
 }
 
 sub pending_timeout($id) {
-    my $p   = delete $pending{$id} or return;
+    my $p = $pending{$id} or return;
+    if (($p->{action} // '') eq 'auth') {
+        my $cid = $p->{client};
+        my $cl = $clients{$cid};
+        my $gone = $cl ? release_client($cid, 'auth_timeout') : undef;
+        eval { $gone->{tx}->finish(1011 => 'auth timeout') } if $gone;
+        cancel_pending_auth($id) if $pending{$id};
+        return;
+    }
+    delete $pending{$id};
     my $cid = $p->{client};
     my $cl  = $clients{$cid} or return;
     my $a   = $p->{action} || '';
     if ( $a eq 'logout' ) {
         my $x = release_client( $cid, 'logout_timeout' );
         eval { $x->{tx}->finish( 1011 => 'logout timeout' ) } if $x;
-        return;
-    }
-    if ( $a eq 'auth' ) {
-        ws_send_guarded(
-            $cid,
-            encode_json(
-                {
-                    type   => 'auth',
-                    status => 'error',
-                    error  => 'request_timeout'
-                }
-            )
-        );
         return;
     }
     ws_send_guarded(
@@ -429,7 +453,8 @@ sub dxs_request( $cid, $action, $o ) {
     $o->{id} = $id;
     my $t =
       Mojo::IOLoop->timer( $REQUEST_TIMEOUT => sub { pending_timeout($id) } );
-    $pending{$id} = { client => $cid, action => $action, timer => $t };
+    $pending{$id} = { client => $cid, action => $action, timer => $t,
+                      call => ($action eq 'auth' ? $o->{call} : undef) };
     send_dxs($o);
     return $id;
 }
@@ -547,18 +572,27 @@ sub handle_response($msg) {
         return;
     }
     my $cid = $p->{client};
-    my $cl  = $clients{$cid} or return;
+    my $cl = $clients{$cid};
+    if (!$cl && ($p->{action} // '') eq 'auth'
+        && ($msg->{status} // '') eq 'ok'
+        && defined($msg->{generation}) && defined($msg->{call})) {
+        send_dxs({type => 'user_del', id => $request_id++, call => $msg->{call},
+                  generation => $msg->{generation}});
+        return;
+    }
+    return unless $cl;
     if ( $p->{action} eq 'auth' ) {
         if ( ( $msg->{status} // '' ) eq 'ok' ) {
             my $priv = 0 + ( $msg->{priv} // 0 );
             my $pw   = $msg->{password_used} ? 1 : 0;
-            if ( !$pw || $priv < 5 ) {
+            if ( !$pw || $priv < 9 ) {
                 $counters{auth_failed}++;
                 send_dxs(
                     {
                         type => 'user_del',
                         id   => $request_id++,
-                        call => $msg->{call}
+                        call => $msg->{call},
+                        generation => $msg->{generation}
                     }
                 ) if $msg->{call};
                 ws_send_guarded(
@@ -577,6 +611,7 @@ sub handle_response($msg) {
             }
             $cl->{authenticated} = 1;
             $cl->{call}          = $msg->{call};
+            $cl->{generation}    = $msg->{generation};
             $cl->{priv}          = $priv;
             $cl->{registered}    = $msg->{registered} ? 1 : 0;
             $cl->{password_used} = 1;
@@ -1338,7 +1373,7 @@ hook before_server_start => sub( $server, $app ) {
 };
 get '/'                   => sub($c) { $c->reply->static('index.html') };
 get '/admin-version.json' => sub($c) {
-    $c->render( json => { name => 'DXSpider Web Admin', version => '0.78.9' } );
+    $c->render( json => { name => 'DXSpider Web Admin', version => $ADMIN_VERSION } );
 };
 get '/healthz' => sub($c) {
     $c->render(
@@ -1455,7 +1490,61 @@ sub v040_warm_caches() {
     # Maintenance and SQLite quick_check run on explicit request only.
 }
 
+# Browser WebSocket handshake: reject cross-origin requests before allocating
+# a client slot. Nginx forwards the original Host header to Mojolicious.
+# Compare scheme, hostname and port, not suffixes or substring matches.
+sub websocket_origin_allowed($c) {
+    my $origin = $c->req->headers->origin // '';
+    return 0 if !$origin || $origin eq 'null';
+    return 0 if $origin =~ /[\s,]/;
+    my $url = Mojo::URL->new($origin);
+    return 0 unless $url->scheme && $url->host;
+    return 0 if $url->userinfo || $url->path->to_string ne ''
+             || defined($url->query) && $url->query->to_string ne ''
+             || defined($url->fragment);
+    my $host = $c->req->headers->host // '';
+    return 0 unless $host;
+    my $expected_scheme = $c->req->is_secure ? 'https' : 'http';
+    # Only the trusted local reverse proxy may supply X-Forwarded-Proto.
+    my $remote = $c->tx->remote_address // '';
+    if ($remote eq '127.0.0.1' || $remote eq '::1') {
+        my $forwarded = $c->req->headers->header('X-Forwarded-Proto') // '';
+        $expected_scheme = lc($forwarded) if $forwarded =~ /\Ahttps?\z/i;
+    }
+    return 0 unless lc($url->scheme) eq $expected_scheme;
+    my $authority = lc($url->host);
+    $authority = "[$authority]" if $authority =~ /:/;
+    $authority .= ':' . $url->port if defined $url->port;
+    # Explicit default ports are equivalent to their implicit form.
+    my $expected = lc($host);
+    $authority =~ s/:443\z// if $expected_scheme eq 'https';
+    $authority =~ s/:80\z// if $expected_scheme eq 'http';
+    $expected =~ s/:443\z// if $expected_scheme eq 'https';
+    $expected =~ s/:80\z// if $expected_scheme eq 'http';
+    return $authority eq $expected;
+}
+
+# Only Nginx on loopback may supply the browser address. Never trust
+# X-Forwarded-For from an arbitrary WebSocket client (or its first hop).
+sub websocket_client_ip($c) {
+    my $remote = $c->tx->remote_address // '';
+    $remote =~ s/^::ffff://i;
+    if ($remote eq '127.0.0.1' || $remote eq '::1') {
+        my $real = $c->req->headers->header('X-Real-IP') // '';
+        if ($real && $real !~ /[\s,]/ &&
+            (defined inet_pton(AF_INET, $real) || defined inet_pton(AF_INET6, $real))) {
+            return $real;
+        }
+    }
+    return $remote;
+}
+
 websocket '/ws' => sub($c) {
+    unless (websocket_origin_allowed($c)) {
+        $c->render(status => 403, text => 'WebSocket origin forbidden');
+        return;
+    }
+
     if ( scalar( keys %clients ) >= $MAX_CLIENTS ) {
         $c->finish( 1013 => 'server busy' );
         return;
@@ -1472,7 +1561,7 @@ websocket '/ws' => sub($c) {
         return;
     }
     $s->high_water_mark($MAX_WS_MESSAGE_BYTES);
-    my $ip = $tx->remote_address || '127.0.0.1';
+    my $ip = websocket_client_ip($c);
     $ip =~ s/^::ffff://i;
     $clients{$id} = { tx => $tx, ip => $ip, authenticated => 0 };
     $c->inactivity_timeout(0);
@@ -1491,6 +1580,13 @@ websocket '/ws' => sub($c) {
             if ( $t eq 'auth' ) {
                 return unless $state{state} eq 'ready';
                 return if $clients{$id}{authenticated};
+                # Only one in-flight authentication per browser connection.
+                # Reuse the authoritative pending-request registry; a separate
+                # flag could become stale after disconnect or DXS reconnect.
+                return if grep {
+                    defined($_->{client}) && $_->{client} == $id
+                      && ($_->{action} // '') eq 'auth'
+                } values %pending;
                 my $call = $m->{call} // '';
                 my $pass = exists $m->{password} ? $m->{password} : undef;
                 dxs_request(
@@ -1506,13 +1602,24 @@ websocket '/ws' => sub($c) {
             }
             if ( $t eq 'logout' ) {
                 return unless $clients{$id}{authenticated};
+                # Do not queue duplicate logout operations for this connection.
+                return if grep {
+                    defined($_->{client}) && $_->{client} == $id
+                      && ($_->{action} // '') eq 'logout'
+                } values %pending;
                 dxs_request( $id, 'logout',
-                    { type => 'user_del', call => $clients{$id}{call} } );
+                    { type => 'user_del', call => $clients{$id}{call},
+                      generation => $clients{$id}{generation} } );
                 return;
             }
             return unless $clients{$id}{authenticated};
+            # Do not authorize more operations while logout is in flight.
+            return if grep {
+                defined($_->{client}) && $_->{client} == $id
+                  && ($_->{action} // '') eq 'logout'
+            } values %pending;
             my $read_only = $t =~ /^(?:reg_pending|reg_history|reg_search|supervisor_overview|supervisor_history|history_metrics|history_timeline|supervisor_system|supervisor_(?:status|connections|traffic|web|rbn|self_health|topology))$/;
-            my $required_priv = $read_only ? 5 : 9;
+            my $required_priv = 9;
             if ( ( $clients{$id}{priv} // 0 ) < $required_priv ) {
                 ws_send_guarded(
                     $id,
@@ -1583,7 +1690,7 @@ websocket '/ws' => sub($c) {
                     sub {
                         my ( $err, $result ) = @_;
                         return
-                          unless $clients{$id} && $clients{$id}{authenticated} && ($clients{$id}{priv} // 0) >= 5;
+                          unless $clients{$id} && $clients{$id}{authenticated} && ($clients{$id}{priv} // 0) >= 9;
                         my $o = $err
                           ? {
                             type   => 'history_metrics_result',
@@ -1615,7 +1722,7 @@ websocket '/ws' => sub($c) {
                     sub {
                         my ( $err, $result ) = @_;
                         return
-                          unless $clients{$id} && $clients{$id}{authenticated} && ($clients{$id}{priv} // 0) >= 5;
+                          unless $clients{$id} && $clients{$id}{authenticated} && ($clients{$id}{priv} // 0) >= 9;
                         my $o = $err
                           ? {
                             type   => 'history_timeline_result',
@@ -1685,7 +1792,7 @@ websocket '/ws' => sub($c) {
                         my ( $err, $result ) = @_;
                         $maintenance_action_inflight = 0;
                         return
-                          unless $clients{$id} && $clients{$id}{authenticated} && ($clients{$id}{priv} // 0) >= 5;
+                          unless $clients{$id} && $clients{$id}{authenticated} && ($clients{$id}{priv} // 0) >= 9;
                         my $o = $err
                           ? {
                             type   => 'maintenance_history_action_result',
@@ -1716,7 +1823,7 @@ websocket '/ws' => sub($c) {
                     sub {
                         my ( $err, $result ) = @_;
                         return
-                          unless $clients{$id} && $clients{$id}{authenticated} && ($clients{$id}{priv} // 0) >= 5;
+                          unless $clients{$id} && $clients{$id}{authenticated} && ($clients{$id}{priv} // 0) >= 9;
                         if ( !$err && ref($result) eq 'HASH' ) {
                             $result->{system} = local_system_snapshot();
                         }

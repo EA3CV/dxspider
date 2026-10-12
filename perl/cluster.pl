@@ -372,6 +372,16 @@ sub new_channel
 			return;
 		}
 
+		# A locally routed user without a DXChannel is a logical web
+		# presence. DXUser is persistent identity, not online presence.
+		# Check before creating the telnet channel. Remote routes are
+		# not children of routeroot and must not be rejected here.
+		if ($main::routeroot->is_user($call) && !DXChannel::get($call)) {
+			LogDbg('chan', "$call on $host already connected through local Web, disconnected");
+			already_conn($conn, $call, DXM::msg($lang, 'conother', $call, $main::mycall));
+			return;
+		}
+
 		# set up the basic channel info for "Normal" Users
 		# is there one already connected to me - locally?
 

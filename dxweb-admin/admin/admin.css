@@ -1161,3 +1161,8 @@ body.v2-shell [data-help],body.v2-shell h3[title],body.v2-shell .kpiLabel[title]
 }
 @media(max-width:480px){.spotFontControl{margin-left:0}#spots .spotTitleLine{width:100%}}
 @media(prefers-reduced-motion:reduce){#spots .spotTable tbody tr.spotFresh{animation:none;background:rgba(57,174,119,.19)!important}}
+
+/* Console text-size controls, same visual language as Spots. */
+.consoleFontControl{display:inline-flex;align-items:center;gap:2px;white-space:nowrap;margin-left:auto}
+.consoleFontControl button{min-width:27px;padding:3px 6px;font:inherit;cursor:pointer}
+.consoleFontControl #consoleFontReset{min-width:57px;font-variant-numeric:tabular-nums}

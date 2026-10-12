@@ -1,8 +1,11 @@
+# SAME-HOST NGINX EXAMPLE: apps bound to 127.0.0.1:7480/7481.
+# Do not enable with direct-mode systemd units on public 7380/7381.
+# Replace YOUR_FQDN and, for TLS, the certificate/key paths.
 # DXSpider Web - HTTPS
 server {
     listen 7380 ssl;
     listen [::]:7380 ssl;
-    server_name your.dxspider.example;
+    server_name YOUR_FQDN;
 
     ssl_certificate     /path/to/ssl/fullchain.pem;
     ssl_certificate_key /path/to/ssl/privkey.pem;
@@ -29,7 +32,7 @@ server {
 server {
     listen 7381 ssl;
     listen [::]:7381 ssl;
-    server_name your.dxspider.example;
+    server_name YOUR_FQDN;
 
     ssl_certificate     /path/to/ssl/fullchain.pem;
     ssl_certificate_key /path/to/ssl/privkey.pem;

@@ -1,64 +1,128 @@
-DXWeb / DXWeb Admin - Nginx reverse proxy examples
-==================================================
+DXWEB + DXWEB ADMIN - NGINX DEPLOYMENT GUIDE
+===========================================
 
-These are generic examples for a native DXSpider installation. The HTTP example is derived from the configuration successfully validated on discovery (Nginx nginx -t, reverse proxy and WebSocket); the FQDN has been replaced by a placeholder. The HTTPS example has not been tested with real certificates.
+This guide corresponds to the installed v0.07 application and to the supplied
+systemd units and Nginx templates. It supersedes the older README-nginx.
+No Nginx is needed for the DEFAULT deployment.
 
-Architecture
+PORTS AND TOPOLOGY (native /spider)
 
-Public listener     Nginx upstream           Application
-TCP 7380            http://127.0.0.1:7480    DXWeb
-TCP 7381            http://127.0.0.1:7481    DXWeb Admin
+Mode                 DXWeb HTTP        Admin HTTP        DXSpider IntMsg
+DIRECT (default)     0.0.0.0:7380      0.0.0.0:7381      127.0.0.1:27754
+NGINX SAME HOST      127.0.0.1:7480    127.0.0.1:7481    127.0.0.1:27754
+Nginx public ports   7380             7381             not proxied
 
-Nginx listens on ports 7380/7381. The two application processes must listen on loopback only, on ports 7480/7481. Do not expose the application ports publicly. Configure the applications with MOJO_REVERSE_PROXY=1; keep the DXSpider technical connection local. Ensure the application services are configured separately to use the ports above.
+0.0.0.0 is a bind address, not a URL: browse to the server's real IP or DNS name.
+The DXSpider technical port 27754 is not the browser port.
+Direct Admin on unencrypted HTTP exposes credentials: limit access to a trusted
+network, or use a properly configured HTTPS reverse proxy for remote use.
 
-Choosing a configuration
+The provided Nginx templates assume Nginx and both web processes share a host.
+If Nginx is on ANOTHER server, 127.0.0.1 in proxy_pass points to that other
+server, not to DXSpider. These templates are NOT a verified remote-Nginx setup.
+Such a deployment requires a separately secured upstream, firewall/TLS design,
+and a review of the source-IP and WebSocket Origin trust logic; do not simply
+replace 127.0.0.1 with a public address and set MOJO_REVERSE_PROXY=1.
 
-- dxweb-http.conf.example: HTTP-only; matches the validated reverse-proxy behavior. Do not expose authenticated/admin use over public HTTP: credentials and sessions are not protected by TLS.
-- dxweb-https.conf.example: HTTPS/WSS on the same public ports, with TLS terminated by Nginx. It replaces the HTTP configuration; do not enable both files simultaneously on the same ports.
+VARIABLES AND TRUST
 
-Edit your.dxspider.example to the actual FQDN in both server blocks. For HTTPS, also replace /path/to/ssl/fullchain.pem and /path/to/ssl/privkey.pem with existing certificate/key paths. The certificate must cover the chosen FQDN. File permissions must allow the Nginx master process to read them. The example does not issue or renew certificates.
+DXS_HOST (DXWeb only): address of the OUTBOUND DXSpider IntMsg peer; default
+127.0.0.1. DXS_PORT: technical port, default 27754. DXWeb Admin's backend
+address is fixed to 127.0.0.1 in the reviewed code; DXS_PORT is configurable.
 
-Installation on the test host (Nginx installed)
+HTTP_HOST / HTTP_PORT (DXWeb): browser listener bind and port.
+DXWEB_HOST / DXWEB_PORT (Admin): corresponding Admin listener bind and port.
+0.0.0.0 listens on all IPv4 interfaces; 127.0.0.1 is loopback only.
 
-Copy one example into /etc/nginx/sites-available/dxweb.conf and enable it using /etc/nginx/sites-enabled/dxweb.conf. Back up any existing configuration first. For example, from the unpacked package:
+MOJO_REVERSE_PROXY=0 is the default for direct use. With trusted same-host
+Nginx set it to 1 in the systemd service environment. It instructs Mojolicious
+to interpret reverse-proxy headers; it neither starts Nginx nor changes ports.
+The application's WebSocket source-IP/Origin handling also has explicit
+loopback-specific checks: do not treat MOJO_REVERSE_PROXY=1 as a generic trust
+or security switch. Nginx must overwrite forwarded headers, not pass arbitrary
+client-supplied values through. Keep backend ports inaccessible externally.
+EXAMPLE FILES (both applications in each file)
 
-sh
-sudo cp /etc/nginx/sites-available/dxweb.conf /etc/nginx/sites-available/dxweb.conf.bak  # only if an existing file is present
-sudo cp dxweb-https.conf.example /etc/nginx/sites-available/dxweb.conf
-sudo ln -sfn /etc/nginx/sites-available/dxweb.conf /etc/nginx/sites-enabled/dxweb.conf
-sudo nginx -t
-sudo systemctl reload nginx
+  dxweb-http.conf.example   HTTP test/example, NOT suitable for credentials
+                             across an untrusted network.
+  dxweb-https.conf.example  HTTPS/WSS; requires real TLS cert/key files.
+  dxweb-subdir-https.conf.example  HTTPS/WSS mounted at /dxweb/ and
+                             /dxweb-admin/ on a shared HTTPS listener 443.
 
+Use exactly ONE layout for a given public listener; don't enable conflicting
+server blocks. The templates assume both applications and Nginx share a host.
+For production, prefer HTTPS; restrict Admin access to authorized networks.
 
-Do not run nginx -t or reload with the HTTPS template until the certificate and key paths have been replaced with valid files. If you do not have certificates yet, use the HTTP example for local-only tests and leave the public Admin port closed. Avoid running both the distribution's default Nginx site and this example if they conflict.
+STEP 1 - SERVICES
 
-For a TLS deployment, use https://FQDN:7380 and https://FQDN:7381. WebSocket upgrades become WSS externally, while upstream traffic stays HTTP on loopback. Configure DNS and firewall/NAT separately. No automatic HTTP-to-HTTPS redirect is provided because both protocols would otherwise compete for the same ports.
+Back up the current service units. Install both *.service.nginx.example units
+as dxweb.service and dxweb-admin.service under /etc/systemd/system. They bind
+127.0.0.1:7480 and :7481 with MOJO_REVERSE_PROXY=1. Reload systemd and
+restart only dxweb and dxweb-admin. Do not restart DXSpider.
 
-Validation
+  cd /spider
+  cp -p /etc/systemd/system/dxweb.service /root/dxweb.service.before-nginx
+  cp -p /etc/systemd/system/dxweb-admin.service /root/dxweb-admin.service.before-nginx
+  install -m 0644 dxweb.service.nginx.example /etc/systemd/system/dxweb.service
+  install -m 0644 dxweb-admin.service.nginx.example /etc/systemd/system/dxweb-admin.service
+  systemctl daemon-reload
+  systemctl restart dxweb.service dxweb-admin.service
+  curl -fsS http://127.0.0.1:7480/healthz
+  curl -fsS http://127.0.0.1:7481/healthz
 
-sh
-sudo nginx -t
-sudo ss -ltnp | grep -E ':(7380|7381|7480|7481)\b'
-curl -I http://127.0.0.1:7380/       # HTTP example only
-curl -I https://FQDN:7380/           # HTTPS example only, with valid DNS/certificate
-curl -I https://FQDN:7381/           # HTTPS example only
+STEP 2 - NGINX
 
+Edit the FQDN placeholder (and real certificate paths in HTTPS examples).
+Install ONE example, for example:
+  install -m 0644 /spider/dxweb/docs/dxweb-https.conf.example /etc/nginx/sites-available/dxweb.conf
+  ln -sfn /etc/nginx/sites-available/dxweb.conf /etc/nginx/sites-enabled/dxweb.conf
+  nginx -t
+  systemctl reload nginx
 
-Also verify WebSocket operation, authenticated access and the real client IP from an external client. curl -I is only a basic connectivity check, not a complete application test.
+If a site already exists, back it up before overwriting. Check for conflicts
+with default sites and other server blocks. The HTTP example is intended for
+restricted testing only, not Internet-facing authenticated use.
 
-Repo documentation integration
+ROOT MODE
 
-Link to these two examples from dxweb/INSTALL and dxweb-admin/INSTALL under their Nginx reverse-proxy sections. Keep the HTTP/HTTPS distinction and the requirement to bind application backends to loopback. This package does not modify the existing repository files because their exact current contents have not been provided.
+  https://YOUR_FQDN:7380/  -> Nginx -> 127.0.0.1:7480 (DXWeb)
+  https://YOUR_FQDN:7381/  -> Nginx -> 127.0.0.1:7481 (Admin)
 
-Architecture diagrams
+SUBDIRECTORY MODE (optional, separate template)
 
-- [Spanish diagram](DXWeb_Configuration_ES.png)
-- [English diagram](DXWeb_Configuration_EN.png)
+  https://YOUR_FQDN/dxweb/       -> 127.0.0.1:7480/
+  https://YOUR_FQDN/dxweb-admin/ -> 127.0.0.1:7481/
 
-The DXSpider link depicted is the IntMsg WebCluster listener, normally
-127.0.0.1:27754, not a conventional DXSpider client/node listener.
-The images describe the provided example port layout; adjust addresses
-and ports if your deployment differs.
+Use trailing slashes on the public base paths. In Nginx, proxy_pass with a
+trailing slash removes the external prefix before forwarding to Mojolicious.
+The v0.07 HTML and JS use relative URLs for static assets and WebSockets.
+This layout still REQUIRES live browser validation (login, assets, websocket,
+console, filters) and has not been certified in this environment.
 
-Direct access (without a reverse proxy):
-    MOJO_REVERSE_PROXY=0
+SECURITY / FORWARDED HEADERS
+
+The proxy overwrites Host, X-Real-IP, X-Forwarded-For and X-Forwarded-Proto.
+Do not trust forwarded headers from arbitrary clients. MOJO_REVERSE_PROXY=1
+is ONLY for trusted proxy mode. Nginx must handle Upgrade/Connection for
+WebSockets; the backend must not be directly reachable by untrusted users.
+Browser Origin validation compares scheme, host and port. When testing,
+use the actual public hostname, port and scheme, not an unrelated Origin.
+
+STEP 3 - CHECK
+
+  nginx -t
+  ss -ltnp | grep -E ':(7380|7381|7480|7481|443) '
+  curl -fsS http://127.0.0.1:7480/healthz
+  curl -fsS http://127.0.0.1:7481/healthz
+
+For HTTPS verify with a valid certificate and DNS, then test actual browser
+WebSocket, authentication and client IP. Never treat curl success as a full
+end-to-end test. For rollback restore the backed-up systemd units, run
+systemctl daemon-reload and restart both web services, then disable the
+Nginx site if it conflicts with the restored direct listeners.
+
+DIAGRAMS
+
+The existing DXWeb_Configuration_ES.png and DXWeb_Configuration_EN.png are
+historical illustrations. Confirm their depicted ports before reusing them;
+the authoritative port table is above. This package does not edit the images.

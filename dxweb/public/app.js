@@ -5,13 +5,34 @@
  *
  * Copyright (c) 2026 Dirk Koopman G1TLH
  */
-// DXSpider Web 2.8.30
+// DXSpider Web 2.8.34
 // Date: 2026-09-16
 'use strict';
 const $=id=>document.getElementById(id);
 let ws=null, authenticated=false, logoutPending=false, authUser=null, authRegistered=false, passwordUsed=false, activeTab='spots';
 let spotItems=[], spotCounts={human:0,rbn:0}, logs={ann:[],wwv:[],wcy:[],wx:[]};
 let cmdHistory=[], historyPos=0, pendingCommandTargets=[], pendingCommandNames=[];
+
+// Same one-button theme control as DXWeb Admin: Auto -> Dark -> Light.
+const themePreferenceKey='dxspider.dxweb.theme';
+const themeToggle=$('themeToggle');
+const themeLabels={auto:'◐ Auto',dark:'☾ Dark',light:'☀ Light'};
+let themeChoice='auto';
+try{themeChoice=localStorage.getItem(themePreferenceKey)||'auto'}catch(_){}
+if(!Object.hasOwn(themeLabels,themeChoice))themeChoice='auto';
+function themeApply(choice){
+ themeChoice=choice;
+ const isDark=choice==='dark'||(choice==='auto'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);
+ document.documentElement.dataset.theme=isDark?'dark':'light';
+ themeToggle.textContent=themeLabels[choice];
+ themeToggle.title='Theme: '+choice;
+ themeToggle.setAttribute('aria-label','Theme: '+choice);
+ try{localStorage.setItem(themePreferenceKey,choice)}catch(_){}
+}
+themeApply(themeChoice);
+themeToggle.addEventListener('click',()=>themeApply(themeChoice==='auto'?'dark':themeChoice==='dark'?'light':'auto'));
+if(window.matchMedia){const media=window.matchMedia('(prefers-color-scheme: dark)');
+ if(media.addEventListener)media.addEventListener('change',()=>{if(themeChoice==='auto')themeApply('auto')});}
 
 function send(o){if(!(ws&&ws.readyState===WebSocket.OPEN))return false;ws.send(JSON.stringify(o));return true}
 function esc(v){return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
@@ -29,6 +50,7 @@ function spotFontApply(value,save=false){
  if(save&&typeof spotPresentationSave==='function')spotPresentationSave();
 }
 function spotFontForSession(){
+ consoleFontRestore();
  let value=100;
  if(authenticated&&authUser){try{const saved=Number(localStorage.getItem(spotFontKeyBase+authUser.toUpperCase()));if(saved>=70&&saved<=150)value=saved}catch(_){}}
  spotFontApply(value,false);
@@ -36,6 +58,19 @@ function spotFontForSession(){
 $('spotFontDown').onclick=()=>spotFontApply(spotFontPercent-10,true);
 $('spotFontUp').onclick=()=>spotFontApply(spotFontPercent+10,true);
 $('spotFontReset').onclick=()=>spotFontApply(100,true);
+// Independent font size for DXSpider console output; stored per callsign.
+const consoleFontKeyBase='dxspider.dxweb.consoleFont.';
+let consoleFontPercent=100;
+function consoleFontApply(value,save=false){
+ consoleFontPercent=Math.max(70,Math.min(150,Math.round(value/10)*10));
+ const area=$('consoleOutput');if(area)area.style.fontSize=(13*consoleFontPercent/100)+'px';
+ $('consoleFontReset').textContent=consoleFontPercent+' %';
+ if(save&&authenticated&&authUser){try{localStorage.setItem(consoleFontKeyBase+authUser.toUpperCase(),String(consoleFontPercent))}catch(_){}}
+}
+function consoleFontRestore(){let value=100;if(authenticated&&authUser){try{value=Number(localStorage.getItem(consoleFontKeyBase+authUser.toUpperCase()))||100}catch(_){}}consoleFontApply(value)}
+$('consoleFontDown').onclick=()=>consoleFontApply(consoleFontPercent-10,true);
+$('consoleFontUp').onclick=()=>consoleFontApply(consoleFontPercent+10,true);
+$('consoleFontReset').onclick=()=>consoleFontApply(100,true);
 const spotFeedKeyBase='dxspider.dxweb.spotFeeds.';
 function spotFeedSave(){
  if(!authenticated||!authUser)return;
@@ -53,6 +88,8 @@ function spotFeedRestore(){
 function loginState(ok,m={}){
  authenticated=ok;document.body.classList.toggle('authenticated',ok);document.body.classList.toggle('anonymous',!ok); authUser=ok?(m.call||authUser):null;authRegistered=ok?Boolean(m.registered):false;passwordUsed=ok?Boolean(m.password_used):false;
  $('loginButton').textContent=ok?`Logout ${authUser}`:'Login';
+ $('profileButton').hidden=!ok;
+ if(!ok){$('profileDialog').close();$('passwordDialog').close();}
  updateRegistrationAccess();
  spotFontForSession();
  spotFeedRestore();
@@ -120,7 +157,7 @@ function clearSessionData(){
  renderSpots();for(const k of Object.keys(logs))renderLog(k);
 }
 function connect(){
- const proto=location.protocol==='https:'?'wss':'ws'; ws=new WebSocket(`${proto}://${location.host}/ws`);
+ const proto=location.protocol==='https:'?'wss':'ws'; ws=new WebSocket(`${proto}://${location.host}${new URL("./ws",location.href).pathname}`);
  ws.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error('dxweb message handler error',err,e.data);$('status').textContent='ui-error'}};
  ws.onclose=()=>{logoutPending=false;$('loginSubmit').disabled=false;$('status').textContent='disconnected';loginState(false);setTimeout(connect,2000)};
 }
@@ -407,7 +444,7 @@ function geoCalculate(item){
 function geoRenderValue(item,key){const g=geoCalculate(item);return key==='distance'?g.distance:g.bearing}
 function geoLoadPrefix(){
  if(geoPrefixLoading)return;geoPrefixLoading=true;
- fetch('/geo-prefix.json',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('prefix map missing');return r.json()}).then(data=>{
+ fetch('./geo-prefix.json',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('prefix map missing');return r.json()}).then(data=>{
   if(data&&data.version===1&&data.prefixes&&typeof data.prefixes==='object')geoPrefixMap=data.prefixes;
   renderSpots();
  }).catch(()=>{/* DX locator calculations remain available without a map */});
@@ -490,7 +527,7 @@ function parseCC11(payload){
  const utc=(f[4]||'').replace(/Z$/i,'').replace(/[^0-9]/g,'').slice(0,4);
  return {utc,
          freq:f[1]||'',dx:f[2]||'',comment:f[5]||'',spotter:f[6]||'',
-         cqDx:f[10]||'',ituDx:f[11]||'',cqSpotter:f[12]||'',ituSpotter:f[13]||'',
+         cqDx:f[11]||'',ituDx:f[10]||'',cqSpotter:f[13]||'',ituSpotter:f[12]||'',
          locDx:f[18]||'',locSpotter:f[19]||''};
 }
 function acceptFeed(m){
@@ -542,6 +579,8 @@ function handle(m){
    else {$('loginError').textContent=m.error||'Authentication failed';loginState(false)}
    return;
  }
+ if(m.type==='profile_result'){profileHandle(m);return}
+ if(m.type==='error'&&m.action==='profile'){profileHandle({type:'profile_result',status:'error',action:'get',error:m.error||'profile_request_failed'});return}
  if(m.type==='command_result'){
    const target=pendingCommandTargets[0]||activeTab;const t=responseText(m);
    if(logs[target]){if(t){for(const line of t.split('\n'))logs[target].push(line);if(logs[target].length>500)logs[target]=logs[target].slice(-500);renderLog(target)}}
@@ -563,6 +602,56 @@ function handle(m){
  if(m.type==='ann_result'){$('annResult').textContent=responseText(m)||(m.status==='ok'?'Announcement accepted by DXSpider':'Announcement rejected');if(m.status==='ok')$('annText').value='';return}
  if(m.type==='feed'){if(!logoutPending)acceptFeed(m);return}
 }
+
+// Profile is read afresh from DXUser on every opening; never cache as truth.
+let profileOriginal=null,profilePasswordSet=false;
+$('profileButton').onclick=()=>{
+ if(!authenticated)return;
+ profileOriginal=null;
+ $('profileResult').textContent='Loading profile from DXSpider…';
+ $('profileCall').textContent=authUser;
+ $('profileDialog').showModal();
+ if(!send({type:'profile',action:'get'}))$('profileResult').textContent='DXSpider unavailable';
+};
+$('profileClose').onclick=()=>$('profileDialog').close();
+$('passwordClose').onclick=()=>$('passwordDialog').close();
+$('profilePasswordButton').onclick=()=>{
+ $('passwordResult').textContent='';$('profileOldPassword').value='';
+ $('profileNewPassword').value='';$('profileConfirmPassword').value='';
+ if(!profilePasswordSet){$('profileResult').textContent='Password change requires an existing DXSpider password.';return}
+ $('passwordDialog').showModal();
+};
+$('profileForm').addEventListener('submit',e=>{
+ e.preventDefault();if(!authenticated||!profileOriginal)return;
+ const fields={},vals={name:$('profileName').value.trim(),qth:$('profileQth').value.trim(),qra:$('profileQra').value.trim().toUpperCase(),email:$('profileEmail').value.trim()};
+ for(const k of Object.keys(vals))if(vals[k]!==String(profileOriginal[k]||''))fields[k]=vals[k];
+ if(!Object.keys(fields).length){$('profileResult').textContent='No changes';return}
+ $('profileResult').textContent='Saving…';
+ if(!send({type:'profile',action:'save',fields}))$('profileResult').textContent='DXSpider unavailable';
+});
+$('passwordForm').addEventListener('submit',e=>{
+ e.preventDefault();if(!authenticated)return;
+ const old=$('profileOldPassword').value,now=$('profileNewPassword').value;
+ if(now!==$('profileConfirmPassword').value){$('passwordResult').textContent='Passwords do not match';return}
+ $('passwordResult').textContent='Updating…';
+ if(!send({type:'profile',action:'password',current_password:old,new_password:now}))$('passwordResult').textContent='DXSpider unavailable';
+ $('profileOldPassword').value='';$('profileNewPassword').value='';$('profileConfirmPassword').value='';
+});
+function profileHandle(m){
+ const action=m.action||'get';
+ if(m.status!=='ok'){
+  const target=$('passwordDialog').open?$('passwordResult'):$('profileResult');
+  target.textContent=m.error||'Profile operation failed';return;
+ }
+ if(action==='password'){$('passwordResult').textContent='Password changed';setTimeout(()=>$('passwordDialog').close(),900);return}
+ const f=m.fields||{};profileOriginal={name:f.name||'',qth:f.qth||'',qra:f.qra||'',email:f.email||''};
+ profilePasswordSet=Boolean(m.password_set);
+ $('profileName').value=profileOriginal.name;$('profileQth').value=profileOriginal.qth;
+ $('profileQra').value=profileOriginal.qra;$('profileEmail').value=profileOriginal.email;
+ $('profileResult').textContent=action==='save'?'Saved in DXSpider':'Loaded from DXSpider';
+ if(action==='save')$('profileDialog').close();
+}
+
 loginState(false);
 connect();
 
