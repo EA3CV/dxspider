@@ -1,7 +1,7 @@
 DXWEB ADMIN - OPERATIONS
 ========================================================================
 
-This is a documentation update for the installed v0.07 application, not a
+This is a documentation update for the installed DXWeb Admin v0.78.13 application, not a
 new application binary release. Application code, backend and protocols are
 unchanged. See INSTALL for full native deployment instructions.
 
@@ -49,7 +49,7 @@ Service: /etc/systemd/system/dxweb-admin.service
 Configuration: direct by default; optional same-host Nginx examples.
 Admin browser access requires authenticated DXSpider DXUser privilege >=9 and a password (v0.05 privilege fix). The public DXWeb does not inherit SYSOP privilege.
 
-UI v0.07: both applications have Console monospace font controls (-, 100%, +)
+UI: DXWeb v0.17 and DXWeb Admin v0.78.13 have Console monospace font controls (-, 100%, +)
 and a SH/FILTER action in Filters. Their real operation must be checked in
 browser; this documentation-only package does not alter the UI.
 
