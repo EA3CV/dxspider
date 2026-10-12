@@ -336,7 +336,7 @@ sub new_channel
 		}
 
 		# Is this user has a nextlogin time, is it > now?
-		if ($tmlaverage) {
+		if ($tmlaverage && $user) {
 			my $t = $user->nextlogin || 0;
 			if ($t  > $main::systime) {
 				my $l = $t - $main::systime;
