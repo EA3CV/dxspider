@@ -1,0 +1,57 @@
+DXWEB - OPERATIONS
+========================================================================
+
+This is a documentation update for the installed v0.07 application, not a
+new application binary release. Application code, backend and protocols are
+unchanged. See INSTALL for full native deployment instructions.
+
+PORTS AND TOPOLOGY (native /spider)
+
+Mode                 DXWeb HTTP        Admin HTTP        DXSpider IntMsg
+DIRECT (default)     0.0.0.0:7380      0.0.0.0:7381      127.0.0.1:27754
+NGINX SAME HOST      127.0.0.1:7480    127.0.0.1:7481    127.0.0.1:27754
+Nginx public ports   7380             7381             not proxied
+
+0.0.0.0 is a bind address, not a URL: browse to the server's real IP or DNS name.
+The DXSpider technical port 27754 is not the browser port.
+Direct Admin on unencrypted HTTP exposes credentials: limit access to a trusted
+network, or use a properly configured HTTPS reverse proxy for remote use.
+
+The provided Nginx templates assume Nginx and both web processes share a host.
+If Nginx is on ANOTHER server, 127.0.0.1 in proxy_pass points to that other
+server, not to DXSpider. These templates are NOT a verified remote-Nginx setup.
+Such a deployment requires a separately secured upstream, firewall/TLS design,
+and a review of the source-IP and WebSocket Origin trust logic; do not simply
+replace 127.0.0.1 with a public address and set MOJO_REVERSE_PROXY=1.
+
+VARIABLES AND TRUST
+
+DXS_HOST (DXWeb only): address of the OUTBOUND DXSpider IntMsg peer; default
+127.0.0.1. DXS_PORT: technical port, default 27754. DXWeb Admin's backend
+address is fixed to 127.0.0.1 in the reviewed code; DXS_PORT is configurable.
+
+HTTP_HOST / HTTP_PORT (DXWeb): browser listener bind and port.
+DXWEB_HOST / DXWEB_PORT (Admin): corresponding Admin listener bind and port.
+0.0.0.0 listens on all IPv4 interfaces; 127.0.0.1 is loopback only.
+
+MOJO_REVERSE_PROXY=0 is the default for direct use. With trusted same-host
+Nginx set it to 1 in the systemd service environment. It instructs Mojolicious
+to interpret reverse-proxy headers; it neither starts Nginx nor changes ports.
+The application's WebSocket source-IP/Origin handling also has explicit
+loopback-specific checks: do not treat MOJO_REVERSE_PROXY=1 as a generic trust
+or security switch. Nginx must overwrite forwarded headers, not pass arbitrary
+client-supplied values through. Keep backend ports inaccessible externally.
+
+ENTRY AND BEHAVIOR
+
+Entry: /spider/dxweb/start.pl
+Service: /etc/systemd/system/dxweb.service
+Configuration: direct by default; optional same-host Nginx examples.
+DXWeb uses a single technical #WEB-n connection; browser sessions do not create DXChannels. Public spot reception does not require login. Authenticated browser actors do not inherit SYSOP privilege.
+
+UI v0.07: both applications have Console monospace font controls (-, 100%, +)
+and a SH/FILTER action in Filters. Their real operation must be checked in
+browser; this documentation-only package does not alter the UI.
+
+Read /spider/dxweb/docs/README-nginx for reverse-proxy configurations and
+limitations. Refer to the actual VERSION file for the application version.

@@ -5,8 +5,7 @@
  *
  * Copyright (c) 2026 Dirk Koopman G1TLH
  */
-// DXSpider Web Supervision 0.60.0
-// Date: 2026-09-16
+// Release version is provided by /admin-version.json (dxweb-admin/VERSION).
 'use strict';
 const $=id=>document.getElementById(id);
 let ws=null,authenticated=false,logoutPending=false,authUser=null,authPriv=0,activeSection='operation',activePanel='spots';const SYSOP_SECTIONS=new Set(['registration','supervision','metrics','timeline']);
@@ -26,21 +25,60 @@ function clearSessionContent(){
  if($('regSearch'))$('regSearch').value='';
  if($('regActionResult'))$('regActionResult').textContent='';
 }
-function loginState(ok,m={}){authenticated=ok;document.body.classList.toggle('authenticated',ok);authUser=ok?(m.call||authUser):null;authPriv=ok?Number(m.priv||0):0;document.querySelectorAll('.mainTabs [data-section]').forEach(b=>{const denied=ok&&authPriv<9&&SYSOP_SECTIONS.has(b.dataset.section);b.style.display='';b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 9':'';b.classList.toggle('sysopDenied',denied);b.style.filter=''});document.querySelectorAll('.v2NavBtn[data-v2-target]').forEach(b=>{const denied=ok&&authPriv<9&&SYSOP_SECTIONS.has(b.dataset.v2Target);b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 9':'';b.classList.toggle('sysopDenied',denied)});if(ok&&authPriv<9&&SYSOP_SECTIONS.has(activeSection))selectSection('operation');$('loginButton').textContent=ok?`Logout ${authUser}`:'Login';setLocked(!ok)}
+// Spot font preference is per authenticated callsign and per web application.
+const spotFontKeyBase='dxspider.dxweb-admin.spotFont.';
+let spotFontPercent=100;
+function spotFontApply(value,save=false){
+ spotFontPercent=Math.max(70,Math.min(150,Math.round(value/10)*10));
+ const area=document.querySelector('#spots .spotResultArea');
+ if(area)area.style.setProperty('--spot-font-scale',String(spotFontPercent/100));
+ const reset=$('spotFontReset');if(reset)reset.textContent=spotFontPercent+' %';
+ if(save&&authenticated&&authUser){try{localStorage.setItem(spotFontKeyBase+authUser.toUpperCase(),String(spotFontPercent))}catch(_){}}
+ if(typeof updateSpotLayout==='function')updateSpotLayout();
+ if(save&&typeof spotPresentationSave==='function')spotPresentationSave();
+}
+function spotFontForSession(){
+ let value=100;
+ if(authenticated&&authUser){try{const saved=Number(localStorage.getItem(spotFontKeyBase+authUser.toUpperCase()));if(saved>=70&&saved<=150)value=saved}catch(_){}}
+ spotFontApply(value,false);
+}
+$('spotFontDown').onclick=()=>spotFontApply(spotFontPercent-10,true);
+$('spotFontUp').onclick=()=>spotFontApply(spotFontPercent+10,true);
+$('spotFontReset').onclick=()=>spotFontApply(100,true);
+
+// Console font is independent of Spots and stored for each authenticated callsign.
+const consoleFontKeyBase='dxspider.dxweb-admin.consoleFont.';
+let consoleFontPercent=100;
+function consoleFontApply(value,save=false){
+ consoleFontPercent=Math.max(70,Math.min(150,Math.round(value/10)*10));
+ const area=$('consoleOutput');if(area)area.style.fontSize=(13*consoleFontPercent/100)+'px';
+ const reset=$('consoleFontReset');if(reset)reset.textContent=consoleFontPercent+' %';
+ if(save&&authenticated&&authUser){try{localStorage.setItem(consoleFontKeyBase+authUser.toUpperCase(),String(consoleFontPercent))}catch(_){}}
+}
+function consoleFontRestore(){
+ let value=100;
+ if(authenticated&&authUser){try{const saved=Number(localStorage.getItem(consoleFontKeyBase+authUser.toUpperCase()));if(saved>=70&&saved<=150)value=saved}catch(_){}}
+ consoleFontApply(value,false);
+}
+$('consoleFontDown').onclick=()=>consoleFontApply(consoleFontPercent-10,true);
+$('consoleFontUp').onclick=()=>consoleFontApply(consoleFontPercent+10,true);
+$('consoleFontReset').onclick=()=>consoleFontApply(100,true);
+
+function loginState(ok,m={}){authenticated=ok;document.body.classList.toggle('authenticated',ok);authUser=ok?(m.call||authUser):null;authPriv=ok?Number(m.priv||0):0;document.querySelectorAll('#deleteUserOpen, #historyCompress, #historyDelete, #maintenanceUpdates button, .opCommandForm button, #consoleForm button, #filterForm button').forEach(b=>{b.disabled=ok&&authPriv<9;b.hidden=ok&&authPriv<9&&b.id==='deleteUserOpen'});document.querySelectorAll('.mainTabs [data-section]').forEach(b=>{const denied=ok&&authPriv<5&&SYSOP_SECTIONS.has(b.dataset.section);b.style.display='';b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 5':'';b.classList.toggle('sysopDenied',denied);b.style.filter=''});document.querySelectorAll('.v2NavBtn[data-v2-target]').forEach(b=>{const denied=ok&&authPriv<5&&SYSOP_SECTIONS.has(b.dataset.v2Target);b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 5':'';b.classList.toggle('sysopDenied',denied)});if(ok&&authPriv<5&&SYSOP_SECTIONS.has(activeSection))selectSection('operation');$('loginButton').textContent=ok?`Logout ${authUser}`:'Login';setLocked(!ok);spotFontForSession();consoleFontRestore();spotPresentationRestore()}
 function notice(t){$('noticeText').textContent=t;$('noticeDialog').showModal()}
 $('noticeClose').onclick=()=>$('noticeDialog').close();
 function showLogin(msg=''){if($('loginDialog').open)return;$('loginError').textContent=msg;$('loginDialog').showModal();$('loginCall').focus()}
-function connect(){const proto=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${proto}://${location.host}/ws`);ws.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error('admin message error',err,e.data)}};ws.onclose=()=>{supervisorInflight.clear();authenticated=false;logoutPending=false;loginState(false);$('status').textContent='disconnected';setTimeout(connect,2000)}}
+function connect(){const proto=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${proto}://${location.host}${new URL("./ws",location.href).pathname}`);ws.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error('admin message error',err,e.data)}};ws.onclose=()=>{supervisorInflight.clear();authenticated=false;logoutPending=false;loginState(false);$('status').textContent='disconnected';setTimeout(connect,2000)}}
 $('loginButton').onclick=()=>{if(authenticated){if(logoutPending)return;logoutPending=true;send({type:'logout'});$('loginButton').textContent='Logging out…'}else showLogin()};
 $('loginForm').addEventListener('submit',e=>{e.preventDefault();const call=$('loginCall').value.trim().toUpperCase(),password=$('loginPass').value;if(!call||!password){$('loginError').textContent='Callsign and password are required.';return}$('loginSubmit').disabled=true;if(!send({type:'auth',call,password})){$('loginSubmit').disabled=false;$('loginError').textContent='DXSpider connection is not ready';return}$('loginPass').value=''});
-function selectSection(id){if(authenticated&&authPriv<9&&SYSOP_SECTIONS.has(id))return;activeSection=id;document.querySelectorAll('.mainTabs button').forEach(b=>b.classList.toggle('active',b.dataset.section===id));document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.id===id));if(authenticated&&id==='registration')loadPending();if(authenticated&&id==='supervision')selectSupervision(activeSupervisionPanel);if(authenticated&&id==='metrics')requestMetrics();if(authenticated&&id==='timeline')requestTimeline()}
+function selectSection(id){if(authenticated&&authPriv<5&&SYSOP_SECTIONS.has(id))return;activeSection=id;document.querySelectorAll('.mainTabs button').forEach(b=>b.classList.toggle('active',b.dataset.section===id));document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.id===id));if(authenticated&&id==='registration')loadPending();if(authenticated&&id==='supervision')selectSupervision(activeSupervisionPanel);if(authenticated&&id==='metrics')requestMetrics();if(authenticated&&id==='timeline')requestTimeline()}
 document.querySelectorAll('.mainTabs button[data-section]').forEach(b=>b.onclick=()=>{if(b.disabled||b.getAttribute('aria-disabled')==='true')return;selectSection(b.dataset.section)});
 $('quickConsole').onclick=()=>{selectSection('consoleSection');$('consoleCommand').focus()};
 function selectPanel(id){activePanel=id;document.querySelectorAll('#operationTabs button').forEach(b=>b.classList.toggle('active',b.dataset.panel===id));document.querySelectorAll('#operation .panel').forEach(p=>p.classList.toggle('active',p.id===id))}
 document.querySelectorAll('#operationTabs button').forEach(b=>b.onclick=()=>selectPanel(b.dataset.panel));
 function selectReg(id){document.querySelectorAll('#registrationTabs button').forEach(b=>b.classList.toggle('active',b.dataset.regpanel===id));document.querySelectorAll('.regPanel').forEach(p=>p.classList.toggle('active',p.id===id));if(authenticated&&id==='pending')loadPending();if(authenticated&&id==='history')loadHistory()}
 document.querySelectorAll('#registrationTabs button').forEach(b=>b.onclick=()=>selectReg(b.dataset.regpanel));
-function command(cmd,target='console'){if(!authenticated)return;cmd=cmd.trim();if(!cmd)return;if(!cmdHistory.length||cmdHistory.at(-1)!==cmd)cmdHistory.push(cmd);historyPos=cmdHistory.length;if(target==='console'){const l=document.createElement('div');l.className='consoleCommandLine';l.textContent=`> ${cmd}`;$('consoleOutput').appendChild(l)}pendingCommandTargets.push(target);send({type:'command',command:cmd})}
+function command(cmd,target='console'){if(!authenticated||authPriv<9)return;cmd=cmd.trim();if(!cmd)return;if(!cmdHistory.length||cmdHistory.at(-1)!==cmd)cmdHistory.push(cmd);historyPos=cmdHistory.length;if(target==='console'){const l=document.createElement('div');l.className='consoleCommandLine';l.textContent=`> ${cmd}`;$('consoleOutput').appendChild(l)}pendingCommandTargets.push(target);send({type:'command',command:cmd})}
 $('consoleForm').addEventListener('submit',e=>{e.preventDefault();const v=$('consoleCommand').value;$('consoleCommand').value='';command(v,'console')});
 $('filterForm').addEventListener('submit',e=>{e.preventDefault();const v=$('filterCommand').value;$('filterCommand').value='';command(v,'filters')});
 
@@ -54,13 +92,127 @@ function spotFilterChanged(k){
  spotItems=spotItems.filter(x=>x.type!==k);
  renderSpots();
 }
+// Spot submission uses the existing DXS spot action; the server enforces SYSOP privilege.
+$('spotOpen').onclick=()=>{if(!authenticated||authPriv<9){notice('SYSOP login required to send a spot.');return}$('spotResult').textContent='';$('spotDialog').showModal()};
+$('spotCancel').onclick=()=>spotCancelPending();
+function spotCancelPending(){const d=$('spotDialog');d.close();$('spotResult').textContent='';$('spotForm').reset();$('spotSubmit').disabled=false}
+$('spotDialog').addEventListener('cancel',()=>{$('spotResult').textContent='';$('spotForm').reset();$('spotSubmit').disabled=false});
+$('spotForm').addEventListener('submit',e=>{e.preventDefault();if(!authenticated||authPriv<9)return;const freq=$('spotFreq').value.trim(),dxcall=$('spotDx').value.trim().toUpperCase(),comment=$('spotComment').value.trim();if(!freq||!dxcall)return;$('spotSubmit').disabled=true;$('spotResult').textContent='Sending…';if(!send({type:'spot',freq,dxcall,comment})){$('spotSubmit').disabled=false;$('spotResult').textContent='Admin connection is not ready.'}});
 $('showHuman').onchange=()=>spotFilterChanged('human');$('showRbn').onchange=()=>spotFilterChanged('rbn');
-function renderSpots(){const human=$('showHuman').checked,rbn=$('showRbn').checked,a=spotItems.filter(x=>(x.type==='human'&&human)||(x.type==='rbn'&&rbn));$('spotRows').innerHTML=a.slice(-250).reverse().map(x=>`<tr><td>${x.type==='human'?'C':'R'}</td><td>${esc(x.utc)}</td><td>${esc(x.freq)}</td><td>${esc(x.dx)}</td><td>${esc(x.spotter)}</td><td>${esc(x.comment)}</td><td>${esc(x.locDx)}</td><td>${esc(x.locSpotter)}</td><td>${esc(x.cqDx)}</td><td>${esc(x.cqSpotter)}</td><td>${esc(x.ituDx)}</td><td>${esc(x.ituSpotter)}</td></tr>`).join('');setCount('spots',(human?spotCounts.human:0)+(rbn?spotCounts.rbn:0))}
+
+// Browser-only great-circle calculations; the prefix map is generated offline
+// from DXSpider's authoritative prefix_data.pl, never queried in the spot path.
+let geoPrefixMap=null,geoPrefixLoading=false;
+function geoLocator(s){
+ s=String(s||'').trim().toUpperCase();if(!/^[A-R]{2}[0-9]{2}(?:[A-X]{2}(?:[0-9]{2}(?:[A-X]{2})?)?)?$/.test(s))return null;
+ let lon=-180,lat=-90,lonSpan=20,latSpan=10;
+ const alph='ABCDEFGHIJKLMNOPQRSTUVWX';
+ for(let i=0;i<s.length;i+=2){
+  const n=i/2;
+  if(n===0){lon+=(s.charCodeAt(i)-65)*20;lat+=(s.charCodeAt(i+1)-65)*10}
+  else if(n===1){lonSpan/=10;latSpan/=10;lon+=Number(s[i])*lonSpan;lat+=Number(s[i+1])*latSpan}
+  else if(n%2===0){lonSpan/=24;latSpan/=24;lon+=alph.indexOf(s[i])*lonSpan;lat+=alph.indexOf(s[i+1])*latSpan}
+  else{lonSpan/=10;latSpan/=10;lon+=Number(s[i])*lonSpan;lat+=Number(s[i+1])*latSpan}
+ }
+ return {lat:lat+latSpan/2,lon:lon+lonSpan/2};
+}
+function geoPrefix(dx){
+ if(!geoPrefixMap)return null;
+ const call=String(dx||'').toUpperCase().replace(/-\d+$/,'');
+ // Exact callsigns and slash-prefixes take precedence; then longest prefix.
+ const keys=[`=${call}`,call];
+ const parts=call.split('/');
+ for(const part of parts)if(part&&part.length<=4)keys.push(part);
+ for(const key of keys)if(Object.prototype.hasOwnProperty.call(geoPrefixMap,key))return geoPrefixMap[key];
+ const candidates=[call,...parts.filter(x=>x.length>=2)];
+ for(const candidate of candidates)for(let n=candidate.length;n>=1;n--){const key=candidate.slice(0,n);if(Object.prototype.hasOwnProperty.call(geoPrefixMap,key))return geoPrefixMap[key]}
+ return null;
+}
+function geoCalculate(item){
+ const origin=geoLocator(document.getElementById('userLocator')?.value);
+ if(!origin)return {distance:'—',bearing:'—',source:''};
+ let dest=geoLocator(item.locDx),approx=false;
+ if(!dest){const fallback=geoPrefix(item.dx);if(fallback){dest={lat:fallback[0],lon:fallback[1]};approx=true}}
+ if(!dest)return {distance:'—',bearing:'—',source:''};
+ const rad=Math.PI/180,p1=origin.lat*rad,p2=dest.lat*rad,dl=(dest.lon-origin.lon)*rad;
+ const cosine=Math.min(1,Math.max(-1,Math.sin(p1)*Math.sin(p2)+Math.cos(p1)*Math.cos(p2)*Math.cos(dl)));
+ const km=Math.round(6371.0088*Math.acos(cosine));
+ const y=Math.sin(dl)*Math.cos(p2),x=Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(dl);
+ const bearing=((Math.round(Math.atan2(y,x)/rad)%360)+360)%360;
+ return {distance:String(km)+' km',bearing:String(bearing).padStart(3,'0')+'°',source:approx?'Approximate DXCC/prefix position':'DX locator'};
+}
+function geoRenderValue(item,key){const g=geoCalculate(item);return key==='distance'?g.distance:g.bearing}
+function geoLoadPrefix(){
+ if(geoPrefixLoading)return;geoPrefixLoading=true;
+ fetch('./geo-prefix.json',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('prefix map missing');return r.json()}).then(data=>{
+  if(data&&data.version===1&&data.prefixes&&typeof data.prefixes==='object')geoPrefixMap=data.prefixes;
+  renderSpots();
+ }).catch(()=>{/* DX locator calculations remain available without a map */});
+}
+const geoInput=document.getElementById('userLocator');
+geoInput.value='';
+geoInput.addEventListener('input',()=>{
+ const value=geoInput.value.trim().toUpperCase();
+ geoInput.setCustomValidity(value&&!geoLocator(value)?'Enter a valid Maidenhead locator (4, 6, 8 or 10 characters).':'');
+ if(!geoInput.validity.valid)return;
+ updateSpotLayout();renderSpots();
+});
+geoLoadPrefix();
+
+// Optional spot columns and bounded Comment resizing; presentation only.
+const spotCore=[['type','C/R',44],['utc','UTC',58],['freq','Freq',120],['dx','DX',120],['spotter','Spotter',120],['comment','Comment',80]];
+const spotExtras=[['loc','Locator',78],['cq','CQ Zone',65],['itu','ITU Zone',65]];
+let spotVisibleColumns=[],spotCommentPreferred=null,spotResizeActive=false;
+
+function spotSelected(){return new Set([...document.querySelectorAll('[data-spot-group]:checked')].map(e=>e.dataset.spotGroup))}
+function updateSpotLayout(){
+ const table=document.querySelector('.spotTable'),area=table?.closest('.spotResultArea');if(!area)return;
+ const style=getComputedStyle(area);
+ const available=Math.max(0,area.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)-8),selected=spotSelected();
+ // Hide complete groups in priority order: ITU, CQ, Locator. Never hide core fields.
+ const geoEnabled=!!geoLocator(document.getElementById('userLocator')?.value);
+ const scale=spotFontPercent/100;
+ const coreWidth=spotCore.reduce((s,x)=>s+Math.ceil(x[2]*scale),0)+(geoEnabled?Math.ceil(176*scale):0);
+ const groups=spotExtras.map(([key,name,w])=>({key,name,w,fields:selected.has(key)?[['Dx','DX'],['Spotter','Spotter']]:[]}));
+ let extraWidth=groups.reduce((s,g)=>s+g.fields.length*Math.ceil(g.w*scale),0);
+ for(const g of [...groups].reverse())if(extraWidth+coreWidth>available&&g.fields.length){extraWidth-=g.fields.length*Math.ceil(g.w*scale);g.fields=[]}
+ const commentMin=Math.ceil(80*scale),base=coreWidth-commentMin;
+ const comment=Math.max(commentMin,spotCommentPreferred===null?available-base-extraWidth:Math.min(spotCommentPreferred,Math.max(commentMin,available-base-extraWidth)));
+ const cols=spotCore.map(([key,title,w])=>({key,title,w:key==='comment'?comment:Math.ceil(w*scale)}));
+ if(geoEnabled)cols.push({key:'distance',title:'Distance',w:Math.ceil(96*scale)},{key:'bearing',title:'Bearing',w:Math.ceil(80*scale)});
+ for(const g of groups)for(const [suffix,title] of g.fields)cols.push({key:g.key+suffix,title,w:Math.ceil(g.w*scale),group:g.name});
+ const signature=cols.map(x=>x.key).join('|');const previous=spotVisibleColumns.map(x=>x.key).join('|');
+ spotVisibleColumns=cols;
+ const total=cols.reduce((s,x)=>s+x.w,0);table.style.width=total+'px';table.style.minWidth=total+'px';
+ $('spotCols').innerHTML=cols.map(x=>`<col style="width:${x.w}px">`).join('');
+ if(signature!==previous){
+  const groupHeaders=groups.filter(g=>g.fields.length).map(g=>`<th colspan="${g.fields.length}">${g.name}</th>`).join('');
+  const hasExtras=!!groupHeaders;
+  $('spotHeaders').innerHTML=`<tr class="spotHeadGroup">${cols.filter(x=>!x.group).map(x=>`<th ${hasExtras?'rowspan="2"':''} class="${x.key==='comment'?'commentHeader':(x.key==='distance'||x.key==='bearing'?'spotGeoNumeric':'')}">${x.title}${x.key==='comment'?'<span class="commentResizeHandle" role="separator" aria-label="Resize Comment column" title="Drag to resize Comment"></span>':''}</th>`).join('')}${groupHeaders}</tr>${hasExtras?`<tr class="spotHeadSub">${groups.map(g=>g.fields.map(f=>`<th>${f[1]}</th>`).join('')).join('')}</tr>`:''}`;
+  renderSpots();
+ }
+}
+for(const box of document.querySelectorAll('[data-spot-group]'))box.addEventListener('change',updateSpotLayout);
+const spotArea=document.querySelector('.spotResultArea');
+if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{if(!spotResizeActive)updateSpotLayout()}).observe(spotArea.parentElement);
+else window.addEventListener('resize',updateSpotLayout);
+$('spotHeaders').addEventListener('pointerdown',e=>{
+ if(!e.target.classList.contains('commentResizeHandle'))return;
+ e.preventDefault();spotResizeActive=true;
+ const startX=e.clientX,startWidth=spotVisibleColumns.find(x=>x.key==='comment')?.w||80;
+ const move=ev=>{spotCommentPreferred=Math.max(80,Math.min(1200,startWidth+ev.clientX-startX));updateSpotLayout()};
+ const done=()=>{spotResizeActive=false;window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',done);window.removeEventListener('pointercancel',done);spotPresentationSave();updateSpotLayout()};
+ window.addEventListener('pointermove',move);window.addEventListener('pointerup',done);window.addEventListener('pointercancel',done);
+});
+window.addEventListener('load',updateSpotLayout);
+updateSpotLayout();
+function renderSpots(){const human=$('showHuman').checked,rbn=$('showRbn').checked,a=spotItems.filter(x=>(x.type==='human'&&human)||(x.type==='rbn'&&rbn));$('spotRows').innerHTML=a.slice(-250).reverse().map(x=>`<tr class="${x._newUntil>Date.now()?'spotFresh':''}" style="${x._newUntil>Date.now()?'animation-delay:-'+((3000-(x._newUntil-Date.now()))/1000).toFixed(2)+'s':''}">${spotVisibleColumns.map(col=>`<td class="${col.key==='distance'||col.key==='bearing'?'spotGeoNumeric':''}" title="${col.key==='distance'||col.key==='bearing'?esc(geoCalculate(x).source):esc(x[col.key]??'')}">${col.key==='type'?(x.type==='human'?'C':'R'):col.key==='distance'||col.key==='bearing'?esc(geoRenderValue(x,col.key)):esc(x[col.key]??'')}</td>`).join('')}</tr>`).join('');setCount('spots',(human?spotCounts.human:0)+(rbn?spotCounts.rbn:0))}
 function renderLog(k){const e=document.querySelector(`[data-kind="${k}"]`);if(!e)return;e.textContent=logs[k].slice(-250).join('\n');e.scrollTop=e.scrollHeight;setCount(k,logs[k].length)}
 function parseCC11(payload){if(typeof payload!=='string')return null;const f=payload.split('^');if(f[0]!=='CC11'||f.length<7)return null;return{utc:(f[4]||'').replace(/Z$/i,'').replace(/[^0-9]/g,'').slice(0,4),freq:f[1]||'',dx:f[2]||'',comment:f[5]||'',spotter:f[6]||'',cqDx:f[10]||'',ituDx:f[11]||'',cqSpotter:f[12]||'',ituSpotter:f[13]||'',locDx:f[18]||'',locSpotter:f[19]||''}}
 function acceptFeed(m){const k=(m.feed||'').toLowerCase();if(k==='human'||k==='rbn'){const p=parseCC11(m.payload);if(!p)return;const enabled=k==='human'?$('showHuman').checked:$('showRbn').checked;
    if(!enabled)return;
-   spotItems.push({...p,type:k});
+   spotItems.push({...p,type:k,_newUntil:Date.now()+3000});
+   setTimeout(()=>{if(spotItems.some(x=>x._newUntil&&x._newUntil<=Date.now()))renderSpots()},3100);
    spotCounts[k]=(spotCounts[k]||0)+1;if(spotItems.length>1000)spotItems.shift();renderSpots();return}if(logs[k]){logs[k].push(typeof m.payload==='string'?m.payload:JSON.stringify(m.payload));if(logs[k].length>500)logs[k].shift();renderLog(k)}}
 function fmtTime(v){if(!v)return '-';const d=new Date(Number(v)*1000);return Number.isNaN(d.getTime())?'-':d.toLocaleString()}
 function compactSsids(values){const a=[...new Set((Array.isArray(values)?values:[]).map(Number).filter(n=>Number.isInteger(n)&&n>=1&&n<=99))].sort((x,y)=>x-y);if(!a.length)return '-';const out=[];let start=a[0],prev=a[0];const flush=()=>out.push(start===prev?String(start):`${start}-${prev}`);for(let i=1;i<a.length;i++){const n=a[i];if(n===prev+1){prev=n;continue}flush();start=prev=n}flush();return out.join(',')}
@@ -68,11 +220,11 @@ function ssids(r){return compactSsids(r.accepted_ssids||r.requested_ssids||r.aff
 function loadPending(){send({type:'reg_pending'})} function loadHistory(){send({type:'reg_history'})}
 $('pendingRefresh').onclick=loadPending;$('historyRefresh').onclick=loadHistory;
 $('regSearchForm').addEventListener('submit',e=>{e.preventDefault();const q=$('regSearch').value.trim();if(q)send({type:'reg_search',query:q})});
-function renderPending(rows){$('pendingRows').innerHTML=(rows||[]).map(r=>`<tr><td>#${esc(r.id)}</td><td>${esc(r.call)}</td><td>${esc(compactSsids(r.requested_ssids||[]))}</td><td>${esc(r.name||'-')}</td><td>${esc(r.email||'-')}</td><td>${esc(r.ip||'-')}</td><td>${esc(fmtTime(r.created_at))}</td><td>${esc(r.comment||'-')}</td><td><div class="regActions"><button data-reg-id="${esc(r.id)}" data-reg-action="accept">Accept</button><button data-reg-id="${esc(r.id)}" data-reg-action="reject">Reject</button></div></td></tr>`).join('')||'<tr><td colspan="9">No pending registration requests.</td></tr>';document.querySelectorAll('[data-reg-action]').forEach(b=>b.onclick=()=>openDecision(b.dataset.regId,b.dataset.regAction,rows))}
-function renderHistory(rows,target='historyRows'){$(target).innerHTML=(rows||[]).map(r=>`<tr><td>#${esc(r.id)}</td><td>${esc(r.call)}</td><td>${esc(ssids(r))}</td><td class="status-${esc(r.status)}">${esc(r.status||'-')}</td><td>${esc(r.name||'-')}</td><td>${esc(r.email||'-')}</td><td>${esc(fmtTime(r.created_at))}</td><td>${esc(fmtTime(r.processed_at))}</td><td>${esc(r.processed_by||'-')}</td><td>${esc(r.note??'-')}</td></tr>`).join('')||'<tr><td colspan="10">No matching registration records.</td></tr>'}
+function renderPending(rows){$('pendingRows').innerHTML=(rows||[]).map(r=>`<tr><td>#${esc(r.id)}</td><td>${esc(r.call)}</td><td>${esc(compactSsids(r.requested_ssids||[]))}</td><td>${esc(r.name||'-')}</td><td>${authPriv>=9?esc(r.email||'-'):'Restricted'}</td><td>${authPriv>=9?esc(r.ip||'-'):'Restricted'}</td><td>${esc(fmtTime(r.created_at))}</td><td>${authPriv>=9?esc(r.comment||'-'):'Restricted'}</td><td><div class="regActions" style="display:${authPriv>=9?'':'none'}"><button data-reg-id="${esc(r.id)}" data-reg-action="accept">Accept</button><button data-reg-id="${esc(r.id)}" data-reg-action="reject">Reject</button></div></td></tr>`).join('')||'<tr><td colspan="9">No pending registration requests.</td></tr>';document.querySelectorAll('[data-reg-action]').forEach(b=>b.onclick=()=>openDecision(b.dataset.regId,b.dataset.regAction,rows))}
+function renderHistory(rows,target='historyRows'){$(target).innerHTML=(rows||[]).map(r=>`<tr><td>#${esc(r.id)}</td><td>${esc(r.call)}</td><td>${esc(ssids(r))}</td><td class="status-${esc(r.status)}">${esc(r.status||'-')}</td><td>${esc(r.name||'-')}</td><td>${authPriv>=9?esc(r.email||'-'):'Restricted'}</td><td>${esc(fmtTime(r.created_at))}</td><td>${esc(fmtTime(r.processed_at))}</td><td>${esc(r.processed_by||'-')}</td><td>${authPriv>=9?esc(r.note??'-'):'Restricted'}</td></tr>`).join('')||'<tr><td colspan="10">No matching registration records.</td></tr>'}
 let decisionId=null;
 let decisionAction=null;
-function openDecision(id,action,rows){
+function openDecision(id,action,rows){if(authPriv<9)return;
  decisionId=Number(id);
  decisionAction=action==='reject'?'reject':'accept';
  const r=(rows||[]).find(x=>Number(x.id)===decisionId)||{};
@@ -88,7 +240,7 @@ function openDecision(id,action,rows){
 }
 $('regAccept').onclick=()=>decision('accept');
 $('regReject').onclick=()=>decision('reject');
-function decision(action){
+function decision(action){if(authPriv<9)return;
  if(!decisionId||action!==decisionAction)return;
  $('regAccept').disabled=true;
  $('regReject').disabled=true;
@@ -99,7 +251,7 @@ function decision(action){
   $('regActionResult').textContent='DXSpider connection is not ready.';
  }
 }
-$('deleteUserOpen').onclick=()=>{
+$('deleteUserOpen').onclick=()=>{if(authPriv<9)return;
  $('deleteUserCall').value='';
  $('deleteUserNote').value='';
  $('deleteUserResult').textContent='';
@@ -109,7 +261,7 @@ $('deleteUserOpen').onclick=()=>{
 $('deleteUserCancel').onclick=(e)=>{ e.preventDefault(); $('deleteUserDialog').close(); };
 $('regActionCancel').onclick=(e)=>{ e.preventDefault(); $('regActionDialog').close(); decisionId=null; decisionAction=null; };
 $('deleteUserForm').addEventListener('submit',e=>{
- e.preventDefault();
+ e.preventDefault();if(authPriv<9)return;
  const target=$('deleteUserCall').value.trim().toUpperCase().replace(/-\d+$/,'');
  if(!target)return;
  $('deleteUserConfirm').disabled=true;
@@ -140,8 +292,8 @@ function finishCommandTarget(target){
  }
  out.scrollTop=out.scrollHeight;
 }
-function handle(m){if(m.type==='status'){$('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===false){logoutPending=false;if(authenticated)clearSessionContent();loginState(false);setLocked(true);if(m.state==='ready'&&!$('loginDialog').open)showLogin()}return}if(m.type==='auth'||m.type==='auth_result'){$('loginSubmit').disabled=false;if(m.status==='ok'){clearSessionContent();loginState(true,m);$('loginDialog').close();$('loginError').textContent='';if(authPriv>=9)loadPending();setTimeout(()=>{if(authenticated)requestMetrics()},250);setTimeout(()=>{if(authenticated&&authPriv>=9)requestMaintenance([])},2500)}else{loginState(false);$('loginError').textContent=m.error==='admin_privilege_required'?'DXSpider privilege 1 is required for login (privilege 9 for administrative actions).':m.error==='password_required'?'A valid DXSpider password is required.':(m.error||'Authentication failed');showLogin($('loginError').textContent)}return}if(m.type==='logout_result'){logoutPending=false;loginState(false);showLogin();return}if(!authenticated)return;if(m.type==='reg_pending_result'){if(m.status==='ok')renderPending(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_history_result'){if(m.status==='ok')renderHistory(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_search_result'){if(m.status==='ok')renderHistory(m.result||[],'searchRows');else notice(responseText(m));return}if(m.type==='reg_accept_result'||m.type==='reg_reject_result'){const expected=decisionAction?`reg_${decisionAction}_result`:null;if(expected&&m.type!==expected){$('regActionResult').textContent=`Unexpected registration response: ${m.type}`;return}if(m.status==='ok'){const accepted=m.type==='reg_accept_result';const pw=accepted&&m.result&&m.result.password?` Password: ${m.result.password}`:'';$('regActionResult').textContent=(accepted?'Accepted.':'Rejected.')+pw;setTimeout(()=>{$('regActionDialog').close();decisionId=null;decisionAction=null;loadPending();loadHistory()},900)}else{$('regAccept').disabled=false;$('regReject').disabled=false;$('regActionResult').textContent=responseText(m)}return}if(m.type==='reg_delete_user_result'){$('deleteUserConfirm').disabled=false;if(m.status==='ok'){const calls=(m.result&&m.result.affected_calls)||[];$('deleteUserResult').textContent=`Deleted ${calls.length} DXUser record(s): ${calls.join(', ')}`;loadHistory();setTimeout(()=>$('deleteUserDialog').close(),1200)}else{$('deleteUserResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Delete failed'))}return}
- if(m.type==='feed'){acceptFeed(m);return}if(m.type==='command_result'){const target=pendingCommandTargets[0]||activePanel,t=responseText(m),out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);if(logs[target]){if(t){logs[target].push(...t.split('\n'));renderLog(target)}}else if(out&&t){if(target==='console'){const b=document.createElement('div');b.className='consoleResponse';b.textContent=t;out.appendChild(b)}else out.textContent+=t+'\n';out.scrollTop=out.scrollHeight}if(m.final!==false){finishCommandTarget(target);pendingCommandTargets.shift()}}}
+function handle(m){if(m.type==='status'){$('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===false){logoutPending=false;if(authenticated)clearSessionContent();loginState(false);setLocked(true);if(m.state==='ready'&&!$('loginDialog').open)showLogin()}return}if(m.type==='auth'||m.type==='auth_result'){$('loginSubmit').disabled=false;if(m.status==='ok'){clearSessionContent();loginState(true,m);$('loginDialog').close();$('loginError').textContent='';if(authPriv>=5)loadPending();setTimeout(()=>{if(authenticated)requestMetrics()},250);setTimeout(()=>{if(authenticated&&authPriv>=9)requestMaintenance([])},2500)}else{loginState(false);$('loginError').textContent=m.error==='admin_privilege_required'?'DXSpider privilege 5 is required for login (privilege 9 for administrative actions).':m.error==='password_required'?'A valid DXSpider password is required.':(m.error||'Authentication failed');showLogin($('loginError').textContent)}return}if(m.type==='logout_result'){logoutPending=false;loginState(false);showLogin();return}if(!authenticated)return;if(m.type==='reg_pending_result'){if(m.status==='ok')renderPending(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_history_result'){if(m.status==='ok')renderHistory(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_search_result'){if(m.status==='ok')renderHistory(m.result||[],'searchRows');else notice(responseText(m));return}if(m.type==='reg_accept_result'||m.type==='reg_reject_result'){const expected=decisionAction?`reg_${decisionAction}_result`:null;if(expected&&m.type!==expected){$('regActionResult').textContent=`Unexpected registration response: ${m.type}`;return}if(m.status==='ok'){const accepted=m.type==='reg_accept_result';const pw=accepted&&m.result&&m.result.password?` Password: ${m.result.password}`:'';$('regActionResult').textContent=(accepted?'Accepted.':'Rejected.')+pw;setTimeout(()=>{$('regActionDialog').close();decisionId=null;decisionAction=null;loadPending();loadHistory()},900)}else{$('regAccept').disabled=false;$('regReject').disabled=false;$('regActionResult').textContent=responseText(m)}return}if(m.type==='reg_delete_user_result'){$('deleteUserConfirm').disabled=false;if(m.status==='ok'){const calls=(m.result&&m.result.affected_calls)||[];$('deleteUserResult').textContent=`Deleted ${calls.length} DXUser record(s): ${calls.join(', ')}`;loadHistory();setTimeout(()=>$('deleteUserDialog').close(),1200)}else{$('deleteUserResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Delete failed'))}return}
+ if(m.type==='spot_result'){if(!$('spotDialog').open)return;$('spotSubmit').disabled=false;$('spotResult').textContent=responseText(m)||(m.status==='ok'?'Spot accepted by DXSpider':'Spot rejected');if(m.status==='ok')setTimeout(()=>$('spotDialog').close(),500);return}if(m.type==='feed'){acceptFeed(m);return}if(m.type==='command_result'){const target=pendingCommandTargets[0]||activePanel,t=responseText(m),out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);if(logs[target]){if(t){logs[target].push(...t.split('\n'));renderLog(target)}}else if(out&&t){if(target==='console'){const b=document.createElement('div');b.className='consoleResponse';b.textContent=t;out.appendChild(b)}else out.textContent+=t+'\n';out.scrollTop=out.scrollHeight}if(m.final!==false){finishCommandTarget(target);pendingCommandTargets.shift()}}}
 loginState(false);connect();
 
 
@@ -156,7 +308,7 @@ function metricFmtTime(t){const d=new Date(Number(t)*1000);return d.toLocaleStri
 function metricAxisTimes(from,to,count=5){const out=[];for(let i=0;i<count;i++)out.push(from+(to-from)*i/(count-1));return out}
 const metricChartRegistry=new Map();
 function metricLineChartSvg(id,defs,opt={}){metricChartRegistry.set(id,{defs,opt});const host=$(id);if(!host||!metricsData)return;const from0=Number(metricsData.from_at),to0=Number(metricsData.to_at),from=metricsZoom?metricsZoom[0]:from0,to=metricsZoom?metricsZoom[1]:to0;const active=defs.filter(d=>!metricHidden.has(id+':'+d.name)).map(d=>({...d,points:(d.points||[]).filter(p=>Number(p.t)>=from&&Number(p.t)<=to&&Number.isFinite(Number(p.v)))}));const vals=[];for(const d of active)for(const p of d.points)vals.push(d.negative?-Math.abs(Number(p.v)):Math.abs(Number(p.v)));if(!vals.length){host.innerHTML='<div class="emptyState metricEmpty">No samples for this range.</div>'+metricLegend(id,defs);return}const W=Math.max(760,Math.floor(host.clientWidth||920)),H=180,L=58,R=14,T=8,B=28,iw=W-L-R,ih=H-T-B;let ymin=Math.min(0,...vals),ymax=Math.max(0,...vals);let splitScale=null;if(opt.splitDivergent){let pos=Math.max(0,...vals),neg=Math.max(0,...vals.map(v=>-v));if(!(pos>0))pos=1;if(!(neg>0))neg=1;pos*=1.08;neg*=1.08;ymin=-neg;ymax=pos;splitScale={pos,neg}}else if(opt.symmetric){let m=Math.max(Math.abs(ymin),Math.abs(ymax));if(!(m>0))m=1;else m*=1.08;ymin=-m;ymax=m}else if(ymax===ymin){ymax=ymin+1}if(opt.integerAxis&&!splitScale){if(opt.symmetric){const step=Math.max(1,Math.ceil(Math.max(Math.abs(ymin),Math.abs(ymax))/4));ymin=-step*4;ymax=step*4}else{const lo=Math.min(0,Math.floor(ymin)),hi=Math.max(0,Math.ceil(ymax));const step=Math.max(1,Math.ceil((hi-lo)/4));ymin=lo<0?-Math.ceil(Math.abs(lo)/step)*step:0;ymax=Math.max(step*4,Math.ceil(hi/step)*step)}}const sx=t=>L+(Number(t)-from)/(to-from)*iw,sy=v=>splitScale?(v>=0?T+(ih/2)*(1-v/splitScale.pos):T+ih/2+(ih/2)*((-v)/splitScale.neg)):T+ih-(Number(v)-ymin)/(ymax-ymin)*ih,fmt=opt.fmt||((v)=>Math.abs(v)>=1000?Math.abs(v).toLocaleString(undefined,{maximumFractionDigits:0}):Math.abs(v).toFixed(Math.abs(v)<10?2:1));let svg=`<svg class="metricSvg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" data-chart="${esc(id)}">`;const gridVals=splitScale?[splitScale.pos,splitScale.pos/2,0,-splitScale.neg/2,-splitScale.neg]:Array.from({length:5},(_,i)=>ymax-(ymax-ymin)*i/4);for(const v of gridVals){const y=sy(v);svg+=`<line class="chartGrid" x1="${L}" y1="${y}" x2="${W-R}" y2="${y}"/><text class="chartAxis" x="${L-7}" y="${y+4}" text-anchor="end">${esc(fmt(v))}</text>`}if(ymin<0&&ymax>0){const z=sy(0);svg+=`<line class="chartZero" x1="${L}" y1="${z}" x2="${W-R}" y2="${z}"/>`}for(const d of active){if(!d.points.length)continue;let path='',area='',prev=null;for(const q of d.points){const vv=d.negative?-Math.abs(Number(q.v)):Math.abs(Number(q.v)),gap=prev&&Number(q.t)-Number(prev.t)>Number(metricsData.bucket_seconds||1)*1.8;path+=(path&&!gap?' L':' M')+sx(q.t).toFixed(1)+','+sy(vv).toFixed(1);prev=q}if(d.area){const base=sy(0).toFixed(1),first=d.points[0],last=d.points[d.points.length-1];area=`<path class="chartArea ${d.cls||''}" d="M${sx(first.t).toFixed(1)},${base} ${path.replace(/^ M/,'L')} L${sx(last.t).toFixed(1)},${base} Z"/>`}svg+=area+`<path class="chartSeries ${d.cls||''}" d="${path}"/>`}svg+=`<rect class="chartHit" x="${L}" y="${T}" width="${iw}" height="${ih}"/><line class="chartCursor" x1="0" y1="${T}" x2="0" y2="${T+ih}"/><rect class="chartBrush" x="0" y="${T}" width="0" height="${ih}"/>`;for(const [i,t] of metricAxisTimes(from,to,5).entries()){const x=sx(t),anchor=i===0?'start':i===4?'end':'middle';svg+=`<line class="chartTick" x1="${x}" y1="${T+ih}" x2="${x}" y2="${T+ih+4}"/><text class="chartAxis chartTime" x="${x}" y="${H-7}" text-anchor="${anchor}">${esc(metricFmtTime(t))}</text>`}svg+='</svg>';host.innerHTML=svg+`<div class="metricTooltip"></div>`+metricLegend(id,defs);wireMetricChart(host,id,defs,{L,R,T,B,W,H,from,to,fmt,opt})}
-function metricLegend(id,defs){return `<div class="chartLegend interactive">${defs.map(d=>`<button class="legendItem ${metricHidden.has(id+':'+d.name)?'off':''}" data-series="${esc(id+':'+d.name)}"><i class="${d.cls||''}"></i>${esc(d.name)}</button>`).join('')}</div>`}
+function metricLegend(id,defs){return `<div class="chartLegend interactive">${defs.map(d=>`<button class="legendItem ${metricHidden.has(id+':'+d.name)?'off':''}" data-series="${esc(id+':'+d.name)}"><i class="${esc(d.cls||'')}"></i>${esc(d.name)}</button>`).join('')}</div>`}
 function wireMetricChart(host,id,defs,g){host.querySelectorAll('.legendItem').forEach(b=>b.onclick=()=>{const k=b.dataset.series;metricHidden.has(k)?metricHidden.delete(k):metricHidden.add(k);renderMetricCharts()});const svg=host.querySelector('svg'),tip=host.querySelector('.metricTooltip'),cursor=host.querySelector('.chartCursor'),brush=host.querySelector('.chartBrush');if(!svg)return;let drag=null;const pos=e=>{const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const ctm=svg.getScreenCTM();if(!ctm)return g.L;const q=pt.matrixTransform(ctm.inverse());return Math.max(g.L,Math.min(g.W-g.R,q.x))};const time=x=>g.from+(x-g.L)/(g.W-g.L-g.R)*(g.to-g.from);const clientX=x=>{const pt=svg.createSVGPoint();pt.x=x;pt.y=0;return pt.matrixTransform(svg.getScreenCTM()).x};svg.onpointerdown=e=>{drag=pos(e);svg.setPointerCapture?.(e.pointerId)};svg.onpointermove=e=>{const x=pos(e),t=time(x);cursor.setAttribute('x1',x);cursor.setAttribute('x2',x);cursor.style.opacity='1';let lines=[];for(const d of defs){if(metricHidden.has(id+':'+d.name))continue;const pts=(d.points||[]).filter(p=>Number(p.t)>=g.from&&Number(p.t)<=g.to);if(!pts.length)continue;let best=pts.reduce((a,b)=>Math.abs(Number(b.t)-t)<Math.abs(Number(a.t)-t)?b:a);lines.push(`<span class="tipSeries ${esc(d.cls||'')}"><i></i><em>${esc(d.name)}</em><b>${esc(g.fmt(Number(best.v)))}</b></span>`)}tip.innerHTML=`<strong>${esc(metricFmtTime(t))}</strong>${lines.join('')}`;tip.style.display='block';const hr=host.getBoundingClientRect(),cx=clientX(x)-hr.left,tw=Math.max(170,tip.offsetWidth||190),gap=18;tip.style.transform='none';tip.style.left=(cx+gap+tw<hr.width?cx+gap:Math.max(4,cx-gap-tw))+'px';if(drag!=null){const x0=Math.min(drag,x),x1=Math.max(drag,x);brush.setAttribute('x',x0);brush.setAttribute('width',x1-x0);brush.style.opacity='1'}};svg.onpointerup=e=>{if(drag==null)return;const x=pos(e);if(Math.abs(x-drag)>18){metricsZoom=[time(Math.min(drag,x)),time(Math.max(drag,x))];renderMetricCharts()}drag=null};svg.onpointerleave=()=>{cursor.style.opacity='0';brush.style.opacity='0';tip.style.display='none'}}
 function renderPeerMetric(){if(!metricsData)return;const s=metricsData.series||{},peer=metricsData.selected_peer||'';let defs=[];if(peer){const pcs=[...new Set(Object.keys(s).filter(k=>/^peer_PC\d+_(?:in|out)$/.test(k)).map(k=>k.match(/^peer_(PC\d+)_/)[1]))].sort((a,b)=>Number(a.slice(2))-Number(b.slice(2)));let i=0;for(const pc of pcs){const cls='s'+((i++%10)+1);if(s[`peer_${pc}_in`])defs.push({name:`${pc} IN`,points:s[`peer_${pc}_in`],cls,area:true,rate:false});if(s[`peer_${pc}_out`])defs.push({name:`${pc} OUT`,points:s[`peer_${pc}_out`],cls,area:true,negative:true,rate:false})}}if(!defs.length)defs=[{name:peer?`${peer} IN`:'All IN',points:s.peer_in_bps||[],cls:'s1',area:true,rate:false},{name:peer?`${peer} OUT`:'All OUT',points:s.peer_out_bps||[],cls:'s2',area:true,negative:true,rate:false}];metricLineChart('chartPeer',defs,{symmetric:true,integerAxis:true,fmt:metricPacketFmt})}
 function protocolMetricDefs(s){const names=Object.keys(s).filter(k=>/^protocol_PC\d+_(?:in|out)$/.test(k));const pcs=[...new Set(names.map(k=>k.match(/^protocol_(PC\d+)_/)[1]))].filter(pc=>!['PC11','PC12','PC18','PC20','PC22','PC41','PC51','PC61','PC73','PC84','PC85','PC92','PC93'].includes(pc)).sort((a,b)=>Number(a.slice(2))-Number(b.slice(2)));let i=0,out=[];for(const pc of pcs){const cls='s'+((i++%10)+1);if(s[`protocol_${pc}_in`])out.push({name:`${pc} IN`,points:s[`protocol_${pc}_in`],cls,area:true});if(s[`protocol_${pc}_out`])out.push({name:`${pc} OUT`,points:s[`protocol_${pc}_out`],cls,area:true,negative:true})}return out}
@@ -249,10 +401,10 @@ if($('supervisionRefresh'))$('supervisionRefresh').onclick=()=>supervisorRequest
 function fmtBytes(n){n=Number(n)||0;for(const u of ['B','KiB','MiB','GiB','TiB']){if(Math.abs(n)<1024||u==='TiB')return `${n.toFixed(u==='B'?0:1)} ${u}`;n/=1024}}
 function valueUnit(value,unit=''){return `<span class=\"vu\"><span class=\"vuValue\">${esc(value)}</span><span class=\"vuUnit\">${esc(unit)}</span></span>`}
 function bytesVU(n,suffix=''){const p=fmtBytes(n).split(' ');return valueUnit(p[0],`${p[1]||''}${suffix}`)}
-function metricRowsHtml(rows){return rows.map(([k,v,cls=''])=>`<div class=\"metricRow\"><dt>${esc(k)}</dt><dd class=\"${cls}\">${v}</dd></div>`).join('')}
+function metricRowsHtml(rows){return rows.map(([k,v,cls=''])=>`<div class=\"metricRow\"><dt>${esc(k)}</dt><dd class=\"${esc(cls)}\">${v}</dd></div>`).join('')}
 function fmtAge(ts){const n=Number(ts)||0;if(!n)return '-';return fmtDuration(Date.now()/1000-n)}
-function metricRows(rows){return rows.map(([k,v,cls=''])=>`<div class="metricRow"><dt>${esc(k)}</dt><dd class="${cls}">${esc(v)}</dd></div>`).join('')}
-function statusBadge(text,state='neutral'){return `<span class="stateBadge ${state}">${esc(text)}</span>`}
+function metricRows(rows){return rows.map(([k,v,cls=''])=>`<div class="metricRow"><dt>${esc(k)}</dt><dd class="${esc(cls)}">${esc(v)}</dd></div>`).join('')}
+function statusBadge(text,state='neutral'){return `<span class="stateBadge ${esc(state)}">${esc(text)}</span>`}
 function yn(v){return v===true||v===1?'Yes':v===false||v===0?'No':'—'}
 function dash(v){return v===undefined||v===null||v===''?'—':String(v)}
 function renderConnections(){
@@ -614,7 +766,7 @@ handle=function(m){
  const nav=document.querySelectorAll('.v2NavBtn');
  function sectionClick(name){const b=document.querySelector(`.mainTabs [data-section="${name}"]`);if(b)b.click()}
  function mark(name){nav.forEach(b=>b.classList.toggle('active',b.dataset.v2Target===name));const t=titles[name]||[name,''];setText('v2PageTitle',t[0]);setText('v2PageSubtitle',t[1]);document.body.classList.toggle('v2-console-wide',name==='console')}
- function go(name){if(authenticated&&authPriv<9&&SYSOP_SECTIONS.has(name))return;mark(name);if(name==='console'){selectSection('consoleSection');setTimeout(()=>document.getElementById('consoleCommand')?.focus(),0)}else{sectionClick(name);if(name==='operation')setTimeout(()=>document.querySelector('#operationTabs [data-panel="spots"]')?.click(),0)}}
+ function go(name){if(authenticated&&authPriv<5&&SYSOP_SECTIONS.has(name))return;mark(name);if(name==='console'){selectSection('consoleSection');setTimeout(()=>document.getElementById('consoleCommand')?.focus(),0)}else{sectionClick(name);if(name==='operation')setTimeout(()=>document.querySelector('#operationTabs [data-panel="spots"]')?.click(),0)}}
  nav.forEach(b=>b.addEventListener('click',()=>{if(b.disabled||b.getAttribute('aria-disabled')==='true')return;go(b.dataset.v2Target)}));
  const st=document.getElementById('status'),side=document.getElementById('v2SideStatus');if(st&&side)new MutationObserver(()=>side.textContent=st.textContent||'DXSpider link').observe(st,{childList:true,subtree:true,characterData:true});
  setTimeout(()=>go('operation'),0);
@@ -652,7 +804,7 @@ window.addEventListener('resize',()=>dxEchartsInstances.forEach(c=>{try{c.resize
 if(window.matchMedia)window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{if((document.documentElement.dataset.theme||'auto')==='auto'&&metricsData)renderMetricCharts()});
 
 // The running server is authoritative for the displayed Admin release.
-fetch("/admin-version.json",{cache:"no-store"}).then(r=>{if(!r.ok)throw Error("version endpoint");return r.json()}).then(v=>{document.querySelectorAll(".adminVersion").forEach(e=>e.textContent=v.version)}).catch(()=>{document.querySelectorAll(".adminVersion").forEach(e=>e.textContent="unverified")});
+fetch("./admin-version.json",{cache:"no-store"}).then(r=>{if(!r.ok)throw Error("version endpoint");return r.json()}).then(v=>{document.querySelectorAll(".adminVersion").forEach(e=>e.textContent=v.version)}).catch(()=>{document.querySelectorAll(".adminVersion").forEach(e=>e.textContent="unverified")});
 
 /* v0.41: fill explanatory hover text where legacy markup has no title. */
 function v041InstallHelp(){
@@ -671,3 +823,36 @@ function v041InstallHelp(){
  document.querySelectorAll('#diagnostics th,#maintenance th,#timeline th').forEach(e=>{if(!e.title){const n=(e.textContent||'').trim();if(n)e.title=`${n} column.`}});
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',v041InstallHelp);else v041InstallHelp();
+
+// Per-callsign presentation settings; browser-local and independent for each application.
+const spotPresentationKeyBase='dxspider.dxweb-admin.spotPresentation.';
+function spotPresentationSave(){
+ if(!authenticated||!authUser)return;
+ const settings={human:$('showHuman').checked,rbn:$('showRbn').checked,
+  font:spotFontPercent,locator:$('userLocator').value.trim().toUpperCase(),
+  groups:[...document.querySelectorAll('[data-spot-group]:checked')].map(x=>x.dataset.spotGroup),
+  commentWidth:spotCommentPreferred};
+ try{localStorage.setItem(spotPresentationKeyBase+authUser.toUpperCase(),JSON.stringify(settings))}catch(_){}
+}
+function spotPresentationRestore(){
+ let saved=null;
+ if(authenticated&&authUser){try{saved=JSON.parse(localStorage.getItem(spotPresentationKeyBase+authUser.toUpperCase()))}catch(_){}}
+ const groups=new Set(saved&&Array.isArray(saved.groups)?saved.groups:[]);
+ for(const box of document.querySelectorAll('[data-spot-group]'))box.checked=groups.has(box.dataset.spotGroup);
+ const loc=saved&&typeof saved.locator==='string'?saved.locator:'';
+ $('userLocator').value=geoLocator(loc)?loc:'';
+ spotCommentPreferred=saved&&Number.isFinite(saved.commentWidth)&&saved.commentWidth>=80&&saved.commentWidth<=1200?saved.commentWidth:null;
+ if(saved&&typeof saved.human==='boolean'&&typeof saved.rbn==='boolean'){
+  $('showHuman').checked=saved.human;$('showRbn').checked=saved.rbn;
+ }else{$('showHuman').checked=true;$('showRbn').checked=false}
+ spotFontApply(saved&&Number.isFinite(saved.font)?saved.font:100,false);
+ spotItems=[];spotCounts={human:0,rbn:0};
+ updateSpotLayout();renderSpots();
+}
+function spotPresentationBind(){
+ for(const id of ['showHuman','showRbn'])$(id).addEventListener('change',spotPresentationSave);
+ for(const box of document.querySelectorAll('[data-spot-group]'))box.addEventListener('change',spotPresentationSave);
+ $('userLocator').addEventListener('input',()=>{if($('userLocator').validity.valid)spotPresentationSave()});
+}
+
+spotPresentationBind();
