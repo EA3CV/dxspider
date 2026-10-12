@@ -1,7 +1,7 @@
 DXWEB - OPERATIONS
 ========================================================================
 
-This is a documentation update for the installed v0.07 application, not a
+This is a documentation update for the installed DXWeb v0.17 application, not a
 new application binary release. Application code, backend and protocols are
 unchanged. See INSTALL for full native deployment instructions.
 
@@ -49,7 +49,7 @@ Service: /etc/systemd/system/dxweb.service
 Configuration: direct by default; optional same-host Nginx examples.
 DXWeb uses a single technical #WEB-n connection; browser sessions do not create DXChannels. Public spot reception does not require login. Authenticated browser actors do not inherit SYSOP privilege.
 
-UI v0.07: both applications have Console monospace font controls (-, 100%, +)
+UI: DXWeb v0.17 and DXWeb Admin v0.78.13 have Console monospace font controls (-, 100%, +)
 and a SH/FILTER action in Filters. Their real operation must be checked in
 browser; this documentation-only package does not alter the UI.
 
