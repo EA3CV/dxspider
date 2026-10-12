@@ -1,0 +1,50 @@
+# SAME-HOST NGINX EXAMPLE: apps bound to 127.0.0.1:7480/7481.
+# Do not enable with direct-mode systemd units on public 7380/7381.
+# Replace YOUR_FQDN and, for TLS, the certificate/key paths.
+# DXSpider Web - HTTP
+server {
+    listen 7380;
+    listen [::]:7380;
+    server_name YOUR_FQDN;
+
+    location / {
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+
+        proxy_pass http://127.0.0.1:7480;
+    }
+}
+
+# DXSpider Web Admin - HTTP
+server {
+    listen 7381;
+    listen [::]:7381;
+    server_name YOUR_FQDN;
+
+    location / {
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+
+        proxy_pass http://127.0.0.1:7481;
+    }
+}

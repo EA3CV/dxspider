@@ -129,6 +129,7 @@ sub handle_10
 
 	# if this is a 'nodx' node then ignore it
 	if ($badnode->in($pc->[6], $preserve_node_ssid) || ($via && $badnode->in($via, $preserve_node_ssid))) {
+		DXHealth::operator_event('badlist', 'badnode', $self->{call}, $pc->[6], 'PC10');
 		dbg($line) if isdbg('nologchan');
 		$via ||= '*';
 		dbg("PCPROT: Bad Node $pc->[6]/$via, dropped");
@@ -137,6 +138,7 @@ sub handle_10
 
 
 	if ($badspotter->in($from)) {
+		DXHealth::operator_event('badlist', 'badspotter', $self->{call}, $pc->[6], 'PC10');
 		dbg($line) if isdbg('nologchan');
 		dbg("PCPROT: Bad Spotter $from, dropped");
 		return;
@@ -154,6 +156,7 @@ sub handle_10
 	if ($censorpc) {
 		my @bad;
 		if (@bad = BadWords::check($pc->[3])) {
+			DXHealth::operator_event('badlist', 'badword', $self->{call}, $pc->[6], 'PC10');
 			my $bw = join ', ', @bad; 
 			dbg($line) if isdbg('nologchan');
 			dbg("PCPROT: Badwords: '$bw', dropped");
@@ -214,6 +217,7 @@ sub handle_11
 
 	# if this is a 'nodx' node then ignore it
 	if ($badnode->in($pc->[7], $preserve_node_ssid)) {
+		DXHealth::operator_event('badlist', 'badnode', $self->{call}, $pc->[7], sprintf('PC%02d', $pcno));
 		dbg($line) if isdbg('nologchan');
 		dbg("PCPROT: Bad Node $pc->[7], dropped");
 		return;
@@ -230,6 +234,7 @@ sub handle_11
 
 	# is it 'baddx'
 	if ($baddx->in($pc->[2])) {
+		DXHealth::operator_event('badlist', 'baddx', $self->{call}, $pc->[7], sprintf('PC%02d', $pcno));
 		dbg("PCPROT: Bad DX spot '$pc->[2]', ignored");
 		dbg($line) if isdbg('nologchan');
 		return;
@@ -249,6 +254,7 @@ sub handle_11
 
 	# is this is a 'bad spotter' or an unknown user then ignore it. 
 	if ($badspotter->in($nossid)) {
+		DXHealth::operator_event('badlist', 'badspotter', $self->{call}, $pc->[7], sprintf('PC%02d', $pcno));
 		dbg($line) if isdbg('nologchan');
 		dbg("PCPROT: Bad Spotter $nossid, dropped");
 		return;
@@ -406,14 +412,16 @@ sub handle_11
 
 		if (is_ipaddr($ip)) {
 
-			# simple check for IPV4 rfc1918 addresses
-			if (is_rfc1918($ip)) {
+			# PC61 may only advertise a public Internet address.
+			if (!is_public_ip($ip)) {
+				DXHealth::operator_event('pc61_drop', 'non_public_ip', $self->{call}, $pc->[7], 'PC61');
 				dbg($line) if isdbg('nologchan');
-				dbg("PCPROT: PC61 $ip is a localhost address or in RFC1918, dropped");
+				dbg("PCPROT: PC61 $ip is not a public Internet address, dropped");
 				return;
 			}
 			
 			if (DXCIDR::find($ip)) {
+				DXHealth::operator_event('pc61_drop', 'badip', $self->{call}, $pc->[7], 'PC61');
 				dbg($line) if isdbg('nologchan');
 				dbg("PCPROT: PC61 $ip in badip list, dropped");
 				return;
@@ -429,6 +437,7 @@ sub handle_11
 	if ($censorpc) {
 		my @bad;
 		if (@bad = BadWords::check($pc->[5])) {
+			DXHealth::operator_event('badlist', 'badword', $self->{call}, $pc->[7], sprintf('PC%02d', $pcno));
 			my $bw = join ', ', @bad;
 			dbg($line) if isdbg('nologchan');
 			dbg("PCPROT: Badwords: '$bw', dropped");
@@ -568,16 +577,21 @@ sub handle_11
 		return if $r;
 	}
 
+	# Metrics: failure-isolated accepted PC11/PC61 rank telemetry.
+	if ($pcno == 11 || $pcno == 61) {
+		eval { DXHealth::accepted_spot_rank($spot[1], $spot[4], $spot[7]); 1 };
+	}
+
 	# DON'T be silly and send on PC26s!
 	return if $pcno == 26;
 
 	# Accepted semantic event: survived spot validation/local hook.
-	DXHealth::protocol_logical_line('accepted', $line) if @spot && $self != $main::me;
+	DXHealth::protocol_logical_origin_line('accepted', $pc->[7], $line) if @spot && $self != $main::me;
 
 	# send out the filtered spots. Forwarded is one logical event if at least
 	# one protocol neighbour really received an egress after filtering/hops.
 	my $sent = @spot ? send_dx_spot($self, $line, @spot) : 0;
-	DXHealth::protocol_logical_line('forwarded', $line) if $sent && $self != $main::me;
+	DXHealth::protocol_logical_origin_line('forwarded', $pc->[7], $line) if $sent && $self != $main::me;
 
 	# cancel any recursion as we have now processed it
 	my $count =  $pc11_to_61+$rpc11_to_61;
@@ -646,6 +660,7 @@ sub handle_12
 
 	# if this is a 'nodx' node then ignore it
 	if ($badnode->in($pc->[5], $preserve_node_ssid)) {
+		DXHealth::operator_event('badlist', 'badnode', $self->{call}, $pc->[5], 'PC12');
 		dbg($line) if isdbg('nologchan');
 		dbg("PCPROT: Bad Node $pc->[5], dropped");
 		return;
@@ -653,6 +668,7 @@ sub handle_12
 
 	# if this is a 'bad spotter' user then ignore it
 	if ($badspotter->in($pc->[1])) {
+		DXHealth::operator_event('badlist', 'badspotter', $self->{call}, $pc->[5], 'PC12');
 		dbg($line) if isdbg('nologchan');
 		dbg("PCPROT: Bad Spotter $pc->[1], dropped");
 		return;
@@ -668,6 +684,7 @@ sub handle_12
 	if ($censorpc) {
 		my @bad;
 		if (@bad = BadWords::check($pc->[3])) {
+			DXHealth::operator_event('badlist', 'badword', $self->{call}, $pc->[5], 'PC12');
 			my $bw = join ', ', @bad;
 			dbg($line) if isdbg('nologchan');
 			dbg("PCPROT: Badwords: '$bw', dropped");
@@ -2507,13 +2524,20 @@ sub handle_92
 
 	# Reaching here means an A/D/C/K survived the logical handling above.
 	DXHealth::pc92_received($sort, length($line));
+	# For A/C/D/K the first PC92 field is the protocol-defined originating
+	# node (pcall). Forwarding preserves the original line, so this is a
+	# logical origin and must not be replaced by the direct neighbour.
+	DXHealth::protocol_origin_inc('accepted', $pcall, 92, length($line));
 
 	# broadcast it if we get here (but not if it's an A or D record and pc92_ad_enabled isn't set;
 	if ($sort eq 'A' || $sort eq 'D') {
 		return unless $pc92_ad_enabled;
 	}
 	my $sent = $self->broadcast_route_pc9x($pcall, undef, $line, 0);
-	DXHealth::pc92_forwarded($sort, length($line)) if $sent;
+	if ($sent) {
+		DXHealth::pc92_forwarded($sort, length($line));
+		DXHealth::protocol_origin_inc('forwarded', $pcall, 92, length($line));
+	}
 }
 
 # get all the routes for a thing, bearing in mind that the thing (e.g. a user)
@@ -2609,6 +2633,7 @@ sub handle_93
 
 	# if this is a 'bad node' user then ignore it
 	if ($badnode->in($onode, $preserve_node_ssid)) {
+		DXHealth::operator_event('badlist', 'badnode', $self->{call}, $onode, 'PC93');
 		dbg($line) if isdbg('nologchan');
 		dbg("PCPROT: Bad Node $onode, dropped");
 		return;
@@ -2616,6 +2641,7 @@ sub handle_93
 
 	# if this is a 'bad spotter' user then ignore it
 	if ($badspotter->in($from)) {
+		DXHealth::operator_event('badlist', 'badspotter', $self->{call}, $onode, 'PC93');
 		dbg($line) if isdbg('nologchan');
 		dbg("PCPROT: Bad Spotter $from, dropped");
 		return;
@@ -2631,6 +2657,7 @@ sub handle_93
 	if ($censorpc) {
 		my @bad;
 		if (@bad = BadWords::check($text)) {
+			DXHealth::operator_event('badlist', 'badword', $self->{call}, $onode, 'PC93');
 			my $bw = join ', ', @bad;
 			dbg($line) if isdbg('nologchan');
 			dbg("PCPROT: Badwords: '$bw', dropped");
@@ -2639,9 +2666,9 @@ sub handle_93
 	}
 
 	if ($self == $main::me) {
-		DXHealth::protocol_logical_line('generated', $line);
+		DXHealth::protocol_logical_origin_line('generated', $onode, $line);
 	} else {
-		DXHealth::protocol_logical_line('accepted', $line);
+		DXHealth::protocol_logical_origin_line('accepted', $onode, $line);
 	}
 
 	$self->populate_routing_table($onode, $from, $ipaddr) if $pc61_extract_route;

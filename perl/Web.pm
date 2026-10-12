@@ -318,6 +318,22 @@ sub start
 	return wantarray ? @ret : $ret[-1];
 }
 
+# Return true only for an authenticated logical user owned by a local
+# DXWeb transport. Do not confuse remote Route users with local browser
+# sessions and do not create per-browser DXChannels.
+sub local_web_user_connected
+{
+	my ($call) = @_;
+	return 0 unless defined $call && length $call;
+	for my $channel (DXChannel::get_all()) {
+		next unless $channel && $channel->isa('Web');
+		next unless ($channel->{web_role} || '') =~ /\A(?:dxweb|dxweb-admin)\z/;
+		my $owned = $channel->{web_users}{$call} || next;
+		return 1 if $owned->{authenticated};
+	}
+	return 0;
+}
+
 sub is_webcluster
 {
 	my $self = shift;
@@ -480,6 +496,10 @@ sub dx_spot
 		return unless $self->{dx};
 		my @filter_args = @_ > 2 ? @_[2 .. $#_] : ();
 		my $targets = $self->_web_filter_targets('spots', @filter_args);
+		{
+			local $self->{_web_feed_targets} = [];
+			$self->SUPER::dx_spot(@_);
+		}
 		return unless @$targets;
 		local $self->{_web_feed_targets} = $targets;
 		return $self->SUPER::dx_spot(@_);
@@ -785,9 +805,9 @@ sub _auth_request
 	if ($is_admin) {
 		# Administrative authority is granted only by DXSpider itself.  The
 		# technical dxweb-admin transport must already be local (checked during
-		# HELLO), the account must have privilege >= 1, and a non-empty DXUser
+		# HELLO), the account must have privilege >= 9, and a non-empty DXUser
 		# password must match.  Browser/client supplied privilege is ignored.
-		unless ($user && $dx_priv >= 1) {
+		unless ($user && $dx_priv >= 9) {
 			$self->_error($id, 'auth', 'admin_privilege_required', {call => $call});
 			return;
 		}
@@ -940,6 +960,7 @@ sub _user_add
 		password_used => $authmeta ? ($authmeta->{password_used} || 0) : 0,
 		auth_source   => $authmeta ? ($authmeta->{auth_source} || 'dxspider') : 'external',
 		generation    => ++$web_user_generation_seq,
+		auth_request_id => $authmeta ? $id : undef,
 	};
 	$self->_web_refresh_user_filters($call);
 
@@ -956,6 +977,7 @@ sub _user_add
 		password_used => $authmeta ? ($authmeta->{password_used} || 0) : 0,
 		priv          => $effective_priv,
 		registered    => $authmeta ? ($authmeta->{registered} || 0) : 0,
+		generation    => $self->{web_users}{$call}{generation},
 	});
 }
 
@@ -988,6 +1010,34 @@ sub _remove_user
 	return 1;
 }
 
+# Ordered, per-authentication cancellation.  The browser transport sends this
+# after its original auth request on the same technical connection.  Matching
+# the original request id prevents an old cancellation removing a new login.
+sub _auth_cancel
+{
+    my ($self, $req) = @_;
+    my $id = $req->{id};
+    unless (($self->{web_role} || '') =~ /\A(?:dxweb|dxweb-admin)\z/
+            && ($self->{web_auth} || '') eq 'dxspider') {
+        $self->_error($id, 'auth_cancel', 'wrong_auth_mode');
+        return;
+    }
+    my $call = _normalise_user_call($req->{call});
+    my $auth_id = $req->{auth_id};
+    unless ($call && defined($auth_id) && !ref($auth_id)
+            && "$auth_id" =~ /\A[0-9]+\z/) {
+        $self->_error($id, 'auth_cancel', 'invalid_auth_reference');
+        return;
+    }
+    my $owned = $self->{web_users}{$call};
+    my $removed = 0;
+    if ($owned && defined($owned->{auth_request_id})
+        && "$owned->{auth_request_id}" eq "$auth_id") {
+        $removed = $self->_remove_user($call, 'AUTH_CANCEL') ? 1 : 0;
+    }
+    $self->_response($id, 'ok', 'auth_cancel', {call => $call, removed => $removed});
+}
+
 sub _user_del
 {
 	my ($self, $req) = @_;
@@ -1003,6 +1053,24 @@ sub _user_del
 	unless (exists $self->{web_users}{$call}) {
 		$self->_error($id, 'user_del', 'not_owned', {call => $call});
 		return;
+	}
+
+	# Browser-facing protocol v2 requires a generation on every deletion.
+	# A missing generation must not bypass ownership checks. Preserve legacy
+	# behaviour only for the separate webcluster role.
+	if (($self->{web_role} || '') =~ /\A(?:dxweb|dxweb-admin)\z/
+	    && !exists $req->{generation}) {
+		$self->_error($id, 'user_del', 'generation_required', {call => $call});
+		return;
+	}
+	if (exists $req->{generation}) {
+		my $generation = $req->{generation};
+		unless (defined($generation) && !ref($generation)
+		        && $generation =~ /\A[0-9]+\z/
+		        && $generation == $self->{web_users}{$call}{generation}) {
+			$self->_error($id, 'user_del', 'generation_mismatch', {call => $call});
+			return;
+		}
 	}
 
 	$self->_remove_user($call, 'USER_DEL');
@@ -1216,7 +1284,8 @@ sub _registration_ready
 
 sub _registration_admin
 {
-	my ($self, $req) = @_;
+	my ($self, $req, $minimum_priv) = @_;
+	$minimum_priv = 9 unless defined $minimum_priv;
 	return (undef, 'admin_context_required') unless ($self->{web_role} || '') eq 'dxweb-admin';
 	my $call = _normalise_user_call($req->{call});
 	return (undef, 'invalid_call') unless $call;
@@ -1224,7 +1293,7 @@ sub _registration_admin
 	return (undef, 'not_owned') unless $owned;
 	return (undef, 'not_authenticated') unless $owned->{authenticated};
 	return (undef, 'password_required') unless $owned->{password_used};
-	return (undef, 'admin_privilege_required') unless ($owned->{priv} || 0) >= 9;
+	return (undef, 'admin_privilege_required') unless ($owned->{priv} || 0) >= $minimum_priv;
 	return ($call, undef);
 }
 
@@ -1235,12 +1304,12 @@ sub _supervisor_request
 	my $what = lc($req->{what} || 'status');
 	# Only the internal dxweb-admin sampler may take these read-only snapshots
 	# without a logical browser user.  Any request carrying a call, and every
-	# other supervisor snapshot, keeps the existing priv>=9 check.
+	# other supervisor snapshot, requires priv>=9.
 	my $technical = (($self->{web_role} || '') eq 'dxweb-admin' &&
 	                 !defined($req->{call}) &&
 	                 $what =~ /^(?:status|connections|traffic|spot_ranks|rbn|self_health)$/) ? 1 : 0;
 	unless ($technical) {
-		my ($call, $err) = $self->_registration_admin($req);
+		my ($call, $err) = $self->_registration_admin($req, 9);
 		unless ($call) { $self->_error($id, 'supervisor', $err); return; }
 	}
 	unless ($what =~ /^(?:status|connections|traffic|spot_ranks|web|rbn|self_health|topology)$/) {
@@ -1279,8 +1348,13 @@ sub _registration_pending
 {
 	my ($self, $req) = @_;
 	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_pending','registration_unavailable'); return; }
-	my ($call,$err)=$self->_registration_admin($req); unless($call){$self->_error($id,'reg_pending',$err);return}
+	my ($call,$err)=$self->_registration_admin($req,9); unless($call){$self->_error($id,'reg_pending',$err);return}
 	my @rows=sort {($b->{created_at}||0)<=>($a->{created_at}||0)||($b->{id}||0)<=>($a->{id}||0)} DXReg::list_pending();
+	my $owned = $self->{web_users}{$call};
+	if (($owned->{priv} || 0) < 9) {
+		my %public = map { $_ => 1 } qw(id call status requested_ssids accepted_ssids affected_ssids affected_calls created_at processed_at processed_by language source);
+		@rows = map { my $row = $_; ref($row) eq 'HASH' ? { map { $_ => $row->{$_} } grep { $public{$_} } keys %$row } : {} } @rows;
+	}
 	$self->_response($id,'ok','reg_pending',{result=>\@rows});
 }
 
@@ -1288,8 +1362,13 @@ sub _registration_history
 {
 	my ($self, $req) = @_;
 	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_history','registration_unavailable'); return; }
-	my ($call,$err)=$self->_registration_admin($req); unless($call){$self->_error($id,'reg_history',$err);return}
+	my ($call,$err)=$self->_registration_admin($req,9); unless($call){$self->_error($id,'reg_history',$err);return}
 	my @rows=DXReg::list_history();
+	my $owned = $self->{web_users}{$call};
+	if (($owned->{priv} || 0) < 9) {
+		my %public = map { $_ => 1 } qw(id call status requested_ssids accepted_ssids affected_ssids affected_calls created_at processed_at processed_by language source);
+		@rows = map { my $row = $_; ref($row) eq 'HASH' ? { map { $_ => $row->{$_} } grep { $public{$_} } keys %$row } : {} } @rows;
+	}
 	$self->_response($id,'ok','reg_history',{result=>\@rows});
 }
 
@@ -1297,9 +1376,14 @@ sub _registration_search
 {
 	my ($self, $req) = @_;
 	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_search','registration_unavailable'); return; }
-	my ($call,$err)=$self->_registration_admin($req); unless($call){$self->_error($id,'reg_search',$err);return}
+	my ($call,$err)=$self->_registration_admin($req,9); unless($call){$self->_error($id,'reg_search',$err);return}
 	my $query=_wc_text($req->{query},0); unless(defined$query){$self->_error($id,'reg_search','bad_arguments');return}
 	my @rows=DXReg::search_history($query);
+	my $owned = $self->{web_users}{$call};
+	if (($owned->{priv} || 0) < 9) {
+		my %public = map { $_ => 1 } qw(id call status requested_ssids accepted_ssids affected_ssids affected_calls created_at processed_at processed_by language source);
+		@rows = map { my $row = $_; ref($row) eq 'HASH' ? { map { $_ => $row->{$_} } grep { $public{$_} } keys %$row } : {} } @rows;
+	}
 	$self->_response($id,'ok','reg_search',{result=>\@rows});
 }
 
@@ -1338,6 +1422,112 @@ sub _registration_delete_user
 	my ($ok,$result)=DXReg::delete_user_family($target,$call,$note,$ip);
 	unless($ok){$self->_error($id,'reg_delete_user','registration_rejected',{messages=>[$result]});return}
 	$self->_response($id,'ok','reg_delete_user',{result=>$result});
+}
+
+
+# Profile API: only an authenticated, locally routed logical user may read or
+# change their own DXUser record. Never accept a target callsign separately.
+sub _profile_fields
+{
+    my ($user) = @_;
+    my $email = $user->email;
+    $email = join(' ', @$email) if ref($email) eq 'ARRAY';
+    $email = '' if !defined($email) || ref($email);
+    return {
+        name => scalar($user->name || ''),
+        qth => scalar($user->qth || ''),
+        qra => scalar($user->qra || ''),
+        email => $email,
+    };
+}
+
+sub _profile_request
+{
+    my ($self, $req) = @_;
+    my $id = $req->{id};
+    unless (($self->{web_role} || '') eq 'dxweb' && ($self->{web_auth} || '') eq 'dxspider') {
+        $self->_error($id, 'profile', 'wrong_role'); return;
+    }
+    my ($actor, $call, $err) = $self->_actor_for_call($req->{call});
+    unless ($actor) { $self->_error($id, 'profile', $err); return; }
+    my $user = DXUser::get_current($call);
+    unless ($user) { $self->_error($id, 'profile', 'user_not_found'); return; }
+    my $action = $req->{action} || 'get';
+    if ($action eq 'save') {
+        my $fields = $req->{fields};
+        unless (ref($fields) eq 'HASH') { $self->_error($id,'profile','invalid_fields'); return; }
+        my $original = _profile_fields($user);
+        # Validate the complete request before changing a single field.
+        for my $key (keys %$fields) {
+            my $value = $fields->{$key};
+            unless ($key =~ /\A(?:name|qth|qra|email)\z/ && defined($value) && !ref($value)
+                    && length($value) && length($value) <= 120
+                    && $value !~ /[\x00-\x1f\x7f]/) {
+                $self->_error($id,'profile','invalid_fields'); return;
+            }
+            if ($key eq 'qra') {
+                $value = uc $value;
+                unless (is_qra($value)) { $self->_error($id,'profile','invalid_locator'); return; }
+                $fields->{$key} = $value;
+            }
+            if ($key eq 'email' && $value !~ /\A[^\s\@]+\@[^\s\@]+\.[^\s\@]+\z/) {
+                $self->_error($id,'profile','invalid_email'); return;
+            }
+            # Native set/name and set/qth remove braces, and set/email strips
+            # punctuation; refuse transformations that would surprise the user.
+            if (($key eq 'name' || $key eq 'qth') && $value =~ /[{}]/ ||
+                $key eq 'email' && $value =~ /[<>()\[\]{}]/) {
+                $self->_error($id,'profile','invalid_fields'); return;
+            }
+        }
+        for my $key (qw(name qth qra email)) {
+            next unless exists $fields->{$key};
+            my $value = $fields->{$key};
+            next if $value eq $original->{$key};
+            my $ok = eval {
+                $actor->run_cmd("set/$key $value");
+                $actor->{_dxcss_last_cmd_ok};
+            };
+            if ($@ || !$ok) {
+                LogDbg('err', "Profile $call set/$key failed: " . ($@ || 'command rejected'));
+                $self->_error($id,'profile','update_failed'); return;
+            }
+            $user = DXUser::get_current($call);
+            my $after = _profile_fields($user);
+            if ($after->{$key} ne $value) {
+                LogDbg('err', "Profile $call set/$key did not persist expected value");
+                $self->_error($id,'profile','update_not_persisted'); return;
+            }
+        }
+    } elsif ($action eq 'password') {
+        my $old = $req->{current_password};
+        my $new = $req->{new_password};
+        my $stored = $user->passwd || '';
+        # Same plaintext credential semantics as Web::_auth_request and native
+        # set/password. Passwordless sessions cannot establish credentials.
+        unless (defined($old) && !ref($old) && length($old) &&
+                defined($new) && !ref($new) && length($new) >= 8 && length($new) <= 120 &&
+                $new !~ /[\x00-\x20\x7f]/ && length($stored) && $old eq $stored) {
+            $self->_error($id,'profile','password_verification_failed'); return;
+        }
+        $user->passwd($new);
+        $user->put();
+        my $persisted = DXUser::get_current($call);
+        unless ($persisted && ($persisted->passwd || '') eq $new) {
+            $self->_error($id,'profile','update_not_persisted'); return;
+        }
+        LogDbg('DXCommand', "Web profile password changed for $call");
+        $self->_response($id,'ok','profile',{call=>$call, action=>'password'});
+        return;
+    } elsif ($action ne 'get') {
+        $self->_error($id,'profile','invalid_action'); return;
+    }
+    $user = DXUser::get_current($call);
+    $self->_response($id,'ok','profile',{
+        call=>$call, action=>$action,
+        fields=>_profile_fields($user),
+        password_set=>length($user->passwd || '') ? 1 : 0,
+    });
 }
 
 sub _command_request
@@ -1571,6 +1761,11 @@ sub normal
 		return;
 	}
 
+	if ($type eq 'auth_cancel') {
+		$self->_auth_cancel($req);
+		return;
+	}
+
 	if ($type eq 'user_add') {
 		$self->_user_add($req);
 		return;
@@ -1583,6 +1778,11 @@ sub normal
 
 	if ($type eq 'feed') {
 		$self->_feed_request($req);
+		return;
+	}
+
+	if ($type eq 'profile') {
+		$self->_profile_request($req);
 		return;
 	}
 

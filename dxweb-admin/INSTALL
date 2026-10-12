@@ -1,0 +1,83 @@
+DXWEB ADMIN - INSTALLATION AND CONFIGURATION (native /spider)
+========================================================================
+
+PORTS AND TOPOLOGY (native /spider)
+
+Mode                 DXWeb HTTP        Admin HTTP        DXSpider IntMsg
+DIRECT (default)     0.0.0.0:7380      0.0.0.0:7381      127.0.0.1:27754
+NGINX SAME HOST      127.0.0.1:7480    127.0.0.1:7481    127.0.0.1:27754
+Nginx public ports   7380             7381             not proxied
+
+0.0.0.0 is a bind address, not a URL: browse to the server's real IP or DNS name.
+The DXSpider technical port 27754 is not the browser port.
+Direct Admin on unencrypted HTTP exposes credentials: limit access to a trusted
+network, or use a properly configured HTTPS reverse proxy for remote use.
+
+The provided Nginx templates assume Nginx and both web processes share a host.
+If Nginx is on ANOTHER server, 127.0.0.1 in proxy_pass points to that other
+server, not to DXSpider. These templates are NOT a verified remote-Nginx setup.
+Such a deployment requires a separately secured upstream, firewall/TLS design,
+and a review of the source-IP and WebSocket Origin trust logic; do not simply
+replace 127.0.0.1 with a public address and set MOJO_REVERSE_PROXY=1.
+
+VARIABLES AND TRUST
+
+DXS_HOST (DXWeb only): address of the OUTBOUND DXSpider IntMsg peer; default
+127.0.0.1. DXS_PORT: technical port, default 27754. DXWeb Admin's backend
+address is fixed to 127.0.0.1 in the reviewed code; DXS_PORT is configurable.
+
+HTTP_HOST / HTTP_PORT (DXWeb): browser listener bind and port.
+DXWEB_HOST / DXWEB_PORT (Admin): corresponding Admin listener bind and port.
+0.0.0.0 listens on all IPv4 interfaces; 127.0.0.1 is loopback only.
+
+MOJO_REVERSE_PROXY=0 is the default for direct use. With trusted same-host
+Nginx set it to 1 in the systemd service environment. It instructs Mojolicious
+to interpret reverse-proxy headers; it neither starts Nginx nor changes ports.
+The application's WebSocket source-IP/Origin handling also has explicit
+loopback-specific checks: do not treat MOJO_REVERSE_PROXY=1 as a generic trust
+or security switch. Nginx must overwrite forwarded headers, not pass arbitrary
+client-supplied values through. Keep backend ports inaccessible externally.
+
+INSTALLATION: DIRECT MODE (default; no Nginx)
+
+Application files must already be installed under /spider/dxweb-admin.
+Use the unit from /spider/dxweb-admin.service (not the nginx example):
+  cd /spider
+  install -m 0644 dxweb-admin.service /etc/systemd/system/dxweb-admin.service
+  systemctl daemon-reload
+  systemctl enable --now dxweb-admin.service
+  curl -fsS http://127.0.0.1:7381/healthz
+
+Service values: DXWEB_HOST=0.0.0.0; DXWEB_PORT=7381; MOJO_REVERSE_PROXY=0.
+Entrypoint: /spider/dxweb-admin/admin.pl.
+
+INSTALLATION: OPTIONAL NGINX ON THE SAME HOST
+
+Nginx listens publicly on 7381; application listens privately on
+127.0.0.1:7481. Do not run direct and Nginx public listeners on the
+same ports simultaneously. Back up the current unit before switching.
+  cd /spider
+  cp -p /etc/systemd/system/dxweb-admin.service /root/dxweb-admin.service.before-nginx
+  install -m 0644 dxweb-admin.service.nginx.example /etc/systemd/system/dxweb-admin.service
+  systemctl daemon-reload
+  systemctl restart dxweb-admin.service
+  curl -fsS http://127.0.0.1:7481/healthz
+
+Service values: DXWEB_HOST=127.0.0.1; DXWEB_PORT=7481; MOJO_REVERSE_PROXY=1.
+Configure ONE of the supplied Nginx HTTP or HTTPS examples, after editing
+FQDN and certificate paths as applicable; run nginx -t before reloading.
+See /spider/dxweb/docs/README-nginx for complete commands and subdirectories.
+
+VERIFICATION AND ROLLBACK
+
+After any change to service units: systemctl daemon-reload; restart only the
+relevant web service, NOT DXSpider. For direct mode:
+  systemctl is-active dxweb.service dxweb-admin.service
+  ss -ltnp | grep -E ':(7380|7381) '
+  curl -fsS http://127.0.0.1:7380/healthz
+  curl -fsS http://127.0.0.1:7381/healthz
+Check state=ready in the returned JSON; HTTP 200 alone is not a full UI test.
+Check login, spots, Console, Filters SH/FILTER and font controls in a browser.
+For Nginx also test HTTP(S), WebSocket upgrade, login and correct client IP.
+Subdirectory operation has NOT been certified by an end-to-end Nginx test.
+Keep backups of the original service units and documentation for rollback.

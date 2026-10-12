@@ -336,7 +336,7 @@ sub new_channel
 		}
 
 		# Is this user has a nextlogin time, is it > now?
-		if ($tmlaverage) {
+		if ($tmlaverage && $user) {
 			my $t = $user->nextlogin || 0;
 			if ($t  > $main::systime) {
 				my $l = $t - $main::systime;
@@ -369,6 +369,16 @@ sub new_channel
 			eval { DXHealth::connection_badip($call); 1 };
 			LogDbg('chan', "$call on $host is from a badip $host, disconnected");
 			$conn->disconnect;
+			return;
+		}
+
+		# A locally routed user without a DXChannel is a logical web
+		# presence. DXUser is persistent identity, not online presence.
+		# Check before creating the telnet channel. Remote routes are
+		# not children of routeroot and must not be rejected here.
+		if ($main::routeroot->is_user($call) && !DXChannel::get($call)) {
+			LogDbg('chan', "$call on $host already connected through local Web, disconnected");
+			already_conn($conn, $call, DXM::msg($lang, 'conother', $call, $main::mycall));
 			return;
 		}
 
