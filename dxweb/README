@@ -1,9 +1,9 @@
 DXWEB - OPERATIONS
 ========================================================================
 
-This is a documentation update for the installed DXWeb v0.17 application, not a
-new application binary release. Application code, backend and protocols are
-unchanged. See INSTALL for full native deployment instructions.
+This document describes DXWeb v2.8.36. The version-fix package changes only
+version metadata, HTML references and documentation; it does not alter the
+backend or protocol. See INSTALL for full native deployment instructions.
 
 PORTS AND TOPOLOGY (native /spider)
 
@@ -49,9 +49,14 @@ Service: /etc/systemd/system/dxweb.service
 Configuration: direct by default; optional same-host Nginx examples.
 DXWeb uses a single technical #WEB-n connection; browser sessions do not create DXChannels. Public spot reception does not require login. Authenticated browser actors do not inherit SYSOP privilege.
 
-UI: DXWeb v0.17 and DXWeb Admin v0.78.13 have Console monospace font controls (-, 100%, +)
-and a SH/FILTER action in Filters. Their real operation must be checked in
-browser; this documentation-only package does not alter the UI.
+UI: DXWeb v2.8.36 and DXWeb Admin v0.78.16 have Console monospace font controls (-, 100%, +)
+and a SH/FILTER action in Filters. The UI includes a spot-order toggle and
+CONTEST on demand; WX is absent from the navigation. Anonymous users can
+receive ANN, WWV and WCY feeds; CONTEST requires authentication. Functional
+behavior must be verified in a browser.
 
 Read /spider/dxweb/docs/README-nginx for reverse-proxy configurations and
-limitations. Refer to the actual VERSION file for the application version.
+limitations. The canonical application versions are dxweb/VERSION (2.8.36) and
+dxweb-admin/VERSION (0.78.16). The DXWeb footer and static asset cache keys
+must follow 2.8.36; Admin static cache keys and /admin-version.json must
+follow 0.78.16. Restart Admin after changing VERSION (read at startup).

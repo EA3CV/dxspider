@@ -742,8 +742,7 @@ body.v2-shell .resourcePane{height:300px!important}.resourcePane .metricChart{he
 body.v2-shell th{font-size:10px!important}body.v2-shell td{font-size:13px!important}
 body.v2-shell .tableWrap,body.v2-shell .supervisionTableWrap,body.v2-shell .regTableWrap{max-width:100%!important;overflow:auto!important}
 
-@media(max-width:1180px){:root{--v2-side:210px}.v2Logo div,.v2NavBtn span:last-child,.v2SidebarFoot{display:block!important}.v2NavBtn{justify-content:flex-start!important}.v2Icon{width:22px!important}.v2Sidebar{padding-left:12px!important;padding-right:12px!important}}
-@media(max-width:980px){body.v2-shell .metricsGridV4{grid-template-columns:1fr!important}.v2NodeIdentity #nodeCall{font-size:18px!important}}
+/* Removed obsolete sidebar expansion: contradicted the compact tablet layout. */
 /* Final geometry guard: header + plot + card padding always fit inside 330px. */
 :root{--dx-chart-h:260px}
 
@@ -786,8 +785,6 @@ body.v2-shell .resourceGrid{grid-template-columns:repeat(3,minmax(0,1fr))!import
 body.v2-shell .resourcePane{overflow:hidden!important}
 /* Never allow page/card width to exceed viewport. */
 body.v2-shell .workspace,body.v2-shell .section,body.v2-shell .panel,body.v2-shell .regPanel,body.v2-shell .superPanel{max-width:100%!important;box-sizing:border-box!important}
-@media(max-width:1450px){body.v2-shell .metricsGridV4{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
-@media(max-width:950px){body.v2-shell .metricsGridV4{grid-template-columns:1fr!important}}
 
 
 /* UI v2.5 — source-of-truth typography and screenshot fixes. */
@@ -1050,9 +1047,7 @@ body.v2-shell #metrics .metricsSummaryGrid .superTable th:nth-child(6),body.v2-s
 /* v0.39: sticky controls, diagnostic column alignment, hover help */
 #metrics.section.active{overflow:auto!important;position:relative!important}
 #metrics>.metricsPanel{height:auto!important;min-height:100%!important;overflow:visible!important}
-body.v2-shell #metrics .metricsHead{position:sticky!important;top:0!important;z-index:80!important;margin:-12px -12px 12px!important;border-radius:0 0 10px 10px!important;background:var(--v2-surface,#fff)!important}
 #diagnostics .superTable{table-layout:fixed}
-#diagnostics #diagFilteringRows~*{}
 #diagnostics .superTable th:last-child,#diagnostics .superTable td:last-child{text-align:right!important;padding-right:14px!important}
 #diagnostics .diagnosticsGrid .superTable th:first-child,#diagnostics .diagnosticsGrid .superTable td:first-child{width:72%!important;text-align:left!important}
 #diagnostics .diagnosticsGrid .superTable th:last-child,#diagnostics .diagnosticsGrid .superTable td:last-child{width:28%!important;text-align:right!important}
@@ -1061,7 +1056,6 @@ body.v2-shell #metrics .metricsHead{position:sticky!important;top:0!important;z-
 .chartHead h3[title],.superCard h3[title]{cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
 
 /* v0.40 diagnostics layout + true workspace-sticky controls */
-body.v2-shell #metrics .metricsHead{position:sticky!important;top:-22px!important;z-index:120!important;margin:-22px -24px 14px!important;padding:12px 24px!important;border-radius:0!important;border-width:0 0 1px!important}
 #diagnostics .diagnosticsDecisionGrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start;margin-top:12px}
 #diagnostics .diagnosticsDecisionGrid .superCard{min-width:0}
 #diagnostics .diagnosticsRatesGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
@@ -1166,3 +1160,35 @@ body.v2-shell [data-help],body.v2-shell h3[title],body.v2-shell .kpiLabel[title]
 .consoleFontControl{display:inline-flex;align-items:center;gap:2px;white-space:nowrap;margin-left:auto}
 .consoleFontControl button{min-width:27px;padding:3px 6px;font:inherit;cursor:pointer}
 .consoleFontControl #consoleFontReset{min-width:57px;font-variant-numeric:tabular-nums}
+
+/* v0.78.18: responsive sidebar variables applied after historical :root overrides.
+   761-1180px uses icon-only navigation; <=760px retains horizontal navigation. */
+@media (min-width:761px) and (max-width:1180px){
+ :root{--v2-side:74px}
+ .v2Logo div,.v2NavBtn span:last-child,.v2SidebarFoot span:last-child{display:none}
+ .v2Logo,.v2NavBtn{justify-content:center;padding-left:0;padding-right:0}
+ .v2Icon{width:auto}
+ .v2Sidebar{padding-left:10px;padding-right:10px}
+}
+@media (max-width:760px){:root{--v2-side:0px}}
+
+/* v0.78.19: phone-size Spots controls. Scope to Admin only; do not change desktop.
+   Optional column selections remain in JS/storage and reappear on larger screens. */
+@media (max-width:760px){
+ #spots .spotTitleLine{display:flex;align-items:center;flex-wrap:nowrap;gap:4px;min-width:0;width:100%}
+ #spots .spotTitleLine h2{display:none!important}
+ #spots .spotFeedChecks{display:flex;align-items:center;gap:4px;flex:0 0 auto;font-size:11px}
+ #spots .spotFeedChecks label{display:inline-flex;align-items:center;gap:2px;white-space:nowrap}
+ #spots .spotOrderToggle{flex:0 0 auto;min-width:0;padding:3px 4px;font-size:10px;white-space:nowrap}
+ #spots .spotFontControl{display:inline-flex;align-items:center;gap:2px;margin-left:0;flex:0 0 auto}
+ #spots .spotFontControl button{min-width:22px;padding:3px 4px;font-size:11px}
+ #spots .spotFontControl #spotFontReset{min-width:37px;width:37px;padding:3px 1px;font-size:10px}
+ #spots .geoLocatorControl,#spots .spotOptionalControls{display:none!important}
+ #spots .panelHead{min-width:0}
+ #spots .spotResultArea{min-width:0;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+}
+@media (max-width:350px){
+ #spots .spotTitleLine{gap:2px}
+ #spots .spotFeedChecks{gap:2px}
+ #spots .spotFontControl{gap:1px}
+}

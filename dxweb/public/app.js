@@ -97,7 +97,8 @@ function loginState(ok,m={}){
 }
 function updateRegistrationAccess(){
  const loggedIn=authenticated,registered=authenticated&&authRegistered;
- document.querySelectorAll('.tabs button[data-tab]').forEach(b=>b.classList.toggle('loginRestricted',!loggedIn&&(b.dataset.tab==='filters'||b.dataset.tab==='console')));
+ document.querySelectorAll('.tabs button[data-tab]').forEach(b=>b.classList.toggle('loginRestricted',!loggedIn&&(b.dataset.tab==='filters'||b.dataset.tab==='console'||b.dataset.tab==='contest')));
+ document.querySelectorAll('.tabs button[data-tab="ann"],.tabs button[data-tab="wwv"],.tabs button[data-tab="wcy"]').forEach(b=>{b.classList.remove('loginRestricted');b.disabled=false;b.removeAttribute('aria-disabled');});
  document.querySelectorAll('.loginOnlyControl').forEach(e=>e.classList.toggle('loginRestricted',!loggedIn));
  const sr=$('spotRestricted'),ar=$('annRestricted');
  if(sr){sr.classList.toggle('loginRestricted',!loggedIn);sr.classList.toggle('restricted',loggedIn&&!registered)}
@@ -165,7 +166,7 @@ function selectTab(id){
  activeTab=id; document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));
  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id===id));
 }
-document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{if(!authenticated&&(b.dataset.tab==='filters'||b.dataset.tab==='console')){notice('Only users who have logged in can access this function.');return}selectTab(b.dataset.tab)});
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{if(!authenticated&&(b.dataset.tab==='filters'||b.dataset.tab==='console'||b.dataset.tab==='contest')){notice('Only users who have logged in can access this function.');return}selectTab(b.dataset.tab)});
 
 $('loginButton').onclick=()=>{
  if(authenticated){if(logoutPending)return;logoutPending=true;clearSessionData();send({type:'logout'});$('loginButton').textContent='Logging out…';return}
@@ -388,6 +389,7 @@ $('consoleCommand').addEventListener('keydown',e=>{
 document.querySelectorAll('.runBtn').forEach(b=>b.onclick=()=>command(b.dataset.command,b.closest('.panel').id));
 document.querySelectorAll('.clearBtn').forEach(b=>b.onclick=()=>{
  const k=b.dataset.clear;
+ if(k==='contest'){const out=document.querySelector('#contest .commandOutput');if(out)out.textContent='';return}
  if(k==='spots'){spotItems=[];spotCounts={human:0,rbn:0};renderSpots();return}
  if(logs[k]){logs[k]=[];renderLog(k);return}
  const out=document.querySelector(`#${k} .commandOutput`);if(out)out.textContent='';
@@ -462,7 +464,9 @@ geoLoadPrefix();
 // Optional spot columns and bounded Comment resizing; presentation only.
 const spotCore=[['type','C/R',44],['utc','UTC',58],['freq','Freq',120],['dx','DX',120],['spotter','Spotter',120],['comment','Comment',80]];
 const spotExtras=[['loc','Locator',78],['cq','CQ Zone',65],['itu','ITU Zone',65]];
-let spotVisibleColumns=[],spotCommentPreferred=null,spotResizeActive=false;
+let spotVisibleColumns=[],spotCommentPreferred=null,spotResizeActive=false,spotNewestFirst=true;
+function spotOrderLabel(){const b=$('spotOrderToggle');if(!b)return;b.textContent=spotNewestFirst?'↓ First':'↑ Last';b.title=spotNewestFirst?'Newest spots first; click to reverse':'Newest spots last; click to reverse';b.setAttribute('aria-label','Spot order: '+(spotNewestFirst?'newest first':'newest last'))}
+$('spotOrderToggle').onclick=()=>{spotNewestFirst=!spotNewestFirst;spotOrderLabel();renderSpots();spotPresentationSave()};
 
 function spotSelected(){return new Set([...document.querySelectorAll('[data-spot-group]:checked')].map(e=>e.dataset.spotGroup))}
 function updateSpotLayout(){
@@ -472,13 +476,14 @@ function updateSpotLayout(){
  // Hide complete groups in priority order: ITU, CQ, Locator. Never hide core fields.
  const geoEnabled=!!geoLocator(document.getElementById('userLocator')?.value);
  const scale=spotFontPercent/100;
- const coreWidth=spotCore.reduce((s,x)=>s+Math.ceil(x[2]*scale),0)+(geoEnabled?Math.ceil(176*scale):0);
- const groups=spotExtras.map(([key,name,w])=>({key,name,w,fields:selected.has(key)?[['Dx','DX'],['Spotter','Spotter']]:[]}));
+ const coreWidth=spotCore.filter(x=>!(window.matchMedia('(max-width:767px)').matches&&x[0]==='type')).reduce((s,x)=>s+Math.ceil(x[2]*scale),0)+(geoEnabled?Math.ceil(176*scale):0);
+ const mobileCompact=window.matchMedia('(max-width:767px)').matches;
+ const groups=spotExtras.map(([key,name,w])=>({key,name,w,fields:(!mobileCompact&&selected.has(key))?[['Dx','DX'],['Spotter','Spotter']]:[]}));
  let extraWidth=groups.reduce((s,g)=>s+g.fields.length*Math.ceil(g.w*scale),0);
  for(const g of [...groups].reverse())if(extraWidth+coreWidth>available&&g.fields.length){extraWidth-=g.fields.length*Math.ceil(g.w*scale);g.fields=[]}
  const commentMin=Math.ceil(80*scale),base=coreWidth-commentMin;
  const comment=Math.max(commentMin,spotCommentPreferred===null?available-base-extraWidth:Math.min(spotCommentPreferred,Math.max(commentMin,available-base-extraWidth)));
- const cols=spotCore.map(([key,title,w])=>({key,title,w:key==='comment'?comment:Math.ceil(w*scale)}));
+ const cols=spotCore.filter(([key])=>!(mobileCompact&&key==='type')).map(([key,title,w])=>({key,title,w:key==='comment'?comment:Math.ceil(w*scale)}));
  if(geoEnabled)cols.push({key:'distance',title:'Distance',w:Math.ceil(96*scale)},{key:'bearing',title:'Bearing',w:Math.ceil(80*scale)});
  for(const g of groups)for(const [suffix,title] of g.fields)cols.push({key:g.key+suffix,title,w:Math.ceil(g.w*scale),group:g.name});
  const signature=cols.map(x=>x.key).join('|');const previous=spotVisibleColumns.map(x=>x.key).join('|');
@@ -509,8 +514,10 @@ updateSpotLayout();
 function renderSpots(){
  const human=$('showHuman').checked,rbn=$('showRbn').checked;
  const a=spotItems.filter(x=>(x.type==='human'&&human)||(x.type==='rbn'&&rbn));
- $('spotRows').innerHTML=a.slice(-250).reverse().map(x=>`<tr class="${x._newUntil>Date.now()?'spotFresh':''}" style="${x._newUntil>Date.now()?'animation-delay:-'+((3000-(x._newUntil-Date.now()))/1000).toFixed(2)+'s':''}">${spotVisibleColumns.map(col=>`<td class="${col.key==='distance'||col.key==='bearing'?'spotGeoNumeric':''}" title="${col.key==='distance'||col.key==='bearing'?esc(geoCalculate(x).source):esc(x[col.key]??'')}">${col.key==='type'?(x.type==='human'?'C':'R'):col.key==='distance'||col.key==='bearing'?esc(geoRenderValue(x,col.key)):esc(x[col.key]??'')}</td>`).join('')}</tr>`).join('');
+ $('spotRows').innerHTML=(spotNewestFirst?a.slice(-250).reverse():a.slice(-250)).map(x=>`<tr class="${x._newUntil>Date.now()?'spotFresh':''}" style="${x._newUntil>Date.now()?'animation-delay:-'+((3000-(x._newUntil-Date.now()))/1000).toFixed(2)+'s':''}">${spotVisibleColumns.map(col=>`<td class="${col.key==='distance'||col.key==='bearing'?'spotGeoNumeric':''}" title="${col.key==='distance'||col.key==='bearing'?esc(geoCalculate(x).source):esc(x[col.key]??'')}">${col.key==='type'?(x.type==='human'?'C':'R'):col.key==='distance'||col.key==='bearing'?esc(geoRenderValue(x,col.key)):esc(x[col.key]??'')}</td>`).join('')}</tr>`).join('');
  const visibleCount=(human?spotCounts.human:0)+(rbn?spotCounts.rbn:0);
+ const spotViewport=$('spotRows').closest('.spotResultArea');
+ if(spotViewport)spotViewport.scrollTop=spotNewestFirst?0:spotViewport.scrollHeight;
  setCount('spots',visibleCount);
 }
 function renderLog(k){
@@ -664,12 +671,13 @@ function spotPresentationSave(){
  const settings={human:$('showHuman').checked,rbn:$('showRbn').checked,
   font:spotFontPercent,locator:$('userLocator').value.trim().toUpperCase(),
   groups:[...document.querySelectorAll('[data-spot-group]:checked')].map(x=>x.dataset.spotGroup),
-  commentWidth:spotCommentPreferred};
+  commentWidth:spotCommentPreferred,newestFirst:spotNewestFirst};
  try{localStorage.setItem(spotPresentationKeyBase+authUser.toUpperCase(),JSON.stringify(settings))}catch(_){}
 }
 function spotPresentationRestore(){
  let saved=null;
  if(authenticated&&authUser){try{saved=JSON.parse(localStorage.getItem(spotPresentationKeyBase+authUser.toUpperCase()))}catch(_){}}
+ spotNewestFirst=saved&&typeof saved.newestFirst==='boolean'?saved.newestFirst:true;spotOrderLabel();
  const groups=new Set(saved&&Array.isArray(saved.groups)?saved.groups:[]);
  for(const box of document.querySelectorAll('[data-spot-group]'))box.checked=groups.has(box.dataset.spotGroup);
  const loc=saved&&typeof saved.locator==='string'?saved.locator:'';

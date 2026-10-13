@@ -1,7 +1,7 @@
 DXWEB + DXWEB ADMIN - NGINX DEPLOYMENT GUIDE
 ===========================================
 
-This guide corresponds to the installed DXWeb v0.17 and DXWeb Admin v0.78.13 applications and to the supplied
+This guide corresponds to the installed DXWeb v2.8.36 and DXWeb Admin v0.78.16 applications and to the supplied
 systemd units and Nginx templates. It supersedes the older README-nginx.
 No Nginx is needed for the DEFAULT deployment.
 
