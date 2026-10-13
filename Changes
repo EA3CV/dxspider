@@ -1,3 +1,9 @@
+13Oct26======================================================================
+1. DXUser.pm: Fixes and improvements to user management and persistence.
+2. (un)set/lockout: Improved callsign and SSID lockout/unlock handling.
+3. DXWeb / DXWeb Admin: Responsive improvements for mobile phones, iPads, and
+   tablets, including headers, controls, filters, and tables. Fixed spot
+   ordering and automatic scrolling in both directions.
 12Oct26======================================================================
 1. DXWeb: Improved the mobile interface.
 2. DXWeb and Web Admin: Strengthened WebSocket security through strict
