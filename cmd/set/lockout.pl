@@ -41,6 +41,13 @@ sub handle
 		return (1, $self->msg('e5'));
 	}
 
+	# Validate the complete argument list before changing any DXUser record.
+	# A malformed item must not cause partial updates.
+	my @invalid = grep { !DXUtil::is_callsign($_) } map { uc $_ } @args;
+	if (@invalid) {
+		return (1, "Invalid callsign(s): " . join(', ', @invalid) . ". No changes made.");
+	}
+
 	foreach $call (@args) {
 		$call = uc $call;
 		unless ($self->remotecmd || $self->inscript) {

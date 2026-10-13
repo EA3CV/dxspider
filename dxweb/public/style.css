@@ -541,3 +541,58 @@ html[data-theme="dark"] .topActions .themeToggle{background:#253951;color:#e1e9f
  footer .copyright{font-size:10px}
 }
 @media(max-width:380px){footer{font-size:9px}footer .copyright{font-size:9px}}
+
+/* 0.19: anonymous receive-only tabs remain accessible. */
+body.anonymous .tabs button[data-tab="ann"],body.anonymous .tabs button[data-tab="wwv"],body.anonymous .tabs button[data-tab="wcy"],body.anonymous .tabs button[data-tab="wx"]{opacity:1;filter:none;cursor:pointer}
+
+/* Responsive pass 2026-10-13: deliberately scoped; legacy desktop styles preserved. */
+@media(max-width:767px){
+ html,body{max-width:100%;overflow-x:hidden}
+ .tabs{display:flex;flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+ .tabs button{flex:0 0 auto;white-space:nowrap}
+ .topbar{min-width:0}
+ #spots .panelHead{flex-wrap:wrap!important;overflow:visible!important}
+ #spots .panelHead>div{flex-wrap:wrap!important;min-width:0!important;max-width:100%}
+ #spots .spotResultArea{min-width:0;max-width:100%;overflow-x:auto!important;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+ #spots .spotTable{max-width:none!important}
+}
+
+/* v2.8.39: consolidated mobile rules; desktop behavior unchanged. */
+.statusCluster,.actionButtons{display:contents}
+@media(max-width:767px){
+ .topbar{grid-template-columns:auto minmax(0,1fr) auto!important;align-items:center!important;gap:4px 6px!important}
+ .topbar .brand{grid-column:1!important;grid-row:1!important;font-size:clamp(15px,4.2vw,20px)!important}
+ .topbar .nodeCall{grid-column:3!important;grid-row:1!important;font-size:clamp(11px,3.1vw,14px)!important}
+ .topbar .topActions{display:contents!important}
+ .topbar .statusCluster{display:flex;grid-column:2!important;grid-row:1!important;justify-self:center;align-items:center;justify-content:center;gap:3px;min-width:0;white-space:nowrap;font-size:10px}
+ .topbar .statusCluster .anonymousBadge{font-size:10px;padding:2px 4px;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+ .topbar .statusCluster #status{font-size:10px;min-width:0}
+ .topbar .actionButtons{display:flex;grid-column:1/-1!important;grid-row:2!important;gap:5px;flex-wrap:nowrap;align-items:stretch;justify-content:flex-start;min-width:0}
+ .topbar .actionButtons>*{min-width:0}
+ .topbar .actionButtons button{box-sizing:border-box;height:32px!important;min-height:32px!important;max-height:32px!important;padding:3px 6px!important;line-height:1.1!important;display:inline-flex;align-items:center;justify-content:center}
+ #spots .spotTitleLine{display:flex;flex-wrap:nowrap!important;align-items:center;gap:3px!important;min-width:0;width:100%}
+ #spots .spotTitleLine h2{display:none!important}
+ #spots .spotFeedChecks{gap:3px!important;flex:0 0 auto;font-size:11px!important}
+ #spots .spotFeedChecks label{gap:2px!important}
+ #spots .spotOrderToggle{flex:0 0 auto;min-width:0!important;font-size:10px!important;padding:3px 3px!important;white-space:nowrap}
+ #spots .spotFontControl{margin:0!important;gap:1px!important;flex:0 0 auto}
+ #spots .spotFontControl button{min-width:22px!important;padding:2px 3px!important;font-size:11px!important}
+ #spots .spotFontControl #spotFontReset{min-width:37px!important;width:37px!important;padding:2px 1px!important;font-size:10px!important}
+ #spots .geoLocatorControl,#spots .spotOptionalControls{display:none!important}
+}
+@media(max-width:350px){
+ .topbar .statusCluster{font-size:9px;gap:2px}
+ .topbar .statusCluster .anonymousBadge,.topbar .statusCluster #status{font-size:9px}
+ #spots .spotTitleLine{gap:2px!important}
+ #spots .spotFeedChecks{gap:2px!important}
+ #spots .spotFontControl #spotFontReset{min-width:34px!important;width:34px!important}
+}
+
+/* Tablet-width header: keep account controls inside the viewport.
+   The mobile two-row header remains governed by <=767px rules. */
+@media (min-width:768px) and (max-width:900px){
+ .topbar{height:auto;min-height:72px;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:4px 10px;padding:6px 12px}
+ .topbar .brand{grid-column:1;grid-row:1;min-width:0}
+ .topbar .nodeCall{grid-column:2;grid-row:1;min-width:0}
+ .topbar .topActions{grid-column:1/-1;grid-row:2;justify-self:end;max-width:100%;min-width:0;flex-wrap:wrap;justify-content:flex-end;gap:6px}
+}
