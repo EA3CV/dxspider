@@ -275,7 +275,7 @@ body.authenticated #loginButton{background:#dff2e3;border-color:#6fa77b;color:#1
 .pc92Neighbour{width:100%;max-width:none;min-width:760px}
 
 /* Connections v0.20.0 */
-.connectionKpis{margin:0 0 14px}.connectionAttention{margin:0 0 14px}.attentionRow{display:grid;grid-template-columns:minmax(110px,180px) 1fr auto;gap:14px;padding:8px 10px;border-top:1px solid var(--line,#dbe3ea);align-items:center}.attentionRow:first-child{border-top:0}.attentionRow span:last-child{white-space:nowrap;color:var(--muted,#64748b)}.connectionTable th,.connectionTable td{white-space:nowrap}
+.connectionKpis{margin:0 0 14px}.connectionAttention{margin:0 0 14px}.attentionRow{display:grid;grid-template-columns:minmax(110px,180px) max-content max-content;gap:14px;padding:8px 10px;border-top:1px solid var(--line,#dbe3ea);align-items:center}.attentionRow:first-child{border-top:0}.attentionRow span:last-child{white-space:nowrap;color:var(--muted,#64748b)}.connectionTable th,.connectionTable td{white-space:nowrap}
 
 /* 0.21.0 Peers */
 .peerSearch{max-width:220px}.peerTable th,.peerTable td{white-space:nowrap}.peerKpis{grid-template-columns:repeat(4,minmax(145px,1fr))}

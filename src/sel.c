@@ -21,6 +21,7 @@ static char rcsid[] = "$Id$";
 
 #include "chain.h"
 #include "sel.h"
+#include "fatal.h"
 
 sel_t *sel;							   /* the array of selectors */
 int sel_max;						   /* the maximum no of selectors */

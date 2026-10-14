@@ -88,6 +88,7 @@ function spotFeedRestore(){
 function loginState(ok,m={}){
  authenticated=ok;document.body.classList.toggle('authenticated',ok);document.body.classList.toggle('anonymous',!ok); authUser=ok?(m.call||authUser):null;authRegistered=ok?Boolean(m.registered):false;passwordUsed=ok?Boolean(m.password_used):false;
  $('loginButton').textContent=ok?`Logout ${authUser}`:'Login';
+ $('loginButton').dataset.mobileLabel=ok?(authUser||'Login'):'Login';
  $('profileButton').hidden=!ok;
  if(!ok){$('profileDialog').close();$('passwordDialog').close();}
  updateRegistrationAccess();
@@ -107,7 +108,7 @@ function updateRegistrationAccess(){
  if($('showHuman'))$('showHuman').disabled=false;
  if($('showRbn'))$('showRbn').disabled=false;
  if(!loggedIn){if($('showHuman'))$('showHuman').checked=true;if($('showRbn'))$('showRbn').checked=false}
- const register=$('registerButton');if(register){const hide=loggedIn&&passwordUsed;const wrapper=register.closest('.registerHelp');if(wrapper)wrapper.hidden=hide;register.hidden=hide;}
+ const register=$('registerButton');if(register){const hide=loggedIn&&(registered||passwordUsed);const wrapper=register.closest('.registerHelp');if(wrapper)wrapper.hidden=hide;register.hidden=hide;}
  const badge=$('anonymousBadge');if(badge)badge.hidden=loggedIn;
 }
 

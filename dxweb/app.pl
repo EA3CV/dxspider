@@ -37,6 +37,8 @@ my $MAX_PENDING_GLOBAL      = $ENV{MAX_PENDING_GLOBAL}      // 8192;
 my $MAX_PENDING_CLIENT      = $ENV{MAX_PENDING_CLIENT}      // 32;
 my $REQUEST_TIMEOUT_SEC     = $ENV{REQUEST_TIMEOUT_SEC}     // 30;
 my $ORPHAN_AUTH_TIMEOUT_SEC = $ENV{ORPHAN_AUTH_TIMEOUT_SEC} // 120;
+# Finite idle timeout closes abandoned WebSockets and triggers USER_DEL.
+my $WS_IDLE_TIMEOUT_SEC = $ENV{WS_IDLE_TIMEOUT_SEC} // 600;
 
 app->static->paths->[0] = app->home->rel_file('public');
 app->secrets( [ $ENV{DXWEB_SECRET} // 'dxspider-dxweb-v2' ] );
@@ -804,7 +806,7 @@ websocket '/ws' => sub($c) {
     my $ip = websocket_client_ip($c);
     $ip =~ s/^::ffff://i;
     $clients{$id} = { tx => $tx, ip => $ip, authenticated => 0 };
-    $c->inactivity_timeout(0);
+    $c->inactivity_timeout($WS_IDLE_TIMEOUT_SEC);
     ws_send_guarded( $id, encode_json( client_status($id) ) );
     Mojo::IOLoop->next_tick( sub { replay_history( $id, 0 ) } );
     $c->on(

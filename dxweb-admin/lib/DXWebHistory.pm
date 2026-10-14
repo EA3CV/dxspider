@@ -21,14 +21,14 @@ use File::Find     qw(find);
 use Time::HiRes    qw(time);
 use Time::Local    qw(timegm);
 
-our $VERSION        = '0.16.2';
+our $VERSION        = '0.16.3';
 our $SCHEMA_VERSION = 1;
 
 sub new {
     my ( $class, %opt ) = @_;
     my $self = bless {
         path            => $opt{path},
-        local_data_root => $opt{local_data_root}   // '/spider/local_data',
+        local_data_root => $opt{local_data_root} // ($ENV{DXSPIDER_ROOT} ? "$ENV{DXSPIDER_ROOT}/local_data" : undef),
         max_queue       => $opt{max_queue}         // 256,
         max_rows        => $opt{max_rows}          // 300000,
         retention       => $opt{retention_seconds} // 31 * 86400,

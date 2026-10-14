@@ -43,4 +43,16 @@ foreach $dxchan ( sort {$a->call cmp $b->call} DXChannel::get_all ) {
 	push @out, sprintf "%10s $type $sort %-8.8s $t %-10.10s $ping $ip", $call, $state, $name;
 }
 
-return (1, @out)
+# Use the same authoritative snapshot as show/health web.
+my $web = DXSupervisor::web();
+for my $channel (@{$web->{channels} || []}) {
+    for my $user (@{$channel->{users} || []}) {
+        my $call = $user->{call} || next;
+        my $started = cldatetime($user->{startt} || $main::systime);
+        my $link = ($channel->{call} || '') . ' ' . ($user->{ip} || '');
+        push @out, sprintf "%10s USER WEB  %-8.8s %s %-10.10s %5s %s",
+            $call, 'online', $started, '', '', $link;
+    }
+}
+
+return (1, @out);

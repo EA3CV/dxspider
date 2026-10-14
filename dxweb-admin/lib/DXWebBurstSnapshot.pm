@@ -9,7 +9,7 @@ use Time::HiRes    qw(time);
 use File::Basename qw(dirname);
 use File::Path     qw(make_path);
 
-our $VERSION        = '0.2.0';
+our $VERSION        = '0.2.1';
 our $SCHEMA_VERSION = 2;
 
 sub new {
@@ -17,7 +17,7 @@ sub new {
     die 'history required' unless $opt{history};
     return bless {
         history    => $opt{history},
-        path       => $opt{path} // '/spider/local_data/dxweb-bursts.json',
+        path       => $opt{path} // ($ENV{DXSPIDER_ROOT} ? "$ENV{DXSPIDER_ROOT}/local_data/dxweb-bursts.json" : undef),
         interval   => 0 + ( $opt{interval} // 30 ),
         window     => $opt{window} // '1h',
         timer      => undef,

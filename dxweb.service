@@ -4,15 +4,15 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
-Group=root
-WorkingDirectory=/spider/dxweb
+User=sysop
+Group=sysop
+WorkingDirectory=/home/sysop/spider/dxweb
 Environment=DXS_HOST=127.0.0.1
 Environment=DXS_PORT=27754
 Environment=HTTP_HOST=0.0.0.0
 Environment=HTTP_PORT=7380
 Environment=MOJO_REVERSE_PROXY=0
-ExecStart=/usr/bin/perl /spider/dxweb/start.pl
+ExecStart=/usr/bin/perl /home/sysop/spider/dxweb/start.pl
 Restart=on-failure
 RestartSec=3
 
