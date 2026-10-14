@@ -2,7 +2,7 @@
 1. Fixed an undefined subroutine error in DXLog::LogDbg() caused by an
    unqualified call to isdbg(). mni tks Andrea IZ2LSC.
 2. For security, the default user and group for DXWeb and DXWeb Admin have
-   been changed to sysop and spider, respectively.
+   been changed to sysop and sysop, respectively.
 3. PC92 routing: Reject PC92A/PC92C user advertisements when the callsign is
    already identified as a node, applying the same checks as PC16 through
    Route::Node and DXUser. Rejections are logged in the debug output,
@@ -13,6 +13,10 @@
 5. Improved DXWeb's responsive layout for mobile devices, reorganizing
    navigation and controls into three compact rows, with consistent button
    styling and better support for Android, iPhone, and tablets.
+6. DXWeb and DXWeb Admin portability: Removed hardcoded DXSpider installation
+   paths and added support for DXSPIDER_ROOT, allowing both web services
+   to run from different installation directories. Updated systemd service
+   templates, installation scripts and documentation accordingly.
 13Oct26======================================================================
 1. Fixed compilation of the legacy C client with modern GCC. (obsolete)
 13Oct26======================================================================
@@ -57,12 +61,12 @@
 4. Maintained separate WebSocket services for DXWeb (7380) and
    Web Admin (7381), with their corresponding security restrictions.
 10Oct26======================================================================
-1. Added per-user persistence of display preferences has been added to both 
+1. Added per-user persistence of display preferences has been added to both
    DXWeb versions.
 09Oct26======================================================================
-1. DXWeb and Web Admin: Improved automatic window resizing to preserve 
-   essential spot table columns. Added distance and bearing calculations when 
-   the operator's locator is provided. Added adjustable font size controls 
+1. DXWeb and Web Admin: Improved automatic window resizing to preserve
+   essential spot table columns. Added distance and bearing calculations when
+   the operator's locator is provided. Added adjustable font size controls
    with per-user preferences for authenticated users. Improved responsive
    layout for smaller screens and mobile devices.Added alternating background
    colors to spot table rows for improved readability.
