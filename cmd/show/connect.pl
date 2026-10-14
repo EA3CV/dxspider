@@ -38,4 +38,23 @@ foreach my $call (sort keys %Msg::conns) {
 	$count++;
 }
 push @out, "$count Connections ($Msg::noconns Allocated)";
+# Logical web users are excluded from physical connection counts.
+# Read the same snapshot as show/health web.
+my $web = DXSupervisor::web();
+my @web_rows;
+for my $channel (@{$web->{channels} || []}) {
+    for my $user (@{$channel->{users} || []}) {
+        my $call = $user->{call} || next;
+        push @web_rows, sprintf "%-12s %-10s %s", $call,
+            ($channel->{call} || ''), ($user->{ip} || '');
+    }
+}
+if (@web_rows) {
+    push @out, '';
+    push @out, 'Logical Web Users';
+    push @out, 'Call         Channel    Remote IP';
+    push @out, '------------ ---------- ---------------------------------------';
+    push @out, @web_rows;
+    push @out, scalar(@web_rows) . ' Logical Web Users';
+}
 return (1, @out);

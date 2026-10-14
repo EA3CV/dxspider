@@ -19,6 +19,7 @@
  */
 
 #include <stdlib.h>
+#include "fatal.h"
 
 /* chain definitions */
 typedef struct _reft {

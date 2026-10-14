@@ -36,6 +36,16 @@ use lib "$FindBin::Bin/lib";
 use DXWebHistory;
 use DXWebBurstSnapshot;
 
+# Resolve the actual DXSpider root independently of the working directory.
+# Allow an explicit override for custom installations.
+use File::Spec;
+my $DXSPIDER_ROOT = $ENV{DXSPIDER_ROOT} // File::Spec->rel2abs(
+    File::Spec->catdir($FindBin::Bin, '..')
+);
+-d File::Spec->catdir($DXSPIDER_ROOT, 'perl')
+    or die "Invalid DXSPIDER_ROOT: $DXSPIDER_ROOT\n";
+
+
 my $DXS_HOST = '127.0.0.1';   # security boundary: admin transport is local-only
 my $DXS_PORT        = $ENV{DXS_PORT}        // 27754;
 my $DXWEB_HOST      = $ENV{DXWEB_HOST}      // '0.0.0.0';
@@ -57,7 +67,7 @@ my $MAX_PENDING_TOTAL         = $ENV{MAX_PENDING_TOTAL}         // 256;
 my $MAX_PENDING_PER_CLIENT    = $ENV{MAX_PENDING_PER_CLIENT}    // 16;
 my $MAX_CLIENTS               = $ENV{MAX_CLIENTS}               // 64;
 my $MAX_COMMAND_BYTES         = $ENV{MAX_COMMAND_BYTES}         // 4096;
-my $HISTORY_DB = $ENV{DXWEB_HISTORY_DB} // '/spider/local_data/dxhistory.db';
+my $HISTORY_DB = $ENV{DXWEB_HISTORY_DB} // ($DXSPIDER_ROOT . '/local_data/dxhistory.db');
 my $HISTORY_INTERVAL = $ENV{DXWEB_HISTORY_INTERVAL_SEC} // 30;
 my @HISTORY_KINDS = qw(status connections traffic spot_ranks rbn self_health);
 my ( $history_timer, $history_inflight ) = ( undef, 0 );
@@ -66,14 +76,14 @@ my ( %clients, %pending );
 
 my %MAINT_UPDATE_ACTION = (
     download_usdb => [
-        'wget', '-N', '-P', '/spider/local_data',
+        'wget', '-N', '-P', ($DXSPIDER_ROOT . '/local_data'),
         'ftp://ftp.w1nr.net/usdbraw.gz'
     ],
     prepare_usdb =>
-      [ '/spider/perl/create_usdb.pl', '/spider/local_data/usdbraw.gz' ],
+      [ ($DXSPIDER_ROOT . '/perl/create_usdb.pl'), ($DXSPIDER_ROOT . '/local_data/usdbraw.gz') ],
     prepare_keps =>
-      [ '/spider/perl/convkeps.pl', '-p', '/spider/local_data/nasabare.txt' ],
-    prepare_prefix => ['/spider/perl/create_prefix.pl'],
+      [ ($DXSPIDER_ROOT . '/perl/convkeps.pl'), '-p', ($DXSPIDER_ROOT . '/local_data/nasabare.txt') ],
+    prepare_prefix => [($DXSPIDER_ROOT . '/perl/create_prefix.pl')],
 );
 
 sub maintenance_update_action( $cid, $action ) {
@@ -160,11 +170,11 @@ my %counters = map { $_ => 0 }
 my $last_feed_at;
 my $history_store = DXWebHistory->new(
     path            => $HISTORY_DB,
-    local_data_root => '/spider/local_data'
+    local_data_root => ($DXSPIDER_ROOT . '/local_data')
 );
 my $burst_snapshot = DXWebBurstSnapshot->new(
     history  => $history_store,
-    path     => '/spider/local_data/dxweb-bursts.json',
+    path     => ($DXSPIDER_ROOT . '/local_data/dxweb-bursts.json'),
     interval => $HISTORY_INTERVAL,
     window   => '1h'
 );
@@ -1153,7 +1163,7 @@ sub local_system_snapshot {
     $r{mem_used_bytes}      = ( $m{MemTotal} || 0 ) - ( $m{MemAvailable} || 0 );
     $r{swap_total_bytes}    = $m{SwapTotal} || 0;
     $r{swap_used_bytes}     = ( $m{SwapTotal} || 0 ) - ( $m{SwapFree} || 0 );
-    if ( open( my $df, '-|', 'df', '-Pk', '/spider' ) ) {
+    if ( open( my $df, '-|', 'df', '-Pk', $DXSPIDER_ROOT ) ) {
         my @l = <$df>;
         close $df;
         if ( @l > 1 ) {
@@ -1215,7 +1225,7 @@ sub local_system_snapshot {
 my $UPDATE_PRIMARY       = 'git://scm.dxcluster.org/spider';
 my $UPDATE_FALLBACK      = 'https://github.com/EA3CV/dxspider.git';
 my $UPDATE_BRANCH        = 'mojo';
-my $UPDATE_CACHE_REPO    = '/spider/local_data/dxweb-update-check.git';
+my $UPDATE_CACHE_REPO    = ($DXSPIDER_ROOT . '/local_data/dxweb-update-check.git');
 my $UPDATE_CACHE_TTL     = 300;
 my $UPDATE_FETCH_TIMEOUT = $ENV{DXWEB_UPDATE_FETCH_TIMEOUT} // 15;
 my (
@@ -1278,15 +1288,15 @@ sub _run_update_check($done) {
                 return ( $out, $rc );
             };
             my ( $local_commit, $lrc ) = $capture->(
-                'git',      '-C', '/spider', 'rev-parse',
+                'git',      '-C', $DXSPIDER_ROOT, 'rev-parse',
                 '--verify', 'HEAD^{commit}'
             );
             my ( $local_branch, $brc ) = $capture->(
-                'git',     '-C',      '/spider', 'symbolic-ref',
+                'git',     '-C',      $DXSPIDER_ROOT, 'symbolic-ref',
                 '--quiet', '--short', 'HEAD'
             );
             my ( $local_desc, $drc ) =
-              $capture->( 'git', '-C', '/spider', 'describe', '--long' );
+              $capture->( 'git', '-C', $DXSPIDER_ROOT, 'describe', '--long' );
             die "local_git_state_failed\n" if $lrc || $brc || $drc;
             my $ld = _update_parse_desc($local_desc)
               or die "local_git_describe_invalid\n";

@@ -1,3 +1,20 @@
+14Oct26======================================================================
+1. Fixed an undefined subroutine error in DXLog::LogDbg() caused by an
+   unqualified call to isdbg(). mni tks Andrea IZ2LSC.
+2. For security, the default user and group for DXWeb and DXWeb Admin have
+   been changed to sysop and spider, respectively.
+3. PC92 routing: Reject PC92A/PC92C user advertisements when the callsign is
+   already identified as a node, applying the same checks as PC16 through
+   Route::Node and DXUser. Rejections are logged in the debug output,
+   including the callsign, parent node, and immediate peer.
+   PC92D handling and PC92 message propagation remain unchanged.
+4. WEB users: Updated the who and sh/connect commands to include information
+   about connected WEB users.
+5. Improved DXWeb's responsive layout for mobile devices, reorganizing
+   navigation and controls into three compact rows, with consistent button
+   styling and better support for Android, iPhone, and tablets.
+13Oct26======================================================================
+1. Fixed compilation of the legacy C client with modern GCC. (obsolete)
 13Oct26======================================================================
 1. DXUser.pm: Fixes and improvements to user management and persistence.
 2. (un)set/lockout: Improved callsign and SSID lockout/unlock handling.

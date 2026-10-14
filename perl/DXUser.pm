@@ -23,6 +23,7 @@ use IO::File;
 use DXChannel;
 use DXJSON;
 use DBI;
+use Encode ();
 
 use strict;
 
@@ -986,17 +987,9 @@ sub export
 
 	my $fn = $name ne 'user_json' ? $name : "$main::local_data/$name";                       # force use of local
 	
-	# save old ones
-	copy $fn, "$fn.keep" unless -e "$fn.keep";
-	copy "$fn.ooooo", "$fn.backstop" if -e "$fn.ooooo" && !-e "$fn.backstop";
+	# Publish the new export only after SQL cleanup succeeds.
+	my $tmpfn = "$fn.tmp.$$";
 
-	move "$fn.oooo", "$fn.ooooo" if -e "$fn.oooo";
-	move "$fn.ooo", "$fn.oooo" if -e "$fn.ooo";
-	move "$fn.oo", "$fn.ooo" if -e "$fn.oo";
-	move "$fn.o", "$fn.oo" if -e "$fn.o";
-	move "$fn", "$fn.o" if -e "$fn";
-
-	
 	my $ta = [gettimeofday];
 	my $count = 0;
 	my $err = 0;
@@ -1011,10 +1004,14 @@ sub export
 	my $phantom = 0;
 
 	my %del;
+	my %rename;
+	my %source_data;
+	my %delete_reason;
 	
 	my $exsth;
 
-	my $fh = new IO::File ">$fn" or return "cannot open $fn ($!)";
+	my $fh = new IO::File ">$tmpfn" or return "cannot open $tmpfn ($!)";
+	binmode($fh, ":raw") or die "cannot set raw output for $tmpfn ($!)";
 	if ($fh) {
 		my $key = 0;
 		my $val = undef;
@@ -1045,6 +1042,7 @@ sub export
 			}
 
 			my $ref;
+			$source_data{$key} = $val if $dbh;
 			eval {$ref = decode($val); };
 			
 			if ($ref) {
@@ -1056,6 +1054,7 @@ sub export
 					LogDbg('dxuser', "Export Error1: invalid call '$key' => '$val'");
 					
 					$del{$key} = $ref;
+					++$del unless $dbh && $main::userdsn =~ /:sqlite:/i;
 					++$err;
 					next;
 				}
@@ -1093,13 +1092,16 @@ sub export
 						LogDbg('dxuser', sprintf("$ref->{call} deleted, POSITIVELY ANCIENT at %s", difft($t, ' ')));
 						++$del;
 						++$ancient;
+						$delete_reason{$key} = "ancient";
 						$del{$key} = $ref;
 						next;
 					}
 
 					next if $ref->{registered};
 					next if $ref->{priv};
-					next if $ref->{homenode} eq $main::maincall;
+					next if defined($ref->{homenode}) && length($ref->{homenode})
+					     && defined($main::mycall) && length($main::mycall)
+					     && $ref->{homenode} eq $main::mycall;
 					next if $ref->{lockout};
 
 					if ($main::systime > $t + $tooold) {
@@ -1107,6 +1109,7 @@ sub export
 							LogDbg('dxuser', sprintf("Stale $ref->{call} deleted at %s", difft($t, ' ')));
 							++$del;
 							++$old;
+						$delete_reason{$key} = "old";
 							$del{$key} = $ref;
 							next;
 						}
@@ -1118,6 +1121,7 @@ sub export
 							LogDbg('dxuser', sprintf("Ephmeral $ref->{call} deleted at %s", difft($t, ' ')));
 							++$del;
 							++$eph;
+						$delete_reason{$key} = "eph";
 							$del{$key} = $ref;
 							next;
 						}
@@ -1132,19 +1136,24 @@ sub export
 #					}
 					
 					my $normcall = normalise_call($key);
-					if ($normcall ne $key) {
-						# if the normalised call does not exist, create it from the duff call.
-						my $nref = DXUser::get_current($normcall);
-						unless ($nref) {
-							$ref->{call} = $normcall;
-							$ref->put;
-							LogDbg('dxuser', "DXProt: modified call $key normalises to missing $normcall, renaming $key -> $normcall");
-							++$renamed;
-						} 
-						LogDbg('dxuser', "DXProt: spurious call $key (present as $normcall), removing");
-						$del{$key} = $ref;
-						++$spurious;
-						++$del;
+					if (!defined($normcall) || !is_callsign($normcall) || $normcall =~ /^\d+$/) {
+						LogDbg('dxuser', "Export: invalid normalised call for '$key', keeping original record");
+					} elsif ($normcall ne $key) {
+						if ($dbh && $main::userdsn =~ /:sqlite:/i) {
+							# Defer changes until the read cursor is closed. Compare
+							# against the exact source value read during this export.
+							$rename{$key} = [$normcall, $ref];
+						} else {
+							my $nref = DXUser::get_current($normcall);
+							unless ($nref) {
+								$ref->{call} = $normcall;
+								$ref->put(preserve_lastseen => 1);
+								++$renamed;
+							}
+							$del{$key} = $ref;
+							++$spurious;
+							++$del;
+						}
 						next;
 					}
 				} elsif ($ref->is_node && $ref->{call} ne $main::mycall) {
@@ -1152,6 +1161,7 @@ sub export
 						LogDbg('dxuser', sprintf("NODE $ref->{call} deleted (%s) POSITIVELY ANCIENT at %s", difft($t, ' ')));
 						++$del;
 						++$nodes;
+						$delete_reason{$key} = "nodes";
 						$del{$key} = undef;
 						next;
 					}
@@ -1164,25 +1174,140 @@ sub export
 			}
 			
 			# only store users that are reasonably active or have useful information
-			print $fh "$key\t" . encode($ref) . "\n";
+			print $fh "$key\t" . Encode::encode("UTF-8", encode($ref)) . "\n";
 			++$count;
 		}
 	} 
-	$fh->close;
+	unless ($fh->close) { unlink $tmpfn; return "cannot close $tmpfn ($!)"; }
 
-	while (my ($k, $v) = each %del) {
-		if ($dbh) {
-			del($k);
-		} else {
-			eval {$dbm->del($k)};
-			$v = "undef" unless $v;
+	if ($dbh && $main::userdsn =~ /:sqlite:/i) {
+		$del = 0; $spurious = 0; $renamed = 0;
+		$old = 0; $ancient = 0; $nodes = 0; $eph = 0;
+		# Release the SELECT cursor and its read transaction before writing.
+		# SQLite serialises writers; comparisons below guard against stale data.
+		$exsth->finish if $exsth;
+		undef $exsth;
+		# The export begins with sync(); close that transaction before acquiring
+		# the SQLite writer lock. This is the existing export sync boundary.
+		$dbh->commit unless $dbh->{AutoCommit};
+		my $failed;
+		my @cache_remove;
+		eval {
+			# Acquire the writer lock before inspecting any candidates.
+			defined($dbh->do('BEGIN IMMEDIATE')) or die 'BEGIN IMMEDIATE failed';
+			my $current = $dbh->prepare('SELECT data FROM users WHERE call = ?');
+			my $delete = $dbh->prepare('DELETE FROM users WHERE call = ? AND data = ?');
+			my $insert = $dbh->prepare('INSERT OR IGNORE INTO users (call, data) VALUES (?, ?)');
+			# A concurrent writer may have changed any exported record or
+			# inserted/deleted a row during the scan. Never publish that stale
+			# snapshot as a successful export.
+			# One sequential table scan instead of one indexed SELECT per user.
+			# BEGIN IMMEDIATE prevents other writers changing the snapshot
+			# during verification; check missing, added and modified rows.
+			my $verify = $dbh->prepare('SELECT call, data FROM users');
+			$verify->execute;
+			my $verified = 0;
+			while (my $row = $verify->fetchrow_arrayref) {
+				my ($key, $live_data) = @$row;
+				die "Export snapshot changed: $key"
+					unless exists($source_data{$key}) && defined($live_data)
+					&& $live_data eq $source_data{$key};
+				++$verified;
+			}
+			$verify->finish;
+			die 'Export snapshot changed: row count'
+				unless $verified == scalar(keys %source_data);
+			for my $key (sort keys %rename) {
+				my ($dest, $ref) = @{$rename{$key}};
+				$current->execute($key);
+				my ($live) = $current->fetchrow_array;
+				$current->finish;
+				next unless defined($live) && $live eq $source_data{$key};
+				$current->execute($dest);
+				my ($existing) = $current->fetchrow_array;
+				$current->finish;
+				my $created = 0;
+				if (!defined $existing) {
+					my %copy = %$ref;
+					$copy{call} = $dest;
+					my $newref = bless \%copy, ref($ref);
+					$insert->execute($dest, $newref->encode);
+					$created = ($insert->rows == 1);
+					# A competing writer may have inserted the destination.
+					$current->execute($dest);
+					($existing) = $current->fetchrow_array;
+					$current->finish;
+				}
+				# Existing destination is not proof of equivalence. Keep the
+				# source record unless this transaction created the destination.
+				next unless $created;
+				$delete->execute($key, $source_data{$key});
+				my $removed = $delete->rows == 1;
+				die "Export rename source changed: $key" if $created && !$removed;
+				if ($removed) {
+					++$del; ++$spurious;
+					++$renamed if $created;
+					push @cache_remove, $key;
+					push @cache_remove, $dest if $created;
+				}
+			}
+			for my $key (sort keys %del) {
+				$delete->execute($key, $source_data{$key});
+				if ($delete->rows == 1) {
+					++$del;
+					my $reason = $delete_reason{$key} || '';
+					++$old if $reason eq 'old';
+					++$ancient if $reason eq 'ancient';
+					++$nodes if $reason eq 'nodes';
+					++$eph if $reason eq 'eph';
+					push @cache_remove, $key;
+				} else {
+					++$err;
+					LogDbg('dxuser', "Export: preserved concurrently modified key $key");
+				}
+			}
+			defined($dbh->do('COMMIT')) or die 'COMMIT failed';
+			1;
+		} or do {
+			$failed = $@ || 'unknown SQLite error';
+			eval { $dbh->do('ROLLBACK') };
+		};
+		my $restart_ok = eval { $dbh->begin_work if $dbh->{AutoCommit}; 1 };
+		$failed ||= "unable to restart transaction: $@" unless $restart_ok;
+		if (!$failed) { $lru->remove($_) for @cache_remove; }
+		if ($failed) {
+			LogDbg('dxuser', "Export: SQLite cleanup aborted: $failed");
+			unlink $tmpfn;
+			return "Export failed during SQLite cleanup: $failed";
 		}
-		LogDbg('dxuser', "Error deleting key: $k value: $v error: $@") if $@;
-		undef $@;
+	} else {
+		while (my ($k, $v) = each %del) {
+			if ($dbh) {
+				del($k);
+			} else {
+				eval {$dbm->del($k)};
+				$v = "undef" unless $v;
+			}
+			LogDbg('dxuser', "Error deleting key: $k value: $v error: $@") if $@;
+			undef $@;
+		}
+		sync() if $dbh;
 	}
-	if ($dbh) {
-		undef $exsth if $exsth;
-		sync();
+	# Rotate backups only after the database phase succeeded.
+	# save old ones
+	copy $fn, "$fn.keep" unless -e "$fn.keep";
+	copy "$fn.ooooo", "$fn.backstop" if -e "$fn.ooooo" && !-e "$fn.backstop";
+
+	move "$fn.oooo", "$fn.ooooo" if -e "$fn.oooo";
+	move "$fn.ooo", "$fn.oooo" if -e "$fn.ooo";
+	move "$fn.oo", "$fn.ooo" if -e "$fn.oo";
+	move "$fn.o", "$fn.oo" if -e "$fn.o";
+	move "$fn", "$fn.o" if -e "$fn";
+
+
+	unless (move($tmpfn, $fn)) {
+		unlink $tmpfn;
+		return "cannot publish $fn ($!)";
 	}
 	my $diff = _diffms($ta);
 	my $s = qq{Exported users to $fn - $count Users,  $del Deleted ($eph ephmeral, $old empty \& too old, $ancient ancient, $nodes ancient nodes, $spurious spurious), $renamed renamed, $unlocked Unlocked, $err Errors in $diff mS ('sh/log Export' for details)};
