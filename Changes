@@ -1,3 +1,18 @@
+15Oct26======================================================================
+1. Fixed the delivery of asynchronous responses from AsyncMsg to DXWeb.
+2. DXWeb: Updated to v2.8.51, including dynamic software version
+   reporting and versioned static assets to avoid stale browser caches.
+3. DXWeb: Validated WebSocket connection handling, replay and
+   backpressure with up to 100 concurrent clients, without observed
+   connection failures, drops or unexpected reconnections.
+4. Web.pm: Normalized WEB-specific diagnostic messages using the native
+   DXSpider debug mechanism, dbg(...) if isdbg('web'), while preserving
+   unconditional error and command logging.
+5. DXWeb Admin: Verified the supervision, diagnostics and historical
+   metrics infrastructure. SQLite history retention is configured for
+   31 days with a maximum of 300,000 records.
+6. DXWeb deployment: Updated installation documentation, service
+   configuration and Nginx integration examples.
 14Oct26======================================================================
 1. Fixed an undefined subroutine error in DXLog::LogDbg() caused by an
    unqualified call to isdbg(). mni tks Andrea IZ2LSC.

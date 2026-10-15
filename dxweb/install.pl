@@ -6,18 +6,22 @@
 #
 # Copyright (c) 2026 Dirk Koopman G1TLH
 #
-# DXSpider Web installer 2.7.3
-# Date: 2026-10-14
+# DXSpider Web installer 2.7.4
+# Date: 2026-10-15
 
 use strict;
 use warnings;
 use File::Copy qw(move);
+use Getopt::Long qw(GetOptions);
 use File::Basename qw(dirname);
 use File::Spec;
 use File::Path qw(remove_tree);
 use File::Temp qw(tempdir);
 use Cwd qw(abs_path);
 
+my $dry_run = 0;
+GetOptions('dry-run' => \$dry_run)
+    or die "Usage: perl install.pl [--dry-run] [source] [destination]\n";
 my $src = shift // '.';
 my $root = $ENV{DXSPIDER_ROOT} // abs_path(
     File::Spec->catdir(dirname(abs_path(__FILE__)), '..')
@@ -46,6 +50,14 @@ die "invalid destination name\n"
 $dst = File::Spec->catdir($parent_real, $name);
 
 my $dst_real = abs_path($dst);
+my @owner_stat = stat(-e $dst ? $dst : $parent_real)
+    or die "Cannot stat destination or parent for ownership: $!\n";
+my ($target_uid, $target_gid) = @owner_stat[4, 5];
+print "Target owner uid=$target_uid gid=$target_gid (existing destination or parent)\n";
+if ($dry_run) {
+    print "Dry-run: source=$src_real destination=$dst; no changes made\n";
+    exit 0;
+}
 die "source and destination are identical\n"
     if defined($dst_real) && $src_real eq $dst_real;
 
@@ -74,6 +86,13 @@ if (system('cp', '-a', '--', $src_real, $staged) != 0) {
     die "staging copy failed\n";
 }
 
+# Apply the installation identity to the STAGING TREE only, never to /spider.
+# GNU chown -hR changes symlink ownership without following symlink targets.
+if (system('chown', '-hR', "$target_uid:$target_gid", '--', $staged) != 0) {
+    cleanup_stage();
+    die "staged ownership normalization failed\n";
+}
+
 unless (-f "$staged/app.pl" && -f "$staged/start.pl") {
     cleanup_stage();
     die "staged application incomplete\n";
@@ -85,7 +104,7 @@ unless (chmod 0755, "$staged/start.pl") {
 }
 
 if ($previous) {
-    $backup = "$dst.pre-2.7.3-" . time;
+    $backup = "$dst.pre-2.7.4-" . time;
     die "backup already exists: $backup\n"
         if -e $backup || -l $backup;
 

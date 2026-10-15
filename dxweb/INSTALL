@@ -1,33 +1,7 @@
-DXWEB - INSTALLATION AND CONFIGURATION (native DXSpider)
+DXWEB - INSTALLATION AND CONFIGURATION (native /spider)
 ========================================================================
 
-
-DXSPIDER ROOT AND SERVICE TEMPLATES
-
-Set DXSPIDER_ROOT to the actual DXSpider installation directory before
-following the commands in this guide. For example:
-
-  export DXSPIDER_ROOT=/home/sysop/spider
-
-On installations using a different root, change this value accordingly.
-Do not assume /spider is the active installation.
-
-The supplied systemd templates use /home/sysop/spider as their reference
-installation path, with User=sysop and Group=sysop. Before installing a
-template, adapt WorkingDirectory and ExecStart to the actual DXSPIDER_ROOT.
-For example, generate an adapted unit before installing it:
-
-  sed "s|/home/sysop/spider|$DXSPIDER_ROOT|g" TEMPLATE > /tmp/UNIT
-
-Replace TEMPLATE and UNIT with the corresponding service filenames.
-Review the generated unit before installing it. Keep User=sysop and
-Group=sysop unless the administrator explicitly chooses another account.
-systemd does not expand shell variables in WorkingDirectory.
-
-The DXWeb installer installs application files; it does not install or
-configure systemd units or Nginx.
-
-PORTS AND TOPOLOGY (native DXSpider)
+PORTS AND TOPOLOGY (native /spider)
 
 Mode                 DXWeb HTTP        Admin HTTP        DXSpider IntMsg
 DIRECT (default)     0.0.0.0:7380      0.0.0.0:7381      127.0.0.1:27754
@@ -66,29 +40,25 @@ client-supplied values through. Keep backend ports inaccessible externally.
 
 INSTALLATION: DIRECT MODE (default; no Nginx)
 
-Application files must already be installed under $DXSPIDER_ROOT/dxweb.
-Use the unit from $DXSPIDER_ROOT/dxweb.service (not the nginx example):
-  cd "$DXSPIDER_ROOT"
-  sed "s|/home/sysop/spider|$DXSPIDER_ROOT|g" dxweb.service > /tmp/dxweb.service
-  systemd-analyze verify /tmp/dxweb.service
-  install -m 0644 /tmp/dxweb.service /etc/systemd/system/dxweb.service
+Application files must already be installed under /spider/dxweb.
+Use the unit from /spider/dxweb.service (not the nginx example):
+  cd /spider
+  install -m 0644 dxweb.service /etc/systemd/system/dxweb.service
   systemctl daemon-reload
   systemctl enable --now dxweb.service
   curl -fsS http://127.0.0.1:7380/healthz
 
 Service values: HTTP_HOST=0.0.0.0; HTTP_PORT=7380; MOJO_REVERSE_PROXY=0.
-Entrypoint: $DXSPIDER_ROOT/dxweb/start.pl.
+Entrypoint: /spider/dxweb/start.pl.
 
 INSTALLATION: OPTIONAL NGINX ON THE SAME HOST
 
 Nginx listens publicly on 7380; application listens privately on
 127.0.0.1:7480. Do not run direct and Nginx public listeners on the
 same ports simultaneously. Back up the current unit before switching.
-  cd "$DXSPIDER_ROOT"
+  cd /spider
   cp -p /etc/systemd/system/dxweb.service /root/dxweb.service.before-nginx
-  sed "s|/home/sysop/spider|$DXSPIDER_ROOT|g" dxweb.service.nginx.example > /tmp/dxweb.service
-  systemd-analyze verify /tmp/dxweb.service
-  install -m 0644 /tmp/dxweb.service /etc/systemd/system/dxweb.service
+  install -m 0644 dxweb.service.nginx.example /etc/systemd/system/dxweb.service
   systemctl daemon-reload
   systemctl restart dxweb.service
   curl -fsS http://127.0.0.1:7480/healthz
@@ -96,7 +66,7 @@ same ports simultaneously. Back up the current unit before switching.
 Service values: HTTP_HOST=127.0.0.1; HTTP_PORT=7480; MOJO_REVERSE_PROXY=1.
 Configure ONE of the supplied Nginx HTTP or HTTPS examples, after editing
 FQDN and certificate paths as applicable; run nginx -t before reloading.
-See $DXSPIDER_ROOT/dxweb/docs/README-nginx for complete commands and subdirectories.
+See /spider/dxweb/docs/README-nginx for complete commands and subdirectories.
 
 VERIFICATION AND ROLLBACK
 
@@ -111,3 +81,16 @@ Check login, spots, Console, Filters SH/FILTER and font controls in a browser.
 For Nginx also test HTTP(S), WebSocket upgrade, login and correct client IP.
 Subdirectory operation has NOT been certified by an end-to-end Nginx test.
 Keep backups of the original service units and documentation for rollback.
+
+SERVICE IDENTITY / PERMISSIONS
+The supplied systemd unit templates default to User=sysop and Group=spider.
+Ensure these accounts exist and that the chosen identity can traverse/read
+/spider and application files, connect to DXSpider IntMsg, and access only
+the necessary writable paths. DXWeb Admin has additional writes to
+/spider/local_data (history, updates and maintenance); audit these before
+activating a non-root service. Do NOT recursively chown /spider.
+For a root:root test environment, explicitly change User and Group in
+the installed /etc/systemd/system unit, not in the repository template.
+Updating repository templates does not modify running systemd services.
+After an intentional installed-unit change: systemctl daemon-reload and
+restart only the affected web service.

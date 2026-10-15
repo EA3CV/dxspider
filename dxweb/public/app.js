@@ -166,6 +166,7 @@ function connect(){
 function selectTab(id){
  activeTab=id; document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));
  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id===id));
+ if(id==='console')requestAnimationFrame(()=>{$('consoleCommand')?.focus({preventScroll:true})});
 }
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{if(!authenticated&&(b.dataset.tab==='filters'||b.dataset.tab==='console'||b.dataset.tab==='contest')){notice('Only users who have logged in can access this function.');return}selectTab(b.dataset.tab)});
 
