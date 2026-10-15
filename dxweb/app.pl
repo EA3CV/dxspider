@@ -95,12 +95,17 @@ sub client_status($id) {
 
 sub drop_slow_client($id) {
     my $cl = $clients{$id} or return;
+    return if $cl->{closing};
+
+    $cl->{closing} = 1;
     $counters{ws_slow_disconnects}++;
-    eval { $cl->{tx}->finish( 1013 => 'slow consumer' ) }
+
+    eval { $cl->{tx}->finish( 1013 => 'slow consumer' ) };
 }
 
 sub ws_send_guarded( $id, $json ) {
     my $cl = $clients{$id} or return 0;
+    return 0 if $cl->{closing};
     my $tx = $cl->{tx};
     return 0 unless $tx && $tx->is_websocket;
     my $s = ws_stream($tx);
@@ -111,10 +116,15 @@ sub ws_send_guarded( $id, $json ) {
     }
     my $w = $s->bytes_waiting;
     my $n = length($json);
-    if ( $n > $WS_HIGH_WATER ) { $counters{ws_dropped}++; return 0 }
+    if ( $n > $WS_HIGH_WATER ) {
+        $counters{ws_dropped}++;
+        drop_slow_client($id);
+        return 0;
+    }
     if ( !$s->can_write || $w + $n > $WS_HIGH_WATER ) {
         $counters{ws_dropped}++;
-        return -1;
+        drop_slow_client($id);
+        return 0;
     }
     my $ok = eval { $tx->send($json); 1 };
     if ( !$ok ) {
@@ -339,11 +349,6 @@ sub replay_history( $id, $pos = 0 ) {
         my $targets = $history[$i][0]{_targets};
         next unless client_can_receive_feed( $id, $kind, $targets );
         my $ok = ws_send_guarded( $id, $history[$i][1] );
-        if ( $ok < 0 ) {
-            Mojo::IOLoop->timer( 0.05 => sub { replay_history( $id, $i ) } )
-              if $clients{$id};
-            return;
-        }
         return unless $ok;
     }
     my $n = $end + 1;
@@ -694,6 +699,20 @@ sub schedule_reconnect {
 }
 hook before_server_start => sub( $server, $app ) {
     Mojo::IOLoop->next_tick( sub { connect_dxs() } );
+};
+# Capture the running release once, rather than rereading it after deployment.
+my $DXWEB_RUNNING_VERSION = do {
+    my $file = app->home->rel_file('VERSION');
+    open my $fh, '<', $file or die "Cannot read $file: $!";
+    my $v = <$fh> // die "Empty $file";
+    close $fh;
+    $v =~ s/\s+\z//;
+    $v =~ /\A\d+(?:\.\d+)+\z/ or die "Invalid version in $file";
+    $v;
+};
+get '/software-version.json' => sub($c) {
+    $c->res->headers->cache_control('no-store');
+    $c->render(json => { running => $DXWEB_RUNNING_VERSION });
 };
 get '/' => sub($c) {
     my $path = app->home->rel_file('public/index.html');
