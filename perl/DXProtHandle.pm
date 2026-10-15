@@ -1931,15 +1931,56 @@ sub _encode_pc92_call
 my %things_add;
 my %things_del;
 
+# A PC92 user advertisement must not shadow a known node identity.
+# Use the same two authoritative sources as the PC16 admission guard.
+sub _pc92_user_is_known_node
+{
+	my ($call, $parent, $dxchan, $sort) = @_;
+	return 0 unless $call;
+	# Match the identity that _add_thingy will actually use. In particular,
+	# prefix/suffix decoration and SSID 0 must not bypass the node guard.
+	my $normcall = normalise_call($call);
+	return 0 unless $normcall;
+	my $node = Route::Node::get($normcall);
+	my $user = DXUser::get_current($normcall) unless $node;
+	return 0 unless $node || ($user && $user->is_node);
+	my $from = $parent ? $parent->call : '-';
+	my $peer = $dxchan ? $dxchan->call : '-';
+	dbg("PCPROT: PC92$sort rejected user $call (node identity $normcall): known node; parent=$from; peer=$peer") if isdbg('chanerr');
+	return 1;
+}
+
+# The external-node bit is an attribute of a node entry, not a user type.
+# A flag with extnode set but node clear is inconsistent: never admit it
+# as a human user or silently reinterpret it as a valid node.
+sub _pc92_invalid_extnode_user
+{
+    my ($slot, $parent, $dxchan, $sort) = @_;
+    return 0 unless $slot && !$slot->[1] && $slot->[2];
+    my $call = $slot->[0] || '-';
+    my $from = $parent ? $parent->call : '-';
+    my $peer = $dxchan ? $dxchan->call : '-';
+    dbg("PCPROT: PC92$sort rejected inconsistent external-node flag for $call; parent=$from; peer=$peer") if isdbg('chanerr');
+    return 1;
+}
+
 sub _add_thingy
 {
 	my $parent = shift;
 	my $s = shift;
 	my $dxchan = shift;
 	my $hops = shift;
+	my $pc92sort = shift || 'A';
 
 	my ($call, $is_node, $is_extnode, $here, $version, $build, $ip) = @$s;
 	my @rout;
+
+	# Reject invalid user advertisements before any DXUser normalization cleanup.
+	# The cleanup below may delete an existing DXUser record.
+	if (!$is_node) {
+		return if _pc92_invalid_extnode_user($s, $parent, $dxchan, $pc92sort);
+		return if _pc92_user_is_known_node($call, $parent, $dxchan, $pc92sort);
+	}
 
 	# remove spurious IPV6 prefix on IPV4 addresses
 	$build ||= 0;
@@ -1995,6 +2036,8 @@ sub _add_thingy
 				$r->build($user->build) if $user->build;
 				$r->K(1) if $user->K;
 			} else {
+				return if _pc92_invalid_extnode_user($s, $parent, $dxchan, $pc92sort);
+				return if _pc92_user_is_known_node($call, $parent, $dxchan, $pc92sort);
 				dbg("ROUTE: added user $call to $ncall") if isdbg('routelow');
 				$user = check_add_user($call, 'U', $parent->call);
 				@rout = $parent->add_user($call, Route::here($here), $ip);
@@ -2458,7 +2501,7 @@ sub handle_92
 
 		if ($sort eq 'A') {
 			for (@nent) {
-				push @radd, _add_thingy($parent, $_, $self, $hops);
+				push @radd, _add_thingy($parent, $_, $self, $hops, 'A');
 			}
 		} elsif ($sort eq 'D') {
 			for (@nent) {
@@ -2466,6 +2509,7 @@ sub handle_92
 			}
 		} elsif ($sort eq 'C') {
 			my (@nodes, @users);
+			my %invalid_pc92_users;
 
 			# we reset obscounts on config records as well as K records
 			$parent->reset_obs;
@@ -2473,6 +2517,17 @@ sub handle_92
 
 			#
 			foreach my $r (@nent) {
+                if (_pc92_invalid_extnode_user($r, $parent, $self, 'C')) {
+                    $invalid_pc92_users{$r->[0]} = 1;
+                    next;
+                }
+				# Exclude known-node identities advertised as users BEFORE
+				# calculating the full-configuration differences. A stale
+				# Route::User relation can then be removed by the normal D path.
+				if (!$r->[1] && _pc92_user_is_known_node($r->[0], $parent, $self, 'C')) {
+					$invalid_pc92_users{$r->[0]} = 1;
+					next;
+				}
 				#			my ($call, $is_node, $is_extnode, $here, $version, $build) = _decode_pc92_call($_);
 				if ($r->[0]) {
 					if ($r->[1]) {
@@ -2490,8 +2545,8 @@ sub handle_92
 			# add users here
 			foreach my $r (@nent) {
 				my $call = $r->[0];
-				if ($call) {
-					push @radd,_add_thingy($parent, $r, $self, $hops) if grep $call eq $_, (@$nnodes, @$nusers);
+				if ($call && !(!$r->[1] && $invalid_pc92_users{$call})) {
+					push @radd,_add_thingy($parent, $r, $self, $hops, 'C') if grep $call eq $_, (@$nnodes, @$nusers);
 				}
 			}
 			# del users here

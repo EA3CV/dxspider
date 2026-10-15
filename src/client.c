@@ -37,6 +37,7 @@
 #include "cmsg.h"
 #include "chain.h"
 #include "debug.h"
+#include "fatal.h"
 
 #define TEXT 1
 #define MSG 2
@@ -357,7 +358,6 @@ int fcb_handler(sel_t *sp, int in, int out, int err)
 {
 	fcb_t *f = sp->fcb;
 	cmsg_t *mp, *omp;
-	UC c;
 	
 	/* input modes */
 	if (ending == 0 && in) {
@@ -479,7 +479,7 @@ int fcb_handler(sel_t *sp, int in, int out, int err)
 				switch (mp->state) {
 				case 0: 
 					if (ch == '%') {
-						c = 0;
+						mp->hex_high = 0;
 						mp->state = 1;
 					} else if (ch == '\n') {
 						/* kick it upstairs */
@@ -498,9 +498,9 @@ int fcb_handler(sel_t *sp, int in, int out, int err)
 				case 1:
 					mp->state = 2;
 					if (ch >= '0' && ch <= '9') 
-						c = (ch - '0') << 4;
+						mp->hex_high = (ch - '0') << 4;
 					else if (ch >= 'A' && ch <= 'F')
-						c = (ch - 'A' + 10) << 4;
+						mp->hex_high = (ch - 'A' + 10) << 4;
 					else {
 						dbg(DMSG, "Illegal hex char (%c) received in state 1", ch);
 						mp->inp = mp->data;
@@ -510,9 +510,9 @@ int fcb_handler(sel_t *sp, int in, int out, int err)
 					
 				case 2:
 					if (ch >= '0' && ch <= '9') 
-						*mp->inp++ = c | (ch - '0');
+						*mp->inp++ = mp->hex_high | (ch - '0');
 					else if (ch >= 'A' && ch <= 'F')
-						*mp->inp++ = c | (ch - 'A' + 10);
+						*mp->inp++ = mp->hex_high | (ch - 'A' + 10);
 					else {
 						dbg(DMSG, "Illegal hex char (%c) received in state 2", ch);
 						mp->inp = mp->data;
@@ -539,6 +539,8 @@ lout:;
 				return 0;
 			}
 			mp->inp = mp->data;
+		} else {
+			mp = f->out;
 		}
 		l = mp->size - (mp->inp - mp->data);
 		if (l > 0) {
@@ -555,7 +557,7 @@ lout:;
 				default:
 					dbg(DBUF,"got errno %d in output", errno);
 					ending++;
-					return;
+					return 1;
 				}
 			} else if (r > 0) {
 				mp->inp += r;
@@ -602,7 +604,8 @@ void setconntype(char *m)
 void process_stdin()
 {
 	cmsg_t *wmp, *mp = cmsg_next(in->inq);
-	char *p, hasa, hasn, i;
+	char *p;
+	int i, hasa = 0, hasn = 0;
 	char callsign[MAXCALLSIGN+1];
 	
 	if (mp) {
@@ -861,7 +864,7 @@ void connect_to_node()
  * the program itself....
  */
 
-main(int argc, char *argv[])
+int main(int argc, char *argv[])
 {
 	/* compile regexes for iscallsign */
 	{

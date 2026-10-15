@@ -44,7 +44,7 @@ client-supplied values through. Keep backend ports inaccessible externally.
 
 ENTRY AND BEHAVIOR
 
-Entry: /spider/dxweb-admin/admin.pl
+Entry: $DXSPIDER_ROOT/dxweb-admin/admin.pl
 Service: /etc/systemd/system/dxweb-admin.service
 Configuration: direct by default; optional same-host Nginx examples.
 Admin browser access requires authenticated DXSpider DXUser privilege >=9 and a password (v0.05 privilege fix). The public DXWeb does not inherit SYSOP privilege.
@@ -55,7 +55,7 @@ CONTEST on demand; WX is absent from the navigation. Anonymous users can
 receive ANN, WWV and WCY feeds; CONTEST requires authentication. Functional
 behavior must be verified in a browser.
 
-Read /spider/dxweb/docs/README-nginx for reverse-proxy configurations and
+Read $DXSPIDER_ROOT/dxweb/docs/README-nginx for reverse-proxy configurations and
 limitations. The canonical application versions are dxweb/VERSION (2.8.36) and
 dxweb-admin/VERSION (0.78.16). The DXWeb footer and static asset cache keys
 must follow 2.8.36; Admin static cache keys and /admin-version.json must
