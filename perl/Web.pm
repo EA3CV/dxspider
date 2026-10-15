@@ -967,7 +967,7 @@ sub _user_add
 	$self->tell_login('loginu', $call);
 	$self->tell_buddies('loginb', $call);
 
-	LogDbg('DXCommand', "Web $self->{call} USER_ADD $call from $ip");
+	dbg("web: Web $self->{call} USER_ADD $call from $ip") if isdbg('web');
 
 	$self->_response($id, 'ok', $authmeta ? 'auth' : 'user_add', {
 		call          => $call,
@@ -1006,7 +1006,7 @@ sub _remove_user
 	$self->tell_login('logoutu', $call);
 	$self->tell_buddies('logoutb', $call);
 
-	LogDbg('DXCommand', "Web $self->{call} " . ($reason || 'USER_DEL') . " $call");
+	dbg("web: Web $self->{call} " . ($reason || 'USER_DEL') . " $call") if isdbg('web');
 	return 1;
 }
 
@@ -1199,10 +1199,10 @@ sub _feed_request
 
 	my $state = $self->_feed_state;
 
-	LogDbg('DXCommand', sprintf(
-		'Web %s FEED human=%d rbn=%d ann=%d wwv=%d wcy=%d wx=%d',
+	dbg(sprintf(
+		'web: Web %s FEED human=%d rbn=%d ann=%d wwv=%d wcy=%d wx=%d',
 		$self->{call}, $state->{human}, $state->{rbn}, $state->{ann}, $state->{wwv}, $state->{wcy}, $state->{wx}
-	));
+	)) if isdbg('web');
 
 	$self->_response($id, 'ok', 'feed', $state);
 }
@@ -1516,7 +1516,7 @@ sub _profile_request
         unless ($persisted && ($persisted->passwd || '') eq $new) {
             $self->_error($id,'profile','update_not_persisted'); return;
         }
-        LogDbg('DXCommand', "Web profile password changed for $call");
+        dbg("web: Web profile password changed for $call") if isdbg('web');
         $self->_response($id,'ok','profile',{call=>$call, action=>'password'});
         return;
     } elsif ($action ne 'get') {
@@ -1717,7 +1717,7 @@ sub normal
 			$self->_enable_webcluster_backpressure;
 			$self->_enable_webcluster_feeds;
 
-			LogDbg('DXCommand', "Web $self->{call} switched to $role protocol v$version auth=$expected_auth");
+			dbg("web: Web $self->{call} switched to $role protocol v$version auth=$expected_auth") if isdbg('web');
 
 			my $hello = {
 				type    => 'hello',
@@ -1829,7 +1829,7 @@ sub disconnect
 
 	delete $self->{senddbg};
 
-	LogDbg('DXCommand', "Web $call disconnected");
+	dbg("web: Web $call disconnected") if isdbg('web');
 
 	DXChannel::disconnect($self);
 }

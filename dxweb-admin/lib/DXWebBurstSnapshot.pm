@@ -9,7 +9,7 @@ use Time::HiRes    qw(time);
 use File::Basename qw(dirname);
 use File::Path     qw(make_path);
 
-our $VERSION        = '0.2.1';
+our $VERSION        = '0.2.2';
 our $SCHEMA_VERSION = 2;
 
 sub new {
@@ -24,7 +24,22 @@ sub new {
         inflight   => 0,
         last_write => undef,
         error      => undef,
+        logger     => $opt{logger},
+        last_logged_error => undef,
     }, $class;
+}
+
+sub _log_event {
+    my ($s, $level, $message) = @_;
+    return unless ref($s->{logger}) eq 'CODE';
+    eval { $s->{logger}->($level, $message) };
+}
+
+sub _log_failure_once {
+    my ($s, $level, $message) = @_;
+    return if defined $s->{last_logged_error} && $s->{last_logged_error} eq $message;
+    $s->{last_logged_error} = $message;
+    $s->_log_event($level, $message);
 }
 
 sub status {
@@ -63,6 +78,7 @@ sub refresh {
             $s->{inflight} = 0;
             if ( $err || ref($r) ne 'HASH' ) {
                 $s->{error} = $err || 'invalid_metrics_result';
+                $s->_log_failure_once('warn', "burst metrics failed: $s->{error}");
                 $s->_schedule( $s->{interval} );
                 return;
             }
@@ -100,8 +116,9 @@ sub refresh {
             if ($ok) {
                 $s->{last_write} = $o->{generated_at};
                 $s->{error}      = undef;
+                $s->{last_logged_error} = undef;
             }
-            else { $s->{error} = "$@" }
+            else { $s->{error} = "$@"; $s->_log_failure_once('error', "burst snapshot write failed: $s->{error}") }
             $s->_schedule( $s->{interval} );
         }
     );
@@ -119,7 +136,7 @@ sub _write_atomic {
     binmode $fh;
     print {$fh} $json, "\n" or die "snapshot_write_failed:$!";
     close $fh or die "snapshot_close_failed:$!";
-    chmod 0644, $tmp;
+    chmod 0644, $tmp or die "snapshot_chmod_failed:$!";
     rename $tmp, $path or die "snapshot_rename_failed:$!";
     return 1;
 }

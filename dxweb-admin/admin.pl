@@ -16,6 +16,7 @@ use Mojolicious::Lite -signatures;
 use POSIX ();
 use Mojo::IOLoop;
 use Mojo::URL;
+use Mojo::UserAgent;
 use Socket qw(AF_INET AF_INET6 inet_pton);
 use Mojo::IOLoop::Subprocess;
 use Mojo::JSON  qw(encode_json decode_json);
@@ -168,12 +169,20 @@ my ( $history_bytes, $fanout_bytes, $fanout_scheduled ) = ( 0, 0, 0 );
 my %counters = map { $_ => 0 }
   qw(human rbn ann wwv wcy wx total reconnects input_overflow fanout_dropped ws_sent ws_dropped ws_slow_disconnects auth_ok auth_failed commands);
 my $last_feed_at;
+my $persistence_logger = sub {
+    my ($level, $message) = @_;
+    $level = 'debug' unless $level =~ /\A(?:debug|info|warn|error)\z/;
+    app->log->$level($message);
+};
+app->log->debug("persistence root=$DXSPIDER_ROOT uid=$< gid=$( history=$HISTORY_DB");
 my $history_store = DXWebHistory->new(
     path            => $HISTORY_DB,
+    logger          => $persistence_logger,
     local_data_root => ($DXSPIDER_ROOT . '/local_data')
 );
 my $burst_snapshot = DXWebBurstSnapshot->new(
     history  => $history_store,
+    logger   => $persistence_logger,
     path     => ($DXSPIDER_ROOT . '/local_data/dxweb-bursts.json'),
     interval => $HISTORY_INTERVAL,
     window   => '1h'
@@ -1413,6 +1422,44 @@ hook before_server_start => sub( $server, $app ) {
     Mojo::IOLoop->next_tick( sub { connect_dxs(); $burst_snapshot->start } );
 };
 get '/'                   => sub($c) { $c->reply->static('index.html') };
+# Versions are sampled independently: the process version is fixed at startup,
+# whereas the installed version is read from disk on each request.
+sub read_installed_release($path) {
+    return undef unless open my $fh, '<', $path;
+    my $v = <$fh> // '';
+    close $fh;
+    $v =~ s/\s+\z//;
+    return $v =~ /\A\d+(?:\.\d+)+\z/ ? $v : undef;
+}
+my $DXWEB_CLIENT_PORT = $ENV{DXWEB_CLIENT_PORT} // 7380;
+my $software_version_ua = Mojo::UserAgent->new;
+$software_version_ua->max_redirects(0);
+$software_version_ua->request_timeout(2);
+get '/software-versions.json' => sub($c) {
+    $c->render_later;  # asynchronous DXWeb query must retain the HTTP response
+    my $root = "$FindBin::Bin/..";
+    my $versions = {
+        admin => {
+            running   => $ADMIN_VERSION,
+            installed => read_installed_release("$FindBin::Bin/VERSION"),
+        },
+        dxweb => {
+            running   => undef,
+            installed => read_installed_release("$root/dxweb/VERSION"),
+        },
+    };
+    # Query the live DXWeb process without blocking the Admin event loop.
+    $software_version_ua->get("http://127.0.0.1:$DXWEB_CLIENT_PORT/software-version.json" => sub($ua,$tx) {
+        if ($tx->result->is_success) {
+            my $v = $tx->result->json;
+            $versions->{dxweb}{running} = $v->{running}
+                if ref($v) eq 'HASH' && defined($v->{running})
+                   && $v->{running} =~ /\A\d+(?:\.\d+)+\z/;
+        }
+        $c->res->headers->cache_control('no-store');
+        $c->render(json => $versions);
+    });
+};
 get '/admin-version.json' => sub($c) {
     $c->render(
         json => { name => 'DXSpider Web Admin', version => $ADMIN_VERSION } );

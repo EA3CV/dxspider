@@ -32,9 +32,11 @@ sub new
 	my $pkg = shift;
 	my $call = shift;
 	my $handler = shift;
+	my $actor = ref($call) && $call->isa('Web::Actor') ? $call : undef;
 	
 	my $conn = $pkg->SUPER::new($handler);
 	$conn->{caller} = ref $call ? $call->call : $call;
+	$conn->{web_actor} = $actor if $actor;
 
 	# make it persistent
 	$outstanding{$conn} = $conn;
@@ -47,8 +49,8 @@ sub handle_getpost
 	my ($conn, $ua, $tx) = @_;
 
 	# no point in going on if there is no-one wanting the output anymore
-	my $dxchan = DXChannel::get($conn->{caller});
-	unless ($dxchan) {
+	my $dxchan = $conn->{web_actor} || DXChannel::get($conn->{caller});
+	unless ($dxchan && !$dxchan->{_disconnected}) {
 		$conn->disconnect;
 		return;
 	}
@@ -105,6 +107,9 @@ sub _getpost
 	
 
 	my $conn = $pkg->new($call);
+	if ($conn->{web_actor}) {
+		$conn->{web_actor}{_async_pending}++;
+	}
 	$conn->{_asargs} = [@_];
 	$conn->{_asstate} = 'waitreply';
 	$conn->{_asfilter} = delete $args{filter} if exists $args{filter};
@@ -159,15 +164,16 @@ sub _dxchan_send
 {
 	my $conn = shift;
 	my $msg = shift;
-	my $dxchan = DXChannel::get($conn->{caller});
-	$dxchan->send($msg) if $dxchan;
+	my $dxchan = $conn->{web_actor} || DXChannel::get($conn->{caller});
+	$dxchan->send($msg) if $dxchan && !$dxchan->{_disconnected};
 }
 
 sub _error
 {
-	my ($conn, $e, $err);
-	dbg("Async: $conn->host:$conn->port path $conn->{path} error $err") if isdbg('chan');
-	$conn->_dxchan_send("$conn->{prefix}$msg");
+	my ($conn, $ua, $err) = @_;
+	$err = "HTTP request failed" unless defined $err && length $err;
+	dbg("AsyncMsg: $conn->{host}:$conn->{port} path $conn->{path} error $err") if isdbg('async');
+	$conn->_dxchan_send("$conn->{prefix}$err");
 	$conn->disconnect;
 }
 	
@@ -263,6 +269,8 @@ sub connect
 sub disconnect
 {
 	my $conn = shift;
+	return if $conn->{_asyncmsg_closed}++;
+	my $actor = delete $conn->{web_actor};
 
 	if (my $ondisc = $conn->{on_disconnect}) {
 		my $dxchan = DXChannel::get($conn->{caller});
@@ -275,6 +283,7 @@ sub disconnect
 	delete $conn->{mojo};
 	delete $outstanding{$conn};
 	$conn->SUPER::disconnect;
+	$actor->_async_finished if $actor;
 }
 
 sub _send_later

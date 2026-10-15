@@ -17,6 +17,7 @@ use Mojo::URL;
 use Socket      qw(AF_INET AF_INET6 inet_pton);
 use Mojo::JSON  qw(encode_json decode_json);
 use Time::HiRes qw(time);
+use Scalar::Util qw(weaken);
 
 $SIG{HUP} = 'IGNORE';
 
@@ -30,6 +31,10 @@ my $MAX_FANOUT_ITEMS        = $ENV{MAX_FANOUT_ITEMS}        // 256;
 my $MAX_FANOUT_BYTES        = $ENV{MAX_FANOUT_BYTES}        // 524288;
 my $WS_HIGH_WATER           = $ENV{WS_HIGH_WATER}           // 65536;
 my $REPLAY_BATCH            = $ENV{REPLAY_BATCH}            // 8;
+# Replay is paced independently of the live WebSocket slow-consumer guard.
+my $REPLAY_POLL_SEC         = 0.05;
+my $REPLAY_STALL_SEC        = 10;
+my $REPLAY_BUFFER_LIMIT     = int($WS_HIGH_WATER / 4);
 my $FANOUT_BATCH            = $ENV{FANOUT_BATCH}            // 32;
 my $MAX_WS_CLIENTS          = $ENV{MAX_WS_CLIENTS}          // 2000;
 my $MAX_WS_MSG_BYTES        = $ENV{MAX_WS_MSG_BYTES}        // 65536;
@@ -56,7 +61,7 @@ my ( %clients,       %pending );
 my ( @history,       @fanout );
 my ( $history_bytes, $fanout_bytes, $fanout_scheduled ) = ( 0, 0, 0 );
 my %counters = map { $_ => 0 }
-  qw(human rbn ann wwv wcy wx total reconnects input_overflow fanout_dropped ws_sent ws_dropped ws_slow_disconnects auth_ok auth_failed commands);
+  qw(human rbn ann wwv wcy wx total reconnects input_overflow fanout_dropped ws_sent ws_dropped ws_slow_disconnects replay_pauses replay_stalls replay_completed auth_ok auth_failed commands);
 my $last_feed_at;
 
 sub ws_stream($tx) {
@@ -95,12 +100,17 @@ sub client_status($id) {
 
 sub drop_slow_client($id) {
     my $cl = $clients{$id} or return;
+    return if $cl->{closing};
+
+    $cl->{closing} = 1;
     $counters{ws_slow_disconnects}++;
-    eval { $cl->{tx}->finish( 1013 => 'slow consumer' ) }
+
+    eval { $cl->{tx}->finish( 1013 => 'slow consumer' ) };
 }
 
 sub ws_send_guarded( $id, $json ) {
     my $cl = $clients{$id} or return 0;
+    return 0 if $cl->{closing};
     my $tx = $cl->{tx};
     return 0 unless $tx && $tx->is_websocket;
     my $s = ws_stream($tx);
@@ -111,10 +121,15 @@ sub ws_send_guarded( $id, $json ) {
     }
     my $w = $s->bytes_waiting;
     my $n = length($json);
-    if ( $n > $WS_HIGH_WATER ) { $counters{ws_dropped}++; return 0 }
+    if ( $n > $WS_HIGH_WATER ) {
+        $counters{ws_dropped}++;
+        drop_slow_client($id);
+        return 0;
+    }
     if ( !$s->can_write || $w + $n > $WS_HIGH_WATER ) {
         $counters{ws_dropped}++;
-        return -1;
+        drop_slow_client($id);
+        return 0;
     }
     my $ok = eval { $tx->send($json); 1 };
     if ( !$ok ) {
@@ -328,27 +343,63 @@ sub expire_safe_requests() {
 }
 Mojo::IOLoop->recurring( 1 => sub { expire_safe_requests() } );
 
+# Snapshot each replay: the live history ring can shift while a client drains.
+# The generation invalidates callbacks from an earlier replay (auth/logout).
 sub replay_history( $id, $pos = 0 ) {
-    return unless $clients{$id};
-    return if $pos > $#history;
-    my $end = $pos + $REPLAY_BATCH - 1;
-    $end = $#history if $end > $#history;
-    for my $i ( $pos .. $end ) {
-        return unless $clients{$id};
-        my $kind    = $history[$i][0]{feed} // '';
-        my $targets = $history[$i][0]{_targets};
-        next unless client_can_receive_feed( $id, $kind, $targets );
-        my $ok = ws_send_guarded( $id, $history[$i][1] );
-        if ( $ok < 0 ) {
-            Mojo::IOLoop->timer( 0.05 => sub { replay_history( $id, $i ) } )
-              if $clients{$id};
-            return;
+    my $cl = $clients{$id} or return;
+    return if $cl->{closing};
+    my $generation = ++$cl->{replay_generation};
+    my @snapshot = @history;
+    my $last_progress = time;
+    my $pump;
+    $pump = sub {
+        my $current = $clients{$id} or return;
+        return if $current->{closing};
+        return if ($current->{replay_generation} // 0) != $generation;
+        my $tx = $current->{tx};
+        my $s = ws_stream($tx);
+        return unless $tx && $tx->is_websocket && $s;
+        my $sent = 0;
+        while ($pos < @snapshot && $sent < $REPLAY_BATCH) {
+            my $entry = $snapshot[$pos];
+            my $kind = $entry->[0]{feed} // '';
+            my $targets = $entry->[0]{_targets};
+            unless (client_can_receive_feed($id, $kind, $targets)) {
+                $pos++;
+                next;
+            }
+            my $n = length($entry->[1]);
+            # Oversized messages are a genuine violation of the WS budget.
+            if ($n > $WS_HIGH_WATER) {
+                $counters{ws_dropped}++;
+                drop_slow_client($id);
+                return;
+            }
+            my $waiting = $s->bytes_waiting;
+            if (!$s->can_write || $waiting + $n > $REPLAY_BUFFER_LIMIT) {
+                if (time - $last_progress >= $REPLAY_STALL_SEC) {
+                    $counters{replay_stalls}++;
+                    $counters{ws_dropped}++;
+                    drop_slow_client($id);
+                    return;
+                }
+                $counters{replay_pauses}++;
+                Mojo::IOLoop->timer($REPLAY_POLL_SEC => $pump);
+                return;
+            }
+            return unless ws_send_guarded($id, $entry->[1]);
+            $pos++;
+            $sent++;
+            $last_progress = time;
         }
-        return unless $ok;
-    }
-    my $n = $end + 1;
-    Mojo::IOLoop->next_tick( sub { replay_history( $id, $n ) } )
-      if $n <= $#history && $clients{$id};
+        if ($pos < @snapshot) {
+            Mojo::IOLoop->next_tick($pump);
+        } else {
+            $counters{replay_completed}++;
+        }
+    };
+    Mojo::IOLoop->next_tick($pump);
+    weaken($pump);  # scheduled callbacks own the pump; no self-reference leak
 }
 
 sub handle_response($msg) {
@@ -695,20 +746,30 @@ sub schedule_reconnect {
 hook before_server_start => sub( $server, $app ) {
     Mojo::IOLoop->next_tick( sub { connect_dxs() } );
 };
+# Capture the running release once, rather than rereading it after deployment.
+my $DXWEB_RUNNING_VERSION = do {
+    my $file = app->home->rel_file('VERSION');
+    open my $fh, '<', $file or die "Cannot read $file: $!";
+    my $v = <$fh> // die "Empty $file";
+    close $fh;
+    $v =~ s/\s+\z//;
+    $v =~ /\A\d+(?:\.\d+)+\z/ or die "Invalid version in $file";
+    $v;
+};
+get '/software-version.json' => sub($c) {
+    $c->res->headers->cache_control('no-store');
+    $c->render(json => { running => $DXWEB_RUNNING_VERSION });
+};
 get '/' => sub($c) {
     my $path = app->home->rel_file('public/index.html');
     open my $fh, '<:raw', $path or return $c->reply->not_found;
     local $/;
     my $html = <$fh>;
     close $fh;
-    my $vpath = app->home->rel_file('VERSION');
-    open my $vf, '<', $vpath or return $c->reply->not_found;
-    my $version = <$vf> // '';
-    close $vf;
-    $version =~ s/\s+\z//;
-    return $c->reply->not_found unless $version =~ /\A[0-9]+(?:\.[0-9]+)*\z/;
+    # Render the release of the running process, never a hard-coded HTML version.
+    $html =~ s{(DXSpider Web v)\d+(?:\.\d+)+}{$1 . $DXWEB_RUNNING_VERSION}ge;
     $html =~
-s{(\b(?:src|href)=["'](?:\./|/)?(?:app\.js|style\.css)\?v=)[^"']+}{$1 . $version}ge;
+      s{(\b(?:src|href)=["'](?:\./|/)?(?:app\.js|style\.css)\?v=)[^"']+}{$1 . $DXWEB_RUNNING_VERSION}ge;
     $c->res->headers->cache_control('no-cache, must-revalidate');
     $c->res->headers->header( 'Pragma' => 'no-cache' );
     $c->render( data => $html, format => 'html' );

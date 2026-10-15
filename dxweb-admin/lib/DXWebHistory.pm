@@ -21,7 +21,7 @@ use File::Find     qw(find);
 use Time::HiRes    qw(time);
 use Time::Local    qw(timegm);
 
-our $VERSION        = '0.16.3';
+our $VERSION        = '0.16.4';
 our $SCHEMA_VERSION = 1;
 
 sub new {
@@ -39,6 +39,7 @@ sub new {
         written         => 0,
         dropped         => 0,
         last_write      => undef,
+        logger          => $opt{logger},
     }, $class;
     unless ( $self->{path} ) {
         $self->{enabled} = 0;
@@ -47,6 +48,12 @@ sub new {
     }
     $self->_prepare_database;
     return $self;
+}
+
+sub _log_event {
+    my ($self, $level, $message) = @_;
+    return unless ref($self->{logger}) eq 'CODE';
+    eval { $self->{logger}->($level, $message) };
 }
 
 sub _database_schema_ok {
@@ -103,61 +110,60 @@ sub _ensure_performance_indexes {
 
 sub _prepare_database {
     my ($self) = @_;
-    my $path   = $self->{path};
-    my $dir    = dirname($path);
+    my $path = $self->{path};
+    my $dir = dirname($path);
     eval { make_path($dir) unless -d $dir; 1 } or do {
         $self->{enabled} = 0;
-        $self->{error}   = "history_directory_failed: $@";
+        $self->{error} = "history_directory_failed: $@";
+        $self->_log_event('error', $self->{error});
         return 0;
     };
 
     require DBI;
-    my $recreate = !-e $path;
-    if ( !$recreate ) {
-        my $ok = eval {
-            my $dbh = DBI->connect(
-                "dbi:SQLite:dbname=$path",
-                '', '',
-                {
-                    RaiseError          => 1,
-                    PrintError          => 0,
-                    AutoCommit          => 1,
-                    sqlite_busy_timeout => 1000,
-                }
-            );
-            my $valid = _database_schema_ok($dbh);
-            _ensure_performance_indexes($dbh) if $valid;
-            $dbh->disconnect;
-            $valid;
-        };
-        $recreate = 1 unless $ok;
-    }
-
-    if ($recreate) {
-        unlink $_ for grep { -e $_ } ( $path, "$path-wal", "$path-shm" );
-        my $ok = eval {
-            my $dbh = DBI->connect(
-                "dbi:SQLite:dbname=$path",
-                '', '',
-                {
-                    RaiseError          => 1,
-                    PrintError          => 0,
-                    AutoCommit          => 1,
-                    sqlite_busy_timeout => 1000,
-                }
-            );
-            _create_database_schema($dbh);
-            my $valid = _database_schema_ok($dbh);
-            $dbh->disconnect;
-            die 'schema verification failed after create' unless $valid;
-            1;
-        };
-        unless ($ok) {
-            $self->{enabled} = 0;
-            $self->{error}   = "history_schema_prepare_failed: $@";
-            return 0;
+    my $exists = -e $path;
+    # Existing databases are NEVER opened with SQLite's implicit-create flag.
+    # A transient I/O/permission/busy error must not become schema mismatch.
+    my $ok = eval {
+        my %attrs = (
+            RaiseError => 1, PrintError => 0, AutoCommit => 1,
+            sqlite_busy_timeout => 1000,
+        );
+        $attrs{sqlite_open_flags} = 0x00000001 if $exists; # SQLITE_OPEN_READONLY
+        my $dbh = DBI->connect("dbi:SQLite:dbname=$path", '', '', \%attrs)
+            or die 'history_connect_failed';
+        my $valid = $exists ? _database_schema_ok($dbh) : 0;
+        $dbh->disconnect;
+        if ($exists) {
+            die 'history_schema_incompatible' unless $valid;
+            # Adding optional indexes is non-destructive, but failure is fatal.
+            my $writer = DBI->connect("dbi:SQLite:dbname=$path", '', '', {
+                RaiseError => 1, PrintError => 0, AutoCommit => 1,
+                sqlite_busy_timeout => 1000,
+                sqlite_open_flags => 0x00000002, # SQLITE_OPEN_READWRITE, no CREATE
+            }) or die 'history_write_connect_failed';
+            _ensure_performance_indexes($writer);
+            $writer->disconnect;
+        } else {
+            # Create only when absent. Never unlink an existing DB/WAL/SHM.
+            die 'history_orphan_sqlite_sidecars' if -e "$path-wal" || -e "$path-shm";
+            my $writer = DBI->connect("dbi:SQLite:dbname=$path", '', '', {
+                RaiseError => 1, PrintError => 0, AutoCommit => 1,
+                sqlite_busy_timeout => 1000,
+            }) or die 'history_create_connect_failed';
+            _create_database_schema($writer);
+            die 'history_schema_verification_failed' unless _database_schema_ok($writer);
+            $writer->disconnect;
+            $self->_log_event('info', "history database created schema=$SCHEMA_VERSION path=$path");
         }
+        1;
+    };
+    unless ($ok) {
+        $self->{enabled} = 0;
+        $self->{error} = "history_schema_prepare_failed: $@";
+        $self->_log_event('error', $self->{error});
+        return 0;
     }
+    $self->_log_event('debug', "history ready schema=$SCHEMA_VERSION path=$path");
     return 1;
 }
 
@@ -254,6 +260,7 @@ sub _flush_async {
             if ($err) {
                 $self->{error} = "$err";
                 $self->{dropped} += scalar @batch;
+                $self->_log_event('error', "history flush failed; dropped=" . scalar(@batch) . ": $err");
             }
             else {
                 $self->{error} = undef;
