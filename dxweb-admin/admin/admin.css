@@ -1192,3 +1192,11 @@ body.v2-shell [data-help],body.v2-shell h3[title],body.v2-shell .kpiLabel[title]
  #spots .spotFeedChecks{gap:2px}
  #spots .spotFontControl{gap:1px}
 }
+
+/* 0.78.27: numeric placeholder alignment without altering columns. */
+.superTable td.unitCell{text-align:right!important}
+.superTable td.unitCell:not(:has(.vu)){padding-right:8px!important}
+/* Match numeric header position to value-unit cells on PC92 tables. */
+.pc92Activity th:not(:first-child),.pc92Totals th:not(:first-child){padding-right:8px!important}
+.pc92Neighbour .pc92IoHead{padding-right:7px!important}
+.nodePeerTable th.bytesHead{padding-right:8px!important}
