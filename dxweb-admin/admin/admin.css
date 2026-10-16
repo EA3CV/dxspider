@@ -1200,3 +1200,371 @@ body.v2-shell [data-help],body.v2-shell h3[title],body.v2-shell .kpiLabel[title]
 .pc92Activity th:not(:first-child),.pc92Totals th:not(:first-child){padding-right:8px!important}
 .pc92Neighbour .pc92IoHead{padding-right:7px!important}
 .nodePeerTable th.bytesHead{padding-right:8px!important}
+
+/* Responsive spot columns: field classes avoid positional drift when C/R is hidden. */
+#spots .spotTable th.spotField-freq,#spots .spotTable td.spotField-freq{text-align:right!important;padding-right:8px!important}
+#spots .spotTable th.spotField-dx,#spots .spotTable td.spotField-dx,#spots .spotTable th.spotField-spotter,#spots .spotTable td.spotField-spotter{text-align:left!important;padding-left:8px!important}
+
+/* Independent panel zoom; affects output, not toolbars or command forms. */
+.panelZoomControl{display:inline-flex;align-items:center;gap:3px;margin-left:10px;white-space:nowrap}
+.panelZoomControl button{font:inherit;font-size:12px;min-width:26px;padding:3px 5px;cursor:pointer}
+.panelZoomControl [data-zoom-reset]{min-width:52px;font-variant-numeric:tabular-nums}
+#filters .commandOutput,#ann .feedlog,#wwv .feedlog,#wcy .feedlog,#contest .commandOutput{font-size:calc(13px * var(--panel-zoom,1))!important}
+@media(max-width:760px){.panelZoomControl{margin-left:4px;gap:2px}.panelZoomControl button{padding:2px 4px;min-width:23px}}
+
+/* Visual filter editor, reused from DXWeb */
+/* Compact visual filter editor v2.8.20 */
+.vf-toolbar{display:flex;align-items:end;gap:6px;flex-wrap:wrap;margin-bottom:6px}.vf-toolbar label{display:flex;flex-direction:column;gap:2px;font-size:11px}.vf-toolbar select{min-width:0;max-width:110px}.vf-rules{display:grid;gap:3px;max-height:155px;overflow:auto;margin:6px 0}.vf-rule{display:flex;gap:4px;align-items:center}.vf-rule button:first-child{flex:1;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}.vf-rule button:last-child,.vf-cond>button{min-width:28px;padding:3px}.vf-cond{display:flex;gap:5px;align-items:center;margin:4px 0;flex-wrap:wrap}.vf-cond select{max-width:130px;min-width:65px}.vf-cond .vf-value{flex:0 1 auto}.vf-cond input{width:auto;min-width:5ch;max-width:22ch}.vf-cond details{position:relative}.vf-cond summary{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;border:1px solid #b9cad9;padding:5px;border-radius:4px}.vf-bandchoices{display:grid;grid-template-columns:repeat(4,minmax(65px,1fr));gap:3px;max-height:150px;overflow:auto;padding:5px;border:1px solid #cddae6;background:#fff}.vf-bandchoices label{white-space:nowrap;font-size:12px}.vf-bandchoices input{min-width:0}.vf-toolbar button{white-space:nowrap}#vfEditor{border-top:1px solid #d5e0ea;padding-top:7px}#vfEditor[hidden],#vfAdvancedArea[hidden]{display:none}#vfAdvancedArea input{width:100%;max-width:100%}
+
+/* v2.8.21: narrow Field selector, leave space for value and row actions */
+.vf-cond select{max-width:185px;min-width:110px}.vf-cond .vf-value input{max-width:20ch}
+
+/* v2.8.22: editable nested condition groups */
+.vf-node{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:4px 0}.vf-node.vf-group{display:block;border-left:2px solid #8ea8c1;padding:3px 0 3px 9px;margin:6px 0}.vf-grouphead{display:flex;gap:5px;align-items:center;margin-bottom:4px}.vf-node button{padding:3px 7px;min-width:24px}.vf-node .vf-value input{width:auto;max-width:20ch}.vf-node .vf-value select{max-width:9ch}.vf-node>select{max-width:185px}
+
+/* v2.8.23: outer-level logical combination */
+#vfWrapAnd{font-weight:600}
+
+/* v2.8.26: visual nesting, distinct group rails and bounded vertical scrolling */
+#vfConditions{max-height:min(52vh,510px);overflow-y:auto;overflow-x:auto;scrollbar-gutter:stable;padding:6px 10px 12px 3px;overscroll-behavior:contain}
+#vfConditions .vf-group{--vf-rail: #3485b8;border-left:3px solid var(--vf-rail);border-bottom:2px solid var(--vf-rail);border-radius:0 0 0 7px;padding:5px 0 8px 10px;margin:8px 0 10px 2px;position:relative;background:color-mix(in srgb,var(--vf-rail) 4%,transparent)}
+#vfConditions .vf-group[style*="--vf-depth: 1"]{--vf-rail:#b077bd}
+#vfConditions .vf-group[style*="--vf-depth: 2"]{--vf-rail:#c18b38}
+#vfConditions .vf-group[style*="--vf-depth: 3"]{--vf-rail:#3e9d84}
+#vfConditions .vf-grouphead{position:sticky;left:0;z-index:1}
+#vfConditions .vf-grouphead:before{content:attr(data-label);font-size:10px;color:var(--vf-rail);font-weight:700}
+#vfConditions .vf-group:hover{background:color-mix(in srgb,var(--vf-rail) 9%,transparent)}
+#vfRestoreVisual[hidden]{display:none}
+
+/* v2.8.26: character-accurate parenthesis spans; alternating upper/lower lanes */
+.vf-preview-visual{overflow-x:auto;overflow-y:hidden;background:#fff;border:1px solid #d5e0ea;padding:8px 10px;margin:5px 0;max-width:100%}
+.vf-preview-line{position:relative;display:table;width:max-content;white-space:pre;font:12px/20px ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;tab-size:4;color:#20334a}
+.vf-preview-bar{position:absolute;display:block;height:3px;border-radius:2px;pointer-events:auto;opacity:.92}
+.vf-preview-bar:hover{height:5px;filter:brightness(.85)}
+#filterPreviewText[hidden]{display:none}
+
+
+#filters .vf-split{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(260px,1fr);gap:12px;align-items:start}#filters .vf-left,#filters .vf-right{min-width:0}#filters .filterBuilder{border:1px solid #d5e0ea;border-radius:6px;padding:10px;background:#f8fbfe}#filters .filterBuilderHelp{font-size:12px;margin-top:7px}#filters .vf-response-title{font-weight:600;margin-bottom:8px}#filters .vf-right .resultArea{min-height:180px;max-height:350px;overflow:auto}#filters .vf-left button,#filters .vf-left select{cursor:pointer}@media(max-width:850px){#filters .vf-split{grid-template-columns:minmax(0,1fr)}}
+
+/* Filters: retain DXWeb's full-height two-column editor in Admin v0.78.33. */
+body.v2-shell #operation #filters.panel.active{min-height:0!important;overflow:hidden!important}
+body.v2-shell #operation #filters .vf-split{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:10px;flex:1 1 auto;min-height:0;min-width:0;overflow:hidden;align-items:stretch}
+body.v2-shell #operation #filters .vf-left,body.v2-shell #operation #filters .vf-right{min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+body.v2-shell #operation #filters .vf-left{overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;overscroll-behavior:contain}
+body.v2-shell #operation #filters .vf-left .filterBuilder{margin:0;min-width:0;flex:0 0 auto}
+body.v2-shell #operation #filters .vf-right{border:1px solid var(--ui-border,#d5e0ea);border-radius:6px;padding:10px;background:var(--ui-surface,#f8fbfe)}
+body.v2-shell #operation #filters .vf-response-title{font-weight:700;color:var(--ui-accent,#155aa8);font-size:14px;margin-bottom:8px}
+body.v2-shell #operation #filters .vf-right .resultArea{flex:1 1 auto!important;min-height:0!important;max-height:none!important;overflow:auto!important;background:var(--ui-surface,#fff);white-space:pre-wrap}
+body.v2-shell #operation #filters .vf-right .commandBar{margin-top:0!important;flex:0 0 auto!important;min-width:0;width:100%;box-sizing:border-box}
+body.v2-shell #operation #filters .vf-right .commandBar input{min-width:0;flex:1}
+@media(max-width:850px){body.v2-shell #operation #filters.panel.active{overflow-y:auto!important}body.v2-shell #operation #filters .vf-split{display:flex;flex-direction:column;overflow:visible;min-height:auto;flex:0 0 auto}body.v2-shell #operation #filters .vf-left{overflow:visible;flex:0 0 auto}body.v2-shell #operation #filters .vf-right{min-height:260px;flex:0 0 300px}body.v2-shell #operation #filters .vf-right .resultArea{min-height:150px!important}}
+
+/* v0.78.34: preserve the full C/R heading and source values in Spots. */
+#spots .spotTable th.spotField-type,
+#spots .spotTable td.spotField-type{padding-left:3px!important;padding-right:3px!important;text-align:center!important;text-overflow:clip!important}
+
+/* Live Debug */
+body.v2-shell #liveDebugSection.section.active{display:flex!important;flex-direction:column;min-height:0!important;height:calc(100vh - 125px)!important}
+body.v2-shell #liveDebug.panel{display:flex!important;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+.liveDebugToolbar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:12px;border-bottom:1px solid var(--v2-border)}
+.liveDebugToolbar label{display:flex;align-items:center;gap:6px;font-size:12px}.liveDebugToolbar input,.liveDebugToolbar select{max-width:170px}
+#liveDebugOutput{flex:1;min-height:0;overflow:auto;margin:0;padding:14px;white-space:pre;overflow-wrap:normal;word-break:normal;font-family:monospace;font-size:calc(13px * var(--panel-zoom,1))!important;line-height:1.45}
+.liveDebugMatch{background:rgba(245,158,11,.25)}
+
+/* v0.78.37: legible Live Debug toolbar labels. */
+body.v2-shell #liveDebug .liveDebugToolbar label{font-size:15px;font-weight:600}
+
+/* v0.78.38: Live Debug text contrast in dark/light/automatic themes. */
+html[data-theme="dark"] body.v2-shell #liveDebugOutput,
+body.theme-dark.v2-shell #liveDebugOutput{background:#0b1220!important;color:#e5e7eb!important}
+html[data-theme="light"] body.v2-shell #liveDebugOutput{background:#f5f8fb!important;color:#24384b!important}
+@media(prefers-color-scheme:dark){
+ html[data-theme="auto"] body.v2-shell #liveDebugOutput{background:#0b1220!important;color:#e5e7eb!important}
+}
+@media(prefers-color-scheme:light){
+ html[data-theme="auto"] body.v2-shell #liveDebugOutput{background:#f5f8fb!important;color:#24384b!important}
+}
+body.v2-shell #liveDebugOutput .liveDebugMatch{background:#fbbf24!important;color:#111827!important}
+
+/* Terminal Linux: independent zoom and scrollback, no line wrapping of source PTY. */
+body.v2-shell #terminalSection.section.active{display:flex!important;flex-direction:column;min-height:0!important;height:calc(100vh - 125px)!important}
+body.v2-shell #terminal.panel{display:flex!important;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+.terminalToolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px;border-bottom:1px solid var(--v2-border)}
+.terminalToolbar label{font-size:15px;font-weight:600;display:flex;gap:8px;align-items:center}
+.terminalToolbar input{min-width:180px}.terminalToolbar span{font-size:12px;opacity:.75}
+#terminalOutput{flex:1;min-height:0;overflow:hidden;padding:10px;background:#0b1220;color:#e5e7eb}
+#terminalOutput .xterm{height:100%}
+
+/* Cross-app visual baseline v1: ordinary action controls only.
+ * Do not affect panel zoom, terminal/xterm, table typography or sidebar. */
+.commandBar button,.dialogActions button{
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:16px!important;
+  line-height:1.25;
+  border-radius:6px;
+  padding:7px 12px;
+}
+button:focus-visible,input:focus-visible,select:focus-visible{
+  outline:2px solid #2563eb;
+  outline-offset:2px;
+}
+.commandBar,.dialogActions{min-width:0}
+.commandBar input,.dialogActions button{min-width:0}
+@media(max-width:700px){
+  .commandBar,.dialogActions{flex-wrap:wrap;gap:8px}
+  .commandBar input{flex:1 1 140px;max-width:100%}
+}
+
+/* Cross-app visual normalization v2: shared geometry for ordinary controls.
+ * Panel zoom, spot zoom, terminal, sidebar and icon-only buttons are excluded. */
+:root{--dxui-control-height:26px;--dxui-control-radius:6px;--dxui-control-font:14px}
+.commandBar button,.dialogActions button,.bottomCommand button,
+.tabs button{
+  box-sizing:border-box;
+  height:var(--dxui-control-height);
+  min-height:var(--dxui-control-height);
+  max-height:var(--dxui-control-height);
+  border-radius:var(--dxui-control-radius);
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:var(--dxui-control-font)!important;
+  line-height:1.2!important;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  vertical-align:middle;
+}
+@media(max-width:700px){
+  :root{--dxui-control-height:26px;--dxui-control-font:12px}
+}
+
+/* Spots use DXWeb's actual monospace stack. Override the v2-shell table
+ * Arial !important rule without affecting administrative tables or zoom. */
+body.v2-shell #spots .spotResultArea .spotTable,
+body.v2-shell #spots .spotResultArea .spotTable tbody td{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;
+}
+body.v2-shell #spots .spotResultArea .spotTable tbody td{
+  font-size:inherit!important;
+  line-height:normal;
+}
+
+/* Cross-app visual geometry v3: matched spots and ordinary form controls.
+ * Preserve per-panel zoom, icon-only actions and specialist layouts. */
+:root{
+  --dxui-spot-row-padding-y:5px;
+  --dxui-spot-row-line-height:normal;
+  --dxui-spot-row-font:16px;
+  --dxui-input-height:26px;
+}
+#spots .spotResultArea .spotTable{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;
+  font-size:calc(var(--dxui-spot-row-font) * var(--spot-font-scale,1))!important;
+  line-height:var(--dxui-spot-row-line-height)!important;
+}
+#spots .spotResultArea .spotTable tbody td{
+  font-family:inherit!important;
+  font-size:inherit!important;
+  font-weight:400!important;
+  line-height:inherit!important;
+  padding-top:var(--dxui-spot-row-padding-y)!important;
+  padding-bottom:var(--dxui-spot-row-padding-y)!important;
+  vertical-align:middle;
+}
+#spots .spotResultArea .spotTable thead th{
+  line-height:1.2!important;
+  vertical-align:middle;
+}
+.commandBar input:not([type="checkbox"]),
+.dialogActions input:not([type="checkbox"]){
+  box-sizing:border-box;
+  height:var(--dxui-input-height);
+  min-height:var(--dxui-input-height);
+  border-radius:5px;
+}
+@media(max-width:700px){
+  :root{--dxui-input-height:26px}
+}
+
+/* Admin v2 overrides: match DXWeb spot row geometry and ordinary command bars. */
+body.v2-shell #spots .spotResultArea .spotTable tbody td{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;
+  font-size:inherit!important;
+  line-height:inherit!important;
+  padding-top:var(--dxui-spot-row-padding-y)!important;
+  padding-bottom:var(--dxui-spot-row-padding-y)!important;
+}
+body.v2-shell #operation .opCommandForm input:not([type="checkbox"]),
+body.v2-shell #operation .opCommandForm button{
+  height:var(--dxui-control-height)!important;
+  min-height:var(--dxui-control-height)!important;
+  max-height:var(--dxui-control-height)!important;
+}
+body.v2-shell #operation .opCommandForm input:not([type="checkbox"]){
+  font-size:var(--dxui-control-font)!important;
+}
+
+
+/* Cross-app visual normalization v4: shared toolbar and navigation geometry.
+ * Explicitly scoped to equivalent UI controls; never affect spot/console zoom,
+ * terminal emulator, filter-builder micro-actions or data-table cells. */
+:root{
+  --dxui-toolbar-gap:6px;
+  --dxui-toolbar-pad-x:10px;
+  --dxui-control-line:1.2;
+}
+.panelHead button.runBtn,.panelHead button.clearBtn,
+.panelHead #spotOpen,.panelHead #spotOrderToggle{
+  box-sizing:border-box;
+  height:var(--dxui-control-height);
+  min-height:var(--dxui-control-height);
+  max-height:var(--dxui-control-height);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:var(--dxui-control-radius);
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:var(--dxui-control-font)!important;
+  line-height:var(--dxui-control-line)!important;
+  vertical-align:middle;
+}
+.panelHead .panelZoomControl{align-items:center}
+.commandBar,.dialogActions{gap:var(--dxui-toolbar-gap)}
+.commandBar button,.dialogActions button,.bottomCommand button{
+  padding-inline:var(--dxui-toolbar-pad-x);
+}
+@media(min-width:768px){
+  .tabs button{line-height:var(--dxui-control-line)!important}
+}
+@media(max-width:700px){
+  :root{--dxui-toolbar-gap:5px;--dxui-toolbar-pad-x:7px}
+  .dialogActions{justify-content:flex-end}
+  .dialogActions button{max-width:100%}
+}
+
+/* Admin-specific equivalents of DXWeb's normal command/toolbar controls. */
+body.v2-shell #operation .panelHead button.runBtn,
+body.v2-shell #operation .panelHead button.clearBtn,
+body.v2-shell #operation #spots .panelHead #spotOpen,
+body.v2-shell #operation #spots .panelHead #spotOrderToggle,
+body.v2-shell .liveDebugToolbar>button,
+body.v2-shell .terminalToolbar>button{
+  box-sizing:border-box;
+  height:var(--dxui-control-height)!important;
+  min-height:var(--dxui-control-height)!important;
+  max-height:var(--dxui-control-height)!important;
+  border-radius:var(--dxui-control-radius)!important;
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:var(--dxui-control-font)!important;
+  line-height:var(--dxui-control-line)!important;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
+body.v2-shell .liveDebugToolbar,
+body.v2-shell .terminalToolbar{
+  gap:var(--dxui-toolbar-gap);
+  align-items:center;
+  min-width:0;
+}
+body.v2-shell .liveDebugToolbar label,
+body.v2-shell .terminalToolbar label{min-width:0}
+body.v2-shell .liveDebugToolbar input:not([type="checkbox"]),
+body.v2-shell .liveDebugToolbar select,
+body.v2-shell .terminalToolbar input{
+  box-sizing:border-box;
+  height:var(--dxui-input-height)!important;
+  min-height:var(--dxui-input-height)!important;
+  font-size:var(--dxui-control-font)!important;
+  border-radius:var(--dxui-control-radius);
+}
+body.v2-shell #operationTabs button,
+body.v2-shell #registrationTabs button,
+body.v2-shell #supervisionTabs button:not(.panelZoomControl button){
+  box-sizing:border-box;
+  min-height:var(--dxui-control-height)!important;
+  height:var(--dxui-control-height)!important;
+  max-height:var(--dxui-control-height)!important;
+  padding:4px var(--dxui-toolbar-pad-x)!important;
+  font-size:var(--dxui-control-font)!important;
+  line-height:var(--dxui-control-line)!important;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
+@media(max-width:700px){
+  body.v2-shell .liveDebugToolbar,
+  body.v2-shell .terminalToolbar{gap:var(--dxui-toolbar-gap)}
+  body.v2-shell .liveDebugToolbar label,
+  body.v2-shell .terminalToolbar label{max-width:100%}
+  body.v2-shell .liveDebugToolbar input:not([type="checkbox"]),
+  body.v2-shell .terminalToolbar input{max-width:min(100%,220px)}
+}
+
+
+/* Cross-app visual normalization v5: equal-sized spot toolbar controls.
+ * Scope intentionally excludes spot rows and the zoomed content itself. */
+body.v2-shell #operation #spots .panelHead .spotTitleLine,
+body.v2-shell #operation #spots .panelHead > div,
+body.v2-shell #operation #spots .panelHead .spotFeedChecks,
+body.v2-shell #operation #spots .panelHead .spotFontControl,
+body.v2-shell #operation #spots .panelHead .spotOptionalControls { align-items:center; }
+body.v2-shell #operation #spots .panelHead #spotOrderToggle,
+body.v2-shell #operation #spots .panelHead #spotOpen,
+body.v2-shell #operation #spots .panelHead button.clearBtn,
+body.v2-shell #operation #spots .panelHead .spotFontControl button {
+  box-sizing:border-box!important;
+  height:26px!important;
+  min-height:26px!important;
+  max-height:26px!important;
+  padding:0 7px!important;
+  border-radius:5px!important;
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:13px!important;
+  font-weight:400!important;
+  line-height:1.2!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  vertical-align:middle!important;
+  white-space:nowrap;
+}
+body.v2-shell #operation #spots .panelHead .spotFontControl button:not([data-zoom-reset]) {padding-inline:7px!important;min-width:27px!important;}
+body.v2-shell #operation #spots .panelHead .spotFontControl button#spotFontReset {padding-inline:7px!important;}
+body.v2-shell #operation #spots .panelHead .geoLocatorControl input {
+  box-sizing:border-box!important;
+  height:26px!important;
+  min-height:26px!important;
+  max-height:26px!important;
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:13px!important;
+  line-height:1.2!important;
+}
+body.v2-shell #operation #spots .panelHead .spotFeedChecks label,
+body.v2-shell #operation #spots .panelHead .spotOptionalControls label,
+body.v2-shell #operation #spots .panelHead .geoLocatorControl {
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:13px!important;
+  line-height:1.2!important;
+}
+@media(max-width:700px){
+  body.v2-shell #operation #spots .panelHead #spotOrderToggle,
+  body.v2-shell #operation #spots .panelHead #spotOpen,
+  body.v2-shell #operation #spots .panelHead button.clearBtn,
+  body.v2-shell #operation #spots .panelHead .spotFontControl button {
+    height:26px!important;min-height:26px!important;max-height:26px!important;
+    font-size:13px!important;
+    padding-inline:7px!important;
+  }
+}
+
+/* v0.06: compact common toolbar height; match locator boxes (26px). */
+body.v2-shell #operation #spots .panelHead button.runBtn,
+body.v2-shell #operation #spots .panelHead button.clearBtn,
+body.v2-shell #operation #spots .panelHead #spotOpen,
+body.v2-shell #operation #spots .panelHead #spotOrderToggle,
+body.v2-shell #operation #spots .panelHead .spotFontControl button,
+body.v2-shell #operation #spots .panelHead .geoLocatorControl input {
+  box-sizing:border-box!important;
+  height:26px!important;min-height:26px!important;max-height:26px!important;
+  line-height:1.2!important;vertical-align:middle!important;
+}

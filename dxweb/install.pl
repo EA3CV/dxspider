@@ -34,6 +34,15 @@ die "invalid DXSpider root: $root\n" unless -d "$root/perl";
 my $src_real = abs_path($src)
     or die "Cannot resolve source: $src\n";
 
+# Read the actual version from the source tree for backup naming.
+open my $version_fh, '<', "$src_real/VERSION"
+    or die "Cannot read source VERSION: $!\n";
+my $version = <$version_fh> // '';
+close $version_fh;
+$version =~ s/\r?\n\z//;
+die "invalid source VERSION\n"
+    unless $version =~ /\A[0-9]+(?:\.[0-9]+)+\z/;
+
 die "destination must not be a symlink\n" if -l $dst;
 
 my $parent = dirname($dst);
@@ -104,7 +113,7 @@ unless (chmod 0755, "$staged/start.pl") {
 }
 
 if ($previous) {
-    $backup = "$dst.pre-2.7.4-" . time;
+    $backup = "$dst.pre-$version-" . time;
     die "backup already exists: $backup\n"
         if -e $backup || -l $backup;
 

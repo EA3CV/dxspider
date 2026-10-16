@@ -1977,7 +1977,7 @@ sub _add_thingy
 
 	# Reject invalid user advertisements before any DXUser normalization cleanup.
 	# The cleanup below may delete an existing DXUser record.
-	if (!$is_node) {
+	if (!$is_node && $dxchan) {
 		return if _pc92_invalid_extnode_user($s, $parent, $dxchan, $pc92sort);
 		return if _pc92_user_is_known_node($call, $parent, $dxchan, $pc92sort);
 	}
@@ -2036,8 +2036,10 @@ sub _add_thingy
 				$r->build($user->build) if $user->build;
 				$r->K(1) if $user->K;
 			} else {
-				return if _pc92_invalid_extnode_user($s, $parent, $dxchan, $pc92sort);
-				return if _pc92_user_is_known_node($call, $parent, $dxchan, $pc92sort);
+				if ($dxchan) {
+					return if _pc92_invalid_extnode_user($s, $parent, $dxchan, $pc92sort);
+					return if _pc92_user_is_known_node($call, $parent, $dxchan, $pc92sort);
+				}
 				dbg("ROUTE: added user $call to $ncall") if isdbg('routelow');
 				$user = check_add_user($call, 'U', $parent->call);
 				@rout = $parent->add_user($call, Route::here($here), $ip);

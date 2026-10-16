@@ -1,3 +1,17 @@
+16Oct26======================================================================
+1. DXWeb Admin: Completed and validated the Linux SSH terminal, including
+   Unix account authentication, session lifecycle management, cleanup,
+   persistent zoom controls and improved connection status reporting.
+2. DXWeb and DXWeb Admin: Standardized the visual appearance of both
+   interfaces, including fonts, buttons, toolbars, tabs and form controls.
+3. Spots: Unified the monospace font, row height, spacing and alignment
+   between DXWeb and DXWeb Admin.
+4. UI controls: Standardized button and input heights to a compact 26px,
+   correcting oversized controls and preserving independent panel zoom.
+5. Improved responsive styling and static asset cache versioning.
+   Updated DXWeb to v2.8.59 and DXWeb Admin to v0.78.52.
+6. DXProtHandle.pm: Fixed a potential DXSpider crash when a locally connected
+   user has a callsign previously classified as a node.
 15Oct26======================================================================
 1. Fixed the delivery of asynchronous responses from AsyncMsg to DXWeb.
 2. DXWeb: Updated to v2.8.51, including dynamic software version
