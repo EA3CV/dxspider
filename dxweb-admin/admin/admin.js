@@ -474,7 +474,7 @@ function decision(action){if(authPriv<9)return;
  $('regAccept').disabled=true;
  $('regReject').disabled=true;
  $('regActionResult').textContent=action==='accept'?'Accepting…':'Rejecting…';
- if(!send({type:`reg_${action}`,request_id:decisionId,note:$('regActionNote').value.trim()})){
+ if(!send({type:`reg_${action}`,request_id:decisionId,note:$('regActionNote').value.replace(/[\r\n]+/g,' ').trim()})){
   $('regAccept').disabled=false;
   $('regReject').disabled=false;
   $('regActionResult').textContent='DXSpider connection is not ready.';

@@ -12,6 +12,13 @@
    Updated DXWeb to v2.8.59 and DXWeb Admin to v0.78.52.
 6. DXProtHandle.pm: Fixed a potential DXSpider crash when a locally connected
    user has a callsign previously classified as a node.
+7. Added Locator field to the DXWeb registration form, including validation
+   and persistence.
+8. Registration approval now creates missing DXUser records and updates name,
+   language, email, locator and home node.
+9. Improved password reuse and synchronization across accepted SSIDs.
+10.Improved rollback handling for failed DXUser and registration history updates.
+11.Updated DXReg to v1.5, DXWeb to v2.8.60 and DXWeb Admin to v0.78.55.
 15Oct26======================================================================
 1. Fixed the delivery of asynchronous responses from AsyncMsg to DXWeb.
 2. DXWeb: Updated to v2.8.51, including dynamic software version

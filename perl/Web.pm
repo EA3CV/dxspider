@@ -1340,7 +1340,7 @@ sub _registration_request
 	unless (ref($ssids) eq 'ARRAY') { $self->_error($id, 'reg_request', 'bad_arguments'); return; }
 	my ($ok, $result) = DXReg::create_request(
 		call => $req->{call}, email => $req->{email}, language => ($req->{language} || 'EN'),
-		ssids => $ssids, name => $req->{name}, comment => $req->{comment}, source => 'USER', ip => $ip,
+		ssids => $ssids, name => $req->{name}, locator => $req->{locator}, comment => $req->{comment}, source => 'USER', ip => $ip,
 	);
 	unless ($ok) { $self->_error($id, 'reg_request', 'registration_rejected', {messages => [$result]}); return; }
 	$self->_response($id, 'ok', 'reg_request', {result => $result});

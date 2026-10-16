@@ -186,7 +186,7 @@ $('registerForm').addEventListener('submit',e=>{
  try{ssids=parseSsidSpec($('registerSsids').value);$('registerSsids').value=compactSsidSpec(ssids)}
  catch(err){$('registerResult').textContent=err.message;return}
  $('registerSubmit').disabled=true;$('registerResult').textContent='Sending request…';
- if(!send({type:'reg_request',call:$('registerCall').value.trim().toUpperCase(),ssids,name:$('registerName').value.trim(),email:$('registerEmail').value.trim(),language:$('registerLanguage').value||'EN',comment:$('registerComment').value.trim()})){$('registerSubmit').disabled=false;$('registerResult').textContent='DXSpider connection is not ready.'}
+ if(!send({type:'reg_request',call:$('registerCall').value.trim().toUpperCase(),ssids,name:$('registerName').value.trim(),email:$('registerEmail').value.trim(),locator:$('registerLocator').value.trim().toUpperCase(),language:$('registerLanguage').value||'EN',comment:$('registerComment').value.trim()})){$('registerSubmit').disabled=false;$('registerResult').textContent='DXSpider connection is not ready.'}
 });
 
 function clearSessionData(){

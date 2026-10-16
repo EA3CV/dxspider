@@ -915,6 +915,7 @@ websocket '/ws' => sub($c) {
                 my $email   = $m->{email}   // '';
                 my $name    = $m->{name}    // '';
                 my $comment = $m->{comment} // '';
+                my $locator = $m->{locator} // '';
                 my $ssids   = ref( $m->{ssids} ) eq 'ARRAY' ? $m->{ssids} : [];
                 dxs_request(
                     $id,
@@ -925,6 +926,7 @@ websocket '/ws' => sub($c) {
                         email    => $email,
                         name     => $name,
                         comment  => $comment,
+                        locator  => $locator,
                         ssids    => $ssids,
                         language => $m->{language} // 'EN',
                         ip       => $clients{$id}{ip}

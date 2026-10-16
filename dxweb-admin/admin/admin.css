@@ -1568,3 +1568,30 @@ body.v2-shell #operation #spots .panelHead .geoLocatorControl input {
   height:26px!important;min-height:26px!important;max-height:26px!important;
   line-height:1.2!important;vertical-align:middle!important;
 }
+
+/* v0.78.54: Live Debug Source selector must display the entire option.
+ * Keep the toolbar wrapping naturally on narrow screens. */
+body.v2-shell #liveDebug .liveDebugToolbar label:has(> #liveDebugSource){
+  flex:0 0 auto;
+  min-width:max-content;
+  max-width:none;
+  white-space:nowrap;
+}
+body.v2-shell #liveDebug #liveDebugSource{
+  box-sizing:border-box;
+  width:96px;
+  min-width:96px;
+  max-width:none;
+  flex:0 0 96px;
+  padding-left:8px;
+  padding-right:20px;
+}
+
+/* v0.78.55: prevent vertical clipping of the selected Live Debug source.
+ * Global form padding (7px vertical) does not fit the normalized 26px control. */
+body.v2-shell #liveDebug #liveDebugSource{
+  padding-top:0!important;
+  padding-bottom:0!important;
+  line-height:normal!important;
+  vertical-align:middle;
+}
