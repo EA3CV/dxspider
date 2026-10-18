@@ -5,6 +5,10 @@
    addresses and untrusted PROXY protocol headers. Preserved SYSOP privileges
    for legitimate local console.pl sessions and authenticated remote 
    connections. Added security regression tests.
+3. Added log entries including callsign, #WEB channel, and connection source (dxweb / dxweb-admin).
+4. Added logging of rejected authentication attempts, including the reason for rejection.
+5. Improved Admin -> Connections and Users.
+6. Updated DXWeb Admin version to 0.78.58.
 17Oct26======================================================================
 1. Web command actors now load the effective user spot filter so show/mydx
    and show/dx filter respect the same filtering rules as Telnet sessions.

@@ -685,9 +685,14 @@ function logicalWebRows(){
  }
  return logical;
 }
-function allConnectionRows(){return supervisorConnectionsCache.concat(logicalWebRows())}
+function connectionCallSort(a,b){
+ const ac=String(a.call||'').toUpperCase(),bc=String(b.call||'').toUpperCase();
+ const at=ac.startsWith('#WEB'),bt=bc.startsWith('#WEB');
+ return at!==bt?(at?-1:1):ac.localeCompare(bc,undefined,{sensitivity:'base'});
+}
+function allConnectionRows(){return supervisorConnectionsCache.concat(logicalWebRows()).sort(connectionCallSort)}
 function userConnectionRows(){
- return supervisorConnectionsCache.filter(x=>String(x.kind||'').toLowerCase()==='user').concat(logicalWebRows());
+ return allConnectionRows().filter(x=>String(x.kind||'').toLowerCase()==='user'||x.logical_web||String(x.kind||'').toLowerCase()==='web');
 }
 function renderUsers(){
  const body=$('supervisorUsers');if(!body)return;
