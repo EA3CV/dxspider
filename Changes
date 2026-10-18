@@ -1,3 +1,37 @@
+18Oct26======================================================================
+1. Added Network Chat panel for receiving DXSpider PC93 network messages, 
+   with ERROR and SYSOP channel selection.
+2. Security: Hardened TCP connection handling against spoofed client 
+   addresses and untrusted PROXY protocol headers. Preserved SYSOP privileges
+   for legitimate local console.pl sessions and authenticated remote 
+   connections. Added security regression tests.
+17Oct26======================================================================
+1. Web command actors now load the effective user spot filter so show/mydx
+   and show/dx filter respect the same filtering rules as Telnet sessions.
+2. DXWeb Filters: Command responses font now follows its independent zoom
+   controls instead of being held at a fixed 12px. Updated DXWeb to v2.8.61.
+3. Fix show/mydx and show/dx filter in DXWeb and DXWeb Admin by loading
+   the user's personal spot filter into the temporary Web actor.
+16Oct26======================================================================
+1. DXWeb Admin: Completed and validated the Linux SSH terminal, including
+   Unix account authentication, session lifecycle management, cleanup,
+   persistent zoom controls and improved connection status reporting.
+2. DXWeb and DXWeb Admin: Standardized the visual appearance of both
+   interfaces, including fonts, buttons, toolbars, tabs and form controls.
+3. Spots: Unified the monospace font, row height, spacing and alignment
+   between DXWeb and DXWeb Admin.
+4. UI controls: Standardized button and input heights to a compact 26px,
+   correcting oversized controls and preserving independent panel zoom.
+5. Improved responsive styling and static asset cache versioning.
+6. DXProtHandle.pm: Fixed a potential DXSpider crash when a locally connected
+   user has a callsign previously classified as a node.
+7. Added Locator field to the DXWeb registration form, including validation
+   and persistence.
+8. Registration approval now creates missing DXUser records and updates name,
+   language, email, locator and home node.
+9. Improved password reuse and synchronization across accepted SSIDs.
+10.Improved rollback handling for failed DXUser and registration history updates.
+11.Updated DXReg to v1.5, DXWeb to v2.8.60 and DXWeb Admin to v0.78.55.
 15Oct26======================================================================
 1. Fixed the delivery of asynchronous responses from AsyncMsg to DXWeb.
 2. DXWeb: Updated to v2.8.51, including dynamic software version

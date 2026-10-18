@@ -59,7 +59,7 @@ sub new
 	# logical user belongs to this #WEB-n connection and was authenticated by
 	# WebCluster.  The flag is deliberately actor-local: never copy it into the
 	# persistent DXUser record.
-	return bless {
+	my $actor = bless {
 		call        => $call,
 		dcall       => $call,
 		user        => $user,
@@ -82,6 +82,12 @@ sub new
 		errors      => 0,
 		_output     => [],
 	}, $class;
+
+	# Standard show/mydx (show/dx filter) needs the authenticated user's
+	# effective spot filter, just as a normal DXCommandmode session does.
+	# This is a transient actor, not a registered DXChannel.
+	Filter::load_dxchan($actor, 'spots', 0);
+	return $actor;
 }
 
 # Capture direct command output locally.  This is used, for example, by the
@@ -633,6 +639,38 @@ sub local_send
 	return $self->SUPER::local_send($let, $buf);
 }
 
+# RX-only PC93 chat bridge for authenticated DXWeb Admin logical users.
+# Called after the native PC93 acceptance checks; never affects PC93 routing.
+sub publish_network_chat
+{
+    my ($target, $from, $text, $onode) = @_;
+    return unless $target eq 'ERROR' || $target eq 'SYSOP';
+    for my $channel (DXChannel::get_all()) {
+        next unless $channel && $channel->isa('Web');
+        next unless ($channel->{web_role} || '') eq 'dxweb-admin';
+        my @targets;
+        for my $call (keys %{ $channel->{web_users} || {} }) {
+            my $owned = $channel->{web_users}{$call} || next;
+            next unless ($owned->{priv} || 0) >= 9;
+            next unless $owned->{authenticated};
+            if ($target eq 'ERROR') {
+                my $user = DXUser::get_current($call) || next;
+                next unless $user->in_group('ERROR');
+            }
+            push @targets, $call;
+        }
+        next unless @targets;
+        my $payload = _encode_protocol_object([
+            ['type', 'network_chat'], ['channel', $target],
+            ['from', $from], ['text', $text], ['onode', $onode || ''],
+            ['targets', \@targets],
+        ]);
+        next unless defined $payload;
+        next unless $channel->_web_feed_can_write(length($payload) + length($channel->{call} || '') + 4);
+        $channel->SUPER::local_send('C', $payload);
+    }
+}
+
 sub _send_json
 {
 	my ($self, $data) = @_;
@@ -962,6 +1000,7 @@ sub _user_add
 		generation    => ++$web_user_generation_seq,
 		auth_request_id => $authmeta ? $id : undef,
 	};
+	DXHealth::logical_web_up($call, $ip, $self->{call});
 	$self->_web_refresh_user_filters($call);
 
 	$self->tell_login('loginu', $call);
@@ -1001,6 +1040,7 @@ sub _remove_user
 	# _add_thingy() already performs DXSpider's normal DXUser accounting when
 	# the presence is added.  Do not close() the DXUser again here: that would
 	# add a second connlist entry and persist a duplicate session record.
+	DXHealth::logical_web_down($call, $self->{call});
 	delete $self->{web_users}{$call};
 
 	$self->tell_login('logoutu', $call);
@@ -1338,7 +1378,7 @@ sub _registration_request
 	unless (ref($ssids) eq 'ARRAY') { $self->_error($id, 'reg_request', 'bad_arguments'); return; }
 	my ($ok, $result) = DXReg::create_request(
 		call => $req->{call}, email => $req->{email}, language => ($req->{language} || 'EN'),
-		ssids => $ssids, name => $req->{name}, comment => $req->{comment}, source => 'USER', ip => $ip,
+		ssids => $ssids, name => $req->{name}, locator => $req->{locator}, comment => $req->{comment}, source => 'USER', ip => $ip,
 	);
 	unless ($ok) { $self->_error($id, 'reg_request', 'registration_rejected', {messages => [$result]}); return; }
 	$self->_response($id, 'ok', 'reg_request', {result => $result});

@@ -175,7 +175,8 @@ sub start
 	$self->send_motd;
 
 	# sort out privilege reduction
-	$self->{priv} = 0 unless $self->{hostname} eq '127.0.0.1' || $self->conn->peerhost eq '127.0.0.1' || $self->{hostname} eq '::1' || $self->conn->{usedpasswd};
+	# Client-supplied host= and PROXY metadata cannot authorize local privilege.
+	$self->{priv} = 0 unless ExtMsg::_direct_local($self->conn) || $self->conn->{usedpasswd};
 
 	
 	Filter::load_dxchan($self, 'spots', 0);
@@ -206,8 +207,9 @@ sub start
 	$self->tell_buddies('loginb');
 
 	# is this a bad ip address?
-	if (is_ipaddr($self->{hostname})) {
-		$self->{badip} = DXCIDR::find($self->{hostname});
+	my $security_ip = $self->conn->peerhost;
+	if (is_ipaddr($security_ip)) {
+		$self->{badip} = DXCIDR::find($security_ip);
 	}
 	
 	# do we need to send a forward/opernam?

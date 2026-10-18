@@ -15,7 +15,7 @@
 # Configuration:
 #   /spider/local/DXVars.pm
 #
-# Version : 1.1
+# Version : 1.5
 # Date    : 16-Sep-2026
 #
 
@@ -37,7 +37,7 @@ use Fcntl qw(:flock);
 use Encode qw(encode);
 use MIME::Base64 qw(encode_base64);
 
-our $VERSION = '1.1';
+our $VERSION = '1.5';
 
 my $json = DXJSON->new->canonical(1)->pretty(1);
 
@@ -136,6 +136,11 @@ sub create_request
     $name =~ s/\s+$//;
     return (0, 'name is too long') if length($name) > 80;
 
+    return (0, 'invalid locator') if ref($arg{locator});
+    my $locator = uc($arg{locator} // '');
+    $locator =~ s/^\s+|\s+$//g;
+    return (0, 'invalid locator') if length($locator) && !is_qra($locator);
+
     my $comment = $arg{comment} // '';
     return (0, 'invalid comment') if ref $comment;
     $comment =~ s/\r\n?/\n/g;
@@ -192,6 +197,7 @@ sub create_request
         id              => $id,
         call            => $call,
         email           => $email,
+        locator         => $locator,
         name            => $name,
         comment         => $comment,
         language        => $language,
@@ -378,6 +384,8 @@ sub accept_request
     return (0, 'SYSOP callsign is required')
         unless length $sysop;
 
+    return (0, 'SYSOP note must be a single line') if defined($note) && $note =~ /[\r\n\0]/;
+
     if (defined $note) {
         $note =~ s/^\s+//;
         $note =~ s/\s+$//;
@@ -430,6 +438,13 @@ sub accept_request
         map { "$base-$_" } @accepted
     );
 
+    # Only the base call and SSIDs explicitly requested in this approval
+    # receive profile updates. Already-registered SSIDs remain registered
+    # and retain their existing profile; the established password sync
+    # behavior is preserved.
+    my %update_profile = map { $_ => 1 }
+        ($base, map { "$base-$_" } @$clean_requested);
+
     # Snapshot all affected DXUser records so we can restore them
     # if any put() or registration.json persistence fails.
     my @snapshots;
@@ -440,10 +455,7 @@ sub accept_request
         push @snapshots, {
             call               => $call,
             existed            => $ref ? 1 : 0,
-            registered_exists  => $ref && exists $ref->{registered} ? 1 : 0,
-            registered         => $ref ? $ref->{registered} : undef,
-            passwd_exists      => $ref && exists $ref->{passwd} ? 1 : 0,
-            passwd             => $ref ? $ref->{passwd} : undef,
+            data               => $ref ? { %$ref } : undef,
         };
     }
 
@@ -466,6 +478,39 @@ sub accept_request
             # alloc() avoids the intermediate put() done by DXUser->new().
             $ref = DXUser->alloc($call) unless $ref;
 
+            # Keep the profile of pre-existing, unrequested SSIDs intact.
+            if ($update_profile{$call}) {
+                my $name = $request->{name} // '';
+                $name =~ s/[{}]//g;
+                $ref->name($name) if length $name;
+
+                my $language = lc($request->{language} || 'EN');
+                $ref->lang($language);
+
+                if (length($request->{email} // '')) {
+                    $ref->email([ $request->{email} ]);
+                    $ref->wantemail(1);
+                }
+
+                if (length($request->{locator} // '')) {
+                    die 'invalid locator type' if ref($request->{locator});
+                    my $qra = uc($request->{locator});
+                    die "invalid locator $qra" unless is_qra($qra);
+                    $ref->qra($qra);
+
+                    # DXBearing::qratoll assumes six characters. A four-
+                    # character locator must not produce bogus coordinates.
+                    if (length($qra) == 6) {
+                        require DXBearing;
+                        my ($lat, $long) = DXBearing::qratoll($qra);
+                        $ref->lat($lat);
+                        $ref->long($long);
+                    }
+                }
+
+                $ref->homenode($main::mycall)
+                    if length($main::mycall // '');
+            }
             $ref->registered(1);
             $ref->passwd($password);
             $ref->put();
@@ -478,7 +523,13 @@ sub accept_request
         $dx_err = $@ || 'unknown DXUser update error';
         $dx_err =~ s/\s+$//;
 
-        _rollback_dxusers(\@snapshots);
+        my ($rollback_ok, $rollback_errors) = _rollback_dxusers(\@snapshots);
+        unless ($rollback_ok) {
+            DXLog::LogDbg('err',
+                'DXReg: incomplete acceptance rollback for request #' . $id .
+                ': ' . join('; ', @$rollback_errors));
+            return (0, "unable to update DXUser records: $dx_err; rollback incomplete (manual reconciliation required)");
+        }
 
         DXLog::LogDbg(
             'err',
@@ -508,7 +559,13 @@ sub accept_request
         $request->{processed_by}   = $old_request{processed_by};
         $request->{note}           = $old_request{note};
 
-        _rollback_dxusers(\@snapshots);
+        my ($rollback_ok, $rollback_errors) = _rollback_dxusers(\@snapshots);
+        unless ($rollback_ok) {
+            DXLog::LogDbg('err',
+                'DXReg: incomplete acceptance rollback for request #' . $id .
+                ': ' . join('; ', @$rollback_errors));
+            return (0, "unable to save accepted registration request: $save_err; rollback incomplete (manual reconciliation required)");
+        }
 
         DXLog::LogDbg(
             'err',
@@ -2377,44 +2434,38 @@ sub _generate_password
 sub _rollback_dxusers
 {
     my ($snapshots) = @_;
+    my @errors;
 
     for my $s (reverse @$snapshots) {
-        eval {
+        my $ok = eval {
             if ($s->{existed}) {
                 my $ref = DXUser::get_current($s->{call});
                 $ref ||= DXUser->alloc($s->{call});
 
-                if ($s->{registered_exists}) {
-                    $ref->{registered} = $s->{registered};
-                } else {
-                    delete $ref->{registered};
-                }
-
-                if ($s->{passwd_exists}) {
-                    $ref->{passwd} = $s->{passwd};
-                } else {
-                    delete $ref->{passwd};
-                }
-
-                $ref->put();
+                # Restore the original profile and lastseen without changing
+                # the live DXUser object's identity when a session owns it.
+                %$ref = %{ $s->{data} };
+                $ref->put(preserve_lastseen => 1)
+                    or die 'DXUser::put returned false';
             } else {
-                my $ref = DXUser::get_current($s->{call});
-                DXUser::del($ref) if $ref;
+                # A newly allocated object might have reached SQLite even if
+                # put() threw later (for example, during channel refresh).
+                # Delete by callsign, not by a potentially missing cache ref.
+                DXUser::del($s->{call})
+                    or die 'DXUser::del returned false';
             }
+            1;
         };
 
-        if ($@) {
-            my $err = $@;
+        unless ($ok) {
+            my $err = $@ || 'unknown rollback error';
             $err =~ s/\s+$//;
-
-            DXLog::LogDbg(
-                'err',
-                "DXReg: rollback failed for $s->{call}: $err"
-            );
+            push @errors, "$s->{call}: $err";
+            DXLog::LogDbg('err', "DXReg: rollback failed for $s->{call}: $err");
         }
     }
 
-    return;
+    return (@errors ? 0 : 1, \@errors);
 }
 
 

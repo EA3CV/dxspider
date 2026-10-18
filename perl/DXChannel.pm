@@ -445,7 +445,7 @@ sub send_now
 		for (@lines) {
 			$conn->send_now("$sort$call|$_");
 			# debug log it, but not if it is a log message
-			dbg("-> $sort $self->{dcall} $_") if $sort ne 'L' && isdbg('chan');
+			dbg("-> $sort $self->{dcall} $_") if $sort ne 'L' && (($self->{call} || '') =~ /^#WEB-\d+$/ ? isdbg('web') : isdbg('chan'));
 		}
 	}
 	$self->{t} = time;
@@ -470,7 +470,7 @@ sub send_later
 		for (@lines) {
 			$conn->send_later("$sort$call|$_");
 			# debug log it, but not if it is a log message
-			dbg("-> $sort $self->{dcall} $_") if $sort ne 'L' && isdbg('chan');
+			dbg("-> $sort $self->{dcall} $_") if $sort ne 'L' && (($self->{call} || '') =~ /^#WEB-\d+$/ ? isdbg('web') : isdbg('chan'));
 		}
 	}
 	$self->{t} = time;
@@ -494,7 +494,7 @@ sub send						# this is always later and always data
 				DXHealth::protocol_physical_out_line($self->{call}, $_);
 				DXHealth::pc92_physical_out_line($self->{call}, $_);
 				$conn->send_later("D$call|$_");
-				dbg("-> D $self->{dcall} $_") if isdbg('chan');
+				dbg("-> D $self->{dcall} $_") if (($self->{call} || '') =~ /^#WEB-\d+$/ ? isdbg('web') : isdbg('chan'));
 			}
 		}
 	}
@@ -770,7 +770,9 @@ sub process_one
 		next unless defined $sort;
 
 		if ($sort ne 'D') {
-			if (isdbg('chan')) {
+			if (($self->{call} || '') =~ /^#WEB-\d+$/) {
+				dbg("<- $sort $self->{dcall} $line") if isdbg('web');
+			} elsif (isdbg('chan')) {
 				if (($self->is_rbn && isdbg('rbnchan')) || !$self->is_rbn) {
 					dbg("<- $sort $self->{dcall} $line") if isdbg('chan'); # you may think this is tautology, but it's needed get the correct label on the debug line
 				}

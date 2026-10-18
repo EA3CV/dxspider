@@ -199,6 +199,55 @@ sub _connection_kind {
     return 'other';
 }
 
+# Logical Web presence history is separate from physical DXChannel history.
+# Keyed by CALL; bounded RAM only, no I/O on login/logout.
+our %logical_web_history;
+our $MAX_LOGICAL_WEB_HISTORY = 4096;
+sub logical_web_up {
+    my ($call, $ip, $channel) = @_;
+    return 0 unless defined $call && $call =~ /\A[A-Z0-9\/-]+\z/i;
+    $call = uc $call;
+    my $e = ($logical_web_history{$call} ||= {});
+    $e->{call} = $call;
+    $e->{ip} = $ip || '';
+    $e->{channel} = $channel || '';
+    $e->{online} = 1;
+    $e->{last_connect} = time();
+    $e->{last_event} = $e->{last_connect};
+    $e->{connect_count}++;
+    return 1;
+}
+sub logical_web_down {
+    my ($call, $channel) = @_;
+    return 0 unless defined $call && length $call;
+    $call = uc $call;
+    my $e = $logical_web_history{$call} or return 0;
+    return 0 unless $e->{online};
+    return 0 if defined $channel && length $channel && ($e->{channel} || '') ne $channel;
+    $e->{online} = 0;
+    $e->{last_disconnect} = time();
+    $e->{last_event} = $e->{last_disconnect};
+    $e->{disconnect_count}++;
+    return 1;
+}
+sub logical_web_snapshot {
+    my $cut = time() - $CONNECTION_RETENTION;
+    for my $call (keys %logical_web_history) {
+        my $e = $logical_web_history{$call};
+        delete $logical_web_history{$call} if !$e->{online} && ($e->{last_event} || 0) < $cut;
+    }
+    if (keys(%logical_web_history) > $MAX_LOGICAL_WEB_HISTORY) {
+        my @old = sort { ($logical_web_history{$a}{last_event} || 0) <=> ($logical_web_history{$b}{last_event} || 0) }
+                  grep { !$logical_web_history{$_}{online} } keys %logical_web_history;
+        while (keys(%logical_web_history) > $MAX_LOGICAL_WEB_HISTORY && @old) {
+            delete $logical_web_history{shift @old};
+        }
+    }
+    return [ map { +{%{$logical_web_history{$_}}} }
+             grep { !$logical_web_history{$_}{online} }
+             sort keys %logical_web_history ];
+}
+
 sub connection_attempt {
     my ($call) = @_;
     $incoming_login_totals{attempts}++;
