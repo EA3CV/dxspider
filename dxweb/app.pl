@@ -42,8 +42,9 @@ my $MAX_PENDING_GLOBAL      = $ENV{MAX_PENDING_GLOBAL}      // 8192;
 my $MAX_PENDING_CLIENT      = $ENV{MAX_PENDING_CLIENT}      // 32;
 my $REQUEST_TIMEOUT_SEC     = $ENV{REQUEST_TIMEOUT_SEC}     // 30;
 my $ORPHAN_AUTH_TIMEOUT_SEC = $ENV{ORPHAN_AUTH_TIMEOUT_SEC} // 120;
-# Finite idle timeout closes abandoned WebSockets and triggers USER_DEL.
-my $WS_IDLE_TIMEOUT_SEC = $ENV{WS_IDLE_TIMEOUT_SEC} // 600;
+# Protocol ping/pong keeps quiet browsers alive and reaps dead peers.
+my $WS_PING_INTERVAL_SEC = $ENV{WS_PING_INTERVAL_SEC} // 30;
+my $WS_PONG_GRACE_SEC    = $ENV{WS_PONG_GRACE_SEC} // 90;
 
 app->static->paths->[0] = app->home->rel_file('public');
 app->secrets( [ $ENV{DXWEB_SECRET} // 'dxspider-dxweb-v2' ] );
@@ -867,7 +868,18 @@ websocket '/ws' => sub($c) {
     my $ip = websocket_client_ip($c);
     $ip =~ s/^::ffff://i;
     $clients{$id} = { tx => $tx, ip => $ip, authenticated => 0 };
-    $c->inactivity_timeout($WS_IDLE_TIMEOUT_SEC);
+    $c->inactivity_timeout(0);
+    my $last_pong = time;
+    $c->on(pong => sub { $last_pong = time });
+    my $heartbeat = Mojo::IOLoop->recurring($WS_PING_INTERVAL_SEC => sub {
+        return unless exists $clients{$id};
+        if (time - $last_pong > $WS_PONG_GRACE_SEC) {
+            $c->finish(1001 => 'heartbeat timeout');
+            return;
+        }
+        # Ping frames are protocol-level: browsers answer without application JS.
+        $c->tx->send({ping => 'dxweb'});
+    });
     ws_send_guarded( $id, encode_json( client_status($id) ) );
     Mojo::IOLoop->next_tick( sub { replay_history( $id, 0 ) } );
     $c->on(
@@ -1058,6 +1070,7 @@ websocket '/ws' => sub($c) {
     );
     $c->on(
         finish => sub {
+            Mojo::IOLoop->remove($heartbeat);
             my $cl = delete $clients{$id};
             if ( $cl && $cl->{authenticated} && $state{state} eq 'ready' ) {
                 send_dxs(

@@ -17,7 +17,7 @@ const send=o=>{if(!(ws&&ws.readyState===WebSocket.OPEN))return false;ws.send(JSO
 const esc=v=>String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function setCount(k,n){const e=document.querySelector(`[data-count="${k}"]`);if(e)e.textContent=String(n)}
 function setLocked(v){document.body.classList.toggle('locked',v)}
-function clearSessionContent(){liveDebugStop();terminalDisconnect();
+function clearSessionContent(){liveDebugStop();logWindowsCloseAll();terminalDisconnect();
  for(const id of ['spotBody','annOutput','wwvOutput','wcyOutput','wxOutput','filtersOutput','consoleOutput','pendingRows','historyRows','searchRows']){
   const e=$(id);if(e)e.innerHTML='';
  }
@@ -536,7 +536,7 @@ function finishCommandTarget(target){
  }
  out.scrollTop=out.scrollHeight;
 }
-function handle(m){if(m.type==='status'){$('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===false){logoutPending=false;if(authenticated)clearSessionContent();loginState(false);setLocked(true);if(m.state==='ready'&&!$('loginDialog').open)showLogin()}return}if(m.type==='auth'||m.type==='auth_result'){$('loginSubmit').disabled=false;if(m.status==='ok'){clearSessionContent();loginState(true,m);$('loginDialog').close();$('loginError').textContent='';if(authPriv>=5)loadPending();setTimeout(()=>{if(authenticated)requestMetrics()},250);setTimeout(()=>{if(authenticated&&authPriv>=9)requestMaintenance([])},2500)}else{loginState(false);$('loginError').textContent=m.error==='admin_privilege_required'?'DXSpider privilege 5 is required for login (privilege 9 for administrative actions).':m.error==='password_required'?'A valid DXSpider password is required.':(m.error||'Authentication failed');showLogin($('loginError').textContent)}return}if(m.type==='logout_result'){logoutPending=false;loginState(false);showLogin();return}if(!authenticated)return;if(m.type==='terminal_status'||m.type==='terminal_data'){terminalReceive(m);return}if(m.type==='live_debug_result'||m.type==='live_debug_data'){liveDebugReceive(m);return}if(m.type==='reg_pending_result'){if(m.status==='ok')renderPending(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_history_result'){if(m.status==='ok')renderHistory(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_search_result'){if(m.status==='ok')renderHistory(m.result||[],'searchRows');else notice(responseText(m));return}if(m.type==='reg_accept_result'||m.type==='reg_reject_result'){const expected=decisionAction?`reg_${decisionAction}_result`:null;if(expected&&m.type!==expected){$('regActionResult').textContent=`Unexpected registration response: ${m.type}`;return}if(m.status==='ok'){const accepted=m.type==='reg_accept_result';const pw=accepted&&m.result&&m.result.password?` Password: ${m.result.password}`:'';$('regActionResult').textContent=(accepted?'Accepted.':'Rejected.')+pw;setTimeout(()=>{$('regActionDialog').close();decisionId=null;decisionAction=null;loadPending();loadHistory()},900)}else{$('regAccept').disabled=false;$('regReject').disabled=false;$('regActionResult').textContent=responseText(m)}return}if(m.type==='reg_delete_user_result'){$('deleteUserConfirm').disabled=false;if(m.status==='ok'){const calls=(m.result&&m.result.affected_calls)||[];$('deleteUserResult').textContent=`Deleted ${calls.length} DXUser record(s): ${calls.join(', ')}`;loadHistory();setTimeout(()=>$('deleteUserDialog').close(),1200)}else{$('deleteUserResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Delete failed'))}return}
+function handle(m){if(m.type==='status'){$('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===false){logoutPending=false;if(authenticated)clearSessionContent();loginState(false);setLocked(true);if(m.state==='ready'&&!$('loginDialog').open)showLogin()}return}if(m.type==='auth'||m.type==='auth_result'){$('loginSubmit').disabled=false;if(m.status==='ok'){clearSessionContent();loginState(true,m);$('loginDialog').close();$('loginError').textContent='';if(authPriv>=5)loadPending();setTimeout(()=>{if(authenticated)requestMetrics()},250);setTimeout(()=>{if(authenticated&&authPriv>=9)requestMaintenance([])},2500)}else{loginState(false);$('loginError').textContent=m.error==='admin_privilege_required'?'DXSpider privilege 5 is required for login (privilege 9 for administrative actions).':m.error==='password_required'?'A valid DXSpider password is required.':(m.error||'Authentication failed');showLogin($('loginError').textContent)}return}if(m.type==='logout_result'){logoutPending=false;loginState(false);showLogin();return}if(!authenticated)return;if(m.type==='terminal_status'||m.type==='terminal_data'){terminalReceive(m);return}if(m.type==='log_window_status'||m.type==='log_window_data'){logWindowReceive(m);return}if(m.type==='live_debug_result'||m.type==='live_debug_data'){liveDebugReceive(m);return}if(m.type==='reg_pending_result'){if(m.status==='ok')renderPending(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_history_result'){if(m.status==='ok')renderHistory(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_search_result'){if(m.status==='ok')renderHistory(m.result||[],'searchRows');else notice(responseText(m));return}if(m.type==='reg_accept_result'||m.type==='reg_reject_result'){const expected=decisionAction?`reg_${decisionAction}_result`:null;if(expected&&m.type!==expected){$('regActionResult').textContent=`Unexpected registration response: ${m.type}`;return}if(m.status==='ok'){const accepted=m.type==='reg_accept_result';const pw=accepted&&m.result&&m.result.password?` Password: ${m.result.password}`:'';$('regActionResult').textContent=(accepted?'Accepted.':'Rejected.')+pw;setTimeout(()=>{$('regActionDialog').close();decisionId=null;decisionAction=null;loadPending();loadHistory()},900)}else{$('regAccept').disabled=false;$('regReject').disabled=false;$('regActionResult').textContent=responseText(m)}return}if(m.type==='reg_delete_user_result'){$('deleteUserConfirm').disabled=false;if(m.status==='ok'){const calls=(m.result&&m.result.affected_calls)||[];$('deleteUserResult').textContent=`Deleted ${calls.length} DXUser record(s): ${calls.join(', ')}`;loadHistory();setTimeout(()=>$('deleteUserDialog').close(),1200)}else{$('deleteUserResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Delete failed'))}return}
  if(m.type==='spot_result'){if(!$('spotDialog').open)return;$('spotSubmit').disabled=false;$('spotResult').textContent=responseText(m)||(m.status==='ok'?'Spot accepted by DXSpider':'Spot rejected');if(m.status==='ok')setTimeout(()=>$('spotDialog').close(),500);return}if(m.type==='feed'){if(m.feed==='network_chat'){networkChatAccept(m.payload);return}acceptFeed(m);return}if(m.type==='command_result'){const target=pendingCommandTargets[0]||activePanel,t=responseText(m),out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);if(logs[target]){if(t){logs[target].push(...t.split('\n'));renderLog(target)}}else if(out&&t){if(target==='console'){const b=document.createElement('div');b.className='consoleResponse';b.textContent=t;out.appendChild(b)}else out.textContent+=t+'\n';out.scrollTop=out.scrollHeight}const issued=pendingCommandNames[0]||'';
  const isFilterRead=target==='filters'&&/^show\/filter(?:\s|$)/i.test(issued);
  if(isFilterRead){if(!vfReadActive){vfReadActive=true;vfReadLines=[]}if(t)vfReadLines.push(...t.split('\n'))}
@@ -1038,7 +1038,7 @@ handle=function(m){
 
 /* DXWeb Admin v2 shell navigation — new visual structure, original button model. */
 (()=>{
- const titles={operation:['Operation','Spots, announcements and operator tools'],registration:['Registration','Registration workflow'],supervision:['Supervision','Overview, connections, traffic, nodes and diagnostics'],metrics:['Metrics','Historical observability and trends'],timeline:['Timeline','Historical state changes'],networkChatSection:['Network Chat','DXSpider PC93 group messages'],liveDebugSection:['Live Debug','Follow DXSpider log files'],terminalSection:['Terminal Linux','SSH to localhost'],console:['Console','DXSpider command console']};
+ const titles={operation:['Operation','Spots, announcements and operator tools'],registration:['Registration','Registration workflow'],supervision:['Supervision','Overview, connections, traffic, nodes and diagnostics'],metrics:['Metrics','Historical observability and trends'],timeline:['Timeline','Historical state changes'],networkChatSection:['Network Chat','DXSpider PC93 group messages'],liveDebugSection:['Debug','DXSpider log readers and searches'],terminalSection:['Terminal Linux','SSH to localhost'],console:['Console','DXSpider command console']};
  const nav=document.querySelectorAll('.v2NavBtn');
  function sectionClick(name){const b=document.querySelector(`.mainTabs [data-section="${name}"]`);if(b)b.click()}
  function mark(name){nav.forEach(b=>b.classList.toggle('active',b.dataset.v2Target===name));const t=titles[name]||[name,''];setText('v2PageTitle',t[0]);setText('v2PageSubtitle',t[1]);document.body.classList.toggle('v2-console-wide',name==='console')}
@@ -1155,7 +1155,7 @@ function liveDebugState(s){const e=$('liveDebugState');if(e)e.textContent=s}
 function liveDebugStop(){if(liveDebugFollowing)send({type:'live_debug_stop'});liveDebugFollowing=false;liveDebugPaused=false;$('liveDebugPause').textContent='Pause';liveDebugState('Stopped')}
 function liveDebugStart(){if(!authenticated||authPriv<9)return;if(liveDebugFollowing)liveDebugStop();liveDebugFollowing=true;liveDebugPaused=false;$('liveDebugPause').textContent='Pause';liveDebugChunks=[];liveDebugSize=0;liveDebugRender();liveDebugState('Connecting…');if(!send({type:'live_debug_start',source:$('liveDebugSource').value,date:$('liveDebugDate').value})){liveDebugFollowing=false;liveDebugState('Connection unavailable')}}
 function liveDebugRender(){
- const q=$('liveDebugFind').value.toLowerCase(),out=$('liveDebugOutput'),text=liveDebugChunks.join('');out.replaceChildren();
+ const q='',out=$('liveDebugOutput'),text=liveDebugChunks.join('');out.replaceChildren();
  if(!q)out.textContent=text;
  else{let at=0;const lower=text.toLowerCase();while(at<text.length){const found=lower.indexOf(q,at);if(found<0){out.appendChild(document.createTextNode(text.slice(at)));break}if(found>at)out.appendChild(document.createTextNode(text.slice(at,found)));const mark=document.createElement('mark');mark.className='liveDebugMatch';mark.textContent=text.slice(found,found+q.length);out.appendChild(mark);at=found+q.length}}
  if(liveDebugFollow)out.scrollTop=out.scrollHeight;
@@ -1164,15 +1164,63 @@ function liveDebugReceive(m){
  if(m.status==='error'){liveDebugFollowing=false;liveDebugState(m.error||'Error');return}
  if(m.type==='live_debug_result'){liveDebugState(m.path||'Following');return}
  if(!liveDebugFollowing)return;
- if(m.text){liveDebugChunks.push(m.text);liveDebugSize+=m.text.length;while(liveDebugSize>240000&&liveDebugChunks.length>1){liveDebugSize-=liveDebugChunks.shift().length}liveDebugRender()}
+ if(m.text){liveDebugChunks.push(m.text);liveDebugSize+=m.text.length;while(liveDebugSize>240000&&liveDebugChunks.length>1){liveDebugSize-=liveDebugChunks.shift().length}liveDebugRender();for(const w of logWindows.values()){if(w.mode!=='raw')continue;w.text+=m.text;if(w.text.length>240000)w.text=w.text.slice(-240000);w.output.textContent=w.text;if(w.follow.checked)w.output.scrollTop=w.output.scrollHeight}}
  if(m.rotated)liveDebugState('File changed');
 }
 {const d=new Date();$('liveDebugDate').value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
 $('liveDebugStart').onclick=liveDebugStart;$('liveDebugStop').onclick=liveDebugStop;
 $('liveDebugPause').onclick=()=>{if(!liveDebugFollowing)return;const next=!liveDebugPaused;if(send({type:'live_debug_pause',paused:next})){liveDebugPaused=next;$('liveDebugPause').textContent=next?'Resume':'Pause';liveDebugState(next?'Paused':'Following')}};
-$('liveDebugFollow').onchange=()=>{liveDebugFollow=$('liveDebugFollow').checked;if(liveDebugFollow){const out=$('liveDebugOutput');out.scrollTop=out.scrollHeight}};
-$('liveDebugClear').onclick=()=>{liveDebugChunks=[];liveDebugSize=0;liveDebugRender()};$('liveDebugFind').oninput=liveDebugRender;
+
+$('liveDebugClear').onclick=()=>{liveDebugChunks=[];liveDebugSize=0;liveDebugRender()};
 $('liveDebugSource').onchange=()=>{if(liveDebugFollowing)liveDebugStop()};$('liveDebugDate').onchange=()=>{if(liveDebugFollowing)liveDebugStop()};
+
+// Multiple independent WATCH/GREP consoles; original RAW viewer stays unchanged.
+const logWindows=new Map();let logNextId=0,logTop=5;
+function logWindowsCloseAll(){for(const w of [...logWindows.values()])logWindowClose(w,true)}
+function logWindowClose(w,localOnly=false){if(w.mode!=='raw'&&w.mode!=='raw-paused'&&!localOnly)send({type:'log_window_stop',window_id:w.id});w.el.remove();logWindows.delete(w.id)}
+function logWindowReceive(m){const w=logWindows.get(m.window_id);if(!w)return;
+ if(m.type==='log_window_status'){w.state.textContent=m.detail?`${m.status}: ${m.detail}`:m.status;if(m.status!=='running')w.active=false;return}
+ if(m.text){w.text+=m.text;if(w.text.length>240000)w.text=w.text.slice(-240000);w.output.textContent=w.text;if(w.follow.checked)w.output.scrollTop=w.output.scrollHeight}
+}
+function logWindowOpen(mode,copy){
+ if(!authenticated||authPriv<9)return;if(logWindows.size>=8){notice('Maximum 8 log windows');return}
+ const id='log'+(++logNextId),el=document.createElement('div');el.className='logFloat';el.style.left=(12+(logNextId%5)*28)+'px';el.style.top=(12+(logNextId%5)*25)+'px';el.style.zIndex=String(++logTop);
+ const head=document.createElement('div');head.className='logFloatHead';const title=document.createElement('strong');title.textContent=mode.toUpperCase();head.append(title);
+ const controls=document.createElement('span');controls.className='logFloatActions';
+ const btn=(text,fn)=>{const b=document.createElement('button');b.type='button';b.textContent=text;b.onclick=fn;return b};
+ const w={id,mode,el,text:'',active:false,zoom:100};
+ controls.append(btn('Duplicate',()=>logWindowOpen(mode,w)),btn('−',()=>{w.zoom=Math.max(70,w.zoom-10);w.output.style.fontSize=w.zoom+'%';zoom.textContent=w.zoom+'%'}));
+ const zoom=btn('100%',()=>{w.zoom=100;w.output.style.fontSize='100%';zoom.textContent='100%'});zoom.title='Reset text zoom to 100%';controls.append(zoom,btn('+',()=>{w.zoom=Math.min(150,w.zoom+10);w.output.style.fontSize=w.zoom+'%';zoom.textContent=w.zoom+'%'}),btn('□',()=>el.classList.toggle('logMax')),btn('×',()=>logWindowClose(w)));
+ head.append(controls);el.append(head);
+ const bar=document.createElement('div');bar.className='logFloatBar';const filter=document.createElement('input');filter.placeholder='Perl regex terms (AND), !exclude';filter.setAttribute('aria-label','Filter expressions');filter.value=copy?.filter?.value||'';
+ const context=document.createElement('input');context.type='number';context.min='0';context.max='20';context.value=copy?.context?.value||'0';context.title='Lines before match (0 = only matching line; 2 = two preceding lines)';context.setAttribute('aria-label','Lines before');context.style.width='4rem';
+ const date=document.createElement('input');date.type='date';date.value=copy?.date?.value||document.getElementById('liveDebugDate').value;
+ const state=document.createElement('span');state.className='logFloatState';state.textContent='Stopped';
+ const output=document.createElement('pre');output.className='logFloatOutput';output.setAttribute('aria-label',mode+' output');
+ const follow=document.createElement('input');follow.type='checkbox';follow.checked=true;
+ const start=()=>{if(mode==='raw'){w.mode='raw';w.text=liveDebugChunks.join('');output.textContent=w.text;state.textContent='Following Live Debug';return}if(w.active)send({type:'log_window_stop',window_id:id});w.text='';output.textContent='';w.active=true;state.textContent='Starting…';if(!send({type:'log_window_start',window_id:id,mode,filter:filter.value,context:context.value,date:date.value})){w.active=false;state.textContent='Disconnected';return}setTimeout(()=>{if(w.active&&state.textContent==='Starting…'){w.active=false;state.textContent='No server response — check DXWeb Admin journal'}},8000)};
+ const stop=()=>{if(mode==='raw'){state.textContent='Paused RAW mirror';w.mode='raw-paused';return}send({type:'log_window_stop',window_id:id});w.active=false;state.textContent='Stopped'};
+ if(mode!=='raw'){const ctxLabel=document.createElement('label');ctxLabel.textContent='Before';ctxLabel.title=context.title;ctxLabel.append(context);bar.append(filter,ctxLabel)}if(mode==='grep')bar.append(date);if(mode!=='raw')bar.append(btn(mode==='grep'?'Search':'Start',start),btn('Stop',stop));if(mode==='raw'){bar.append(btn('Start',liveDebugStart),btn('Stop',liveDebugStop),btn('Pause / Resume',()=>document.getElementById('liveDebugPause').click()),btn('Clear',()=>{w.text='';output.textContent=''}))}else bar.append(btn('Clear',()=>{w.text='';output.textContent=''}));
+ const followLabel=document.createElement('label');followLabel.title='Follow: automatically scroll to newest lines; turning off does not stop data reception.';follow.title=followLabel.title;followLabel.append(follow,document.createTextNode(' Follow'));bar.append(followLabel);
+ el.append(bar,output,state);if(mode==='raw'){w.text=liveDebugChunks.join('');output.textContent=w.text;state.textContent='Following Live Debug (shared source)'}w.output=output;w.state=state;w.follow=follow;w.filter=filter;w.context=context;w.date=date;
+ let x=0,y=0,left=0,top=0;head.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;x=e.clientX;y=e.clientY;left=el.offsetLeft;top=el.offsetTop;head.setPointerCapture(e.pointerId)});head.addEventListener('pointermove',e=>{if(!head.hasPointerCapture(e.pointerId))return;el.style.left=Math.max(0,left+e.clientX-x)+'px';el.style.top=Math.max(0,top+e.clientY-y)+'px'});head.addEventListener('pointerup',e=>{if(head.hasPointerCapture(e.pointerId))head.releasePointerCapture(e.pointerId)});
+ el.addEventListener('pointerdown',()=>{el.style.zIndex=String(++logTop)});document.getElementById('logWorkspace').append(el);logWindows.set(id,w);
+}
+$('logAddRaw').onclick=()=>logWindowOpen('raw');
+$('logAddWatch').onclick=()=>logWindowOpen('watch');$('logAddGrep').onclick=()=>logWindowOpen('grep');
+function logTileWindows(){
+ const ws=[...logWindows.values()];if(!ws.length)return;
+ const desk=$('logWorkspace'),gap=8,available=Math.max(260,desk.clientWidth-2);
+ const cols=available<560?1:available<900?2:Math.min(4,Math.ceil(Math.sqrt(ws.length)));
+ const rows=Math.ceil(ws.length/cols),width=Math.floor((available-gap*(cols+1))/cols);
+ const availableHeight=Math.max(300,window.innerHeight-desk.getBoundingClientRect().top-28);
+ const height=Math.max(190,Math.floor((availableHeight-gap*(rows+1))/rows));
+ desk.style.minHeight=Math.max(300,rows*(height+gap)+gap)+'px';
+ ws.forEach((w,i)=>{const el=w.el;el.classList.remove('logMax');el.style.left=(gap+(i%cols)*(width+gap))+'px';el.style.top=(gap+Math.floor(i/cols)*(height+gap))+'px';el.style.width=width+'px';el.style.height=height+'px'});
+}
+$('logTile').onclick=logTileWindows;
+$('logHelp').onclick=()=>$('logHelpDialog').showModal();
+$('logHelpClose').onclick=()=>$('logHelpDialog').close();
 
 /* Terminal Linux: xterm.js client, SSH authentication occurs inside OpenSSH PTY. */
 function terminalLocalClose(){terminalActive=false;terminalStarting=false;const e=$('terminalState');if(e)e.textContent='Disconnected'}
@@ -1192,5 +1240,5 @@ function terminalReceive(m){
  if((!terminalActive&&!terminalStarting)||!terminalTerm||!m.data)return;
  try{const raw=atob(m.data);const bytes=Uint8Array.from(raw,c=>c.charCodeAt(0));terminalTerm.write(bytes)}catch(_){}
 }
-$('terminalConnect').onclick=()=>{if(!authenticated||authPriv<9||!terminalInit())return;terminalTerm.clear();terminalStarting=true;$('terminalState').textContent='Starting SSH…';send({type:'terminal_connect',user:$('terminalUser').value.trim()})};
+$('terminalConnect').onclick=()=>{if(!authenticated||authPriv<9||!terminalInit())return;terminalTerm.clear();terminalStarting=true;$('terminalState').textContent='Starting SSH…';send({type:'terminal_connect',user:$('terminalUser').value.trim(),port:Number($('terminalPort').value)})};
 $('terminalDisconnect').onclick=terminalDisconnect;

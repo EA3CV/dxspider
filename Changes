@@ -1,3 +1,24 @@
+19Oct26======================================================================
+1. DXWeb: protocol WebSocket heartbeat and stale-client cleanup; quiet 
+   sessions remain connected.
+2. DXWeb: corrected Console and Filters independent zoom scaling.
+3. DXWeb Admin: selectable and validated SSH port for Linux Terminal.
+4. DXWeb: Improved WebSocket session management with heartbeat, 
+   dead-connection detection and cleanup to prevent idle disconnections and
+   stale user sessions.
+5. DXWeb: Improved automatic reconnection handling after temporary network 
+   interruptions.
+6. DXWeb Console and Filters: Fixed zoom behavior below 100% on desktop.
+4. DXWeb Admin SSH Terminal: Added configurable SSH port support (1–65535), 
+   preserving SSH authentication and host key verification.
+7. Reworked the Debug interface with independent, floating RAW, WATCH and 
+   GREP windows. Added support for regular expressions.
+   RAW displays the selected source (Debug, Log, Spots, WWV or WCY)
+   WATCH provides real-time filtering of Debug output using the existing 
+   DXSpider watchdbg functionality.
+   GREP provides historical Debug searches using the existing DXSpider 
+   grepdbg functionality.
+8. Updated component versions through v0.78.66.
 18Oct26======================================================================
 1. Added Network Chat panel for receiving DXSpider PC93 network messages, 
    with ERROR and SYSOP channel selection.
@@ -5,8 +26,9 @@
    addresses and untrusted PROXY protocol headers. Preserved SYSOP privileges
    for legitimate local console.pl sessions and authenticated remote 
    connections. Added security regression tests.
-3. Added log entries including callsign, #WEB channel, and connection source (dxweb / dxweb-admin).
-4. Added logging of rejected authentication attempts, including the reason for rejection.
+3. Added log entries including callsign, #WEB channel, and connection source.
+4. Added logging of rejected authentication attempts, including the reason 
+   for rejection.
 5. Improved Admin -> Connections and Users.
 6. Updated DXWeb Admin version to 0.78.58.
 17Oct26======================================================================

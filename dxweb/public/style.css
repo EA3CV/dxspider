@@ -843,3 +843,11 @@ button:focus-visible,input:focus-visible,select:focus-visible{
   height:26px!important;min-height:26px!important;max-height:26px!important;
   line-height:1.2!important;vertical-align:middle!important;
 }
+
+/* Console zoom must apply to nested output without minimum font overrides. */
+#consoleOutput.consoleOutput,
+#consoleOutput .consoleCommandLine,
+#consoleOutput .consoleResponse {font-size:inherit!important;}
+#consoleOutput.consoleOutput {font-size:var(--console-font-size,13px)!important;}
+/* One authoritative size for Filters command output at every zoom step. */
+#filters .vf-right [data-output="filters"] {font-size:calc(13px * var(--panel-zoom,1))!important;}

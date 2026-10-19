@@ -63,7 +63,7 @@ const consoleFontKeyBase='dxspider.dxweb.consoleFont.';
 let consoleFontPercent=100;
 function consoleFontApply(value,save=false){
  consoleFontPercent=Math.max(70,Math.min(150,Math.round(value/10)*10));
- const area=$('consoleOutput');if(area)area.style.fontSize=(13*consoleFontPercent/100)+'px';
+ const area=$('consoleOutput');if(area)area.style.setProperty('--console-font-size',(13*consoleFontPercent/100)+'px');
  $('consoleFontReset').textContent=consoleFontPercent+' %';
  if(save&&authenticated&&authUser){try{localStorage.setItem(consoleFontKeyBase+authUser.toUpperCase(),String(consoleFontPercent))}catch(_){}}
 }
