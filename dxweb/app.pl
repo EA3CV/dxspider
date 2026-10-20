@@ -104,6 +104,7 @@ sub drop_slow_client($id) {
     return if $cl->{closing};
 
     $cl->{closing} = 1;
+    $cl->{close_reason} = "slow_consumer";
     $counters{ws_slow_disconnects}++;
 
     eval { $cl->{tx}->finish( 1013 => 'slow consumer' ) };
@@ -134,6 +135,7 @@ sub ws_send_guarded( $id, $json ) {
     }
     my $ok = eval { $tx->send($json); 1 };
     if ( !$ok ) {
+        $cl->{close_reason} = 'send_failure';
         eval { $tx->finish( 1011 => 'send failure' ) };
         return 0;
     }
@@ -143,9 +145,10 @@ sub ws_send_guarded( $id, $json ) {
 
 sub client_can_receive_feed( $id, $kind, $targets = undef ) {
     my $cl = $clients{$id} or return 0;
-    return 1                     unless ref($targets) eq 'ARRAY';
-    return !$cl->{authenticated} unless @$targets;
-    return 0                     unless $cl->{authenticated};
+    # No guest feed, including unaddressed broadcasts and history replay.
+    return 0 unless $cl->{authenticated};
+    return 1 unless ref($targets) eq 'ARRAY';
+    return 0 unless @$targets;
     my $call = uc( $cl->{call} // '' );
     return scalar grep { uc( $_ // '' ) eq $call } @$targets;
 }
@@ -310,7 +313,10 @@ sub expire_safe_requests() {
             && $now - ( $p->{created_at} // $now ) >= $REQUEST_TIMEOUT_SEC )
         {
             my $cl = $clients{ $p->{client} };
-            eval { $cl->{tx}->finish( 1011 => 'auth timeout' ) } if $cl;
+            if ($cl) {
+                $cl->{close_reason} = 'auth_timeout';
+                eval { $cl->{tx}->finish( 1011 => 'auth timeout' ) };
+            }
             cancel_pending_auth($rid);
             next;
         }
@@ -348,14 +354,14 @@ Mojo::IOLoop->recurring( 1 => sub { expire_safe_requests() } );
 # The generation invalidates callbacks from an earlier replay (auth/logout).
 sub replay_history( $id, $pos = 0 ) {
     my $cl = $clients{$id} or return;
-    return if $cl->{closing};
+    return if $cl->{closing} || !$cl->{authenticated};
     my $generation = ++$cl->{replay_generation};
     my @snapshot = @history;
     my $last_progress = time;
     my $pump;
     $pump = sub {
         my $current = $clients{$id} or return;
-        return if $current->{closing};
+        return if $current->{closing} || !$current->{authenticated};
         return if ($current->{replay_generation} // 0) != $generation;
         my $tx = $current->{tx};
         my $s = ws_stream($tx);
@@ -870,18 +876,30 @@ websocket '/ws' => sub($c) {
     $clients{$id} = { tx => $tx, ip => $ip, authenticated => 0 };
     $c->inactivity_timeout(0);
     my $last_pong = time;
-    $c->on(pong => sub { $last_pong = time });
+    # Mojolicious 9.49 emits 'frame' for control frames, not 'pong'.
+    $tx->on(frame => sub {
+        my ($tx, $frame) = @_;
+        return unless $frame->[4] == 10; # WS_PONG
+        $last_pong = time;
+    });
     my $heartbeat = Mojo::IOLoop->recurring($WS_PING_INTERVAL_SEC => sub {
         return unless exists $clients{$id};
         if (time - $last_pong > $WS_PONG_GRACE_SEC) {
+            $clients{$id}{close_reason} = 'heartbeat_timeout';
+            warn "DXWEB_WS_CLOSE client=$id reason=heartbeat_timeout pong_age=" . (time - $last_pong) . "\n";
             $c->finish(1001 => 'heartbeat timeout');
             return;
         }
         # Ping frames are protocol-level: browsers answer without application JS.
-        $c->tx->send({ping => 'dxweb'});
+        my $ok = eval { $tx->send([1, 0, 0, 0, 9, 'dxweb']); 1 };
+        if (!$ok) {
+            warn "DXWEB_WS_PING_ERROR client=$id error=" . ($@ || 'unknown') . "\n";
+            $c->finish(1011 => 'ping failure');
+            return;
+        }
     });
     ws_send_guarded( $id, encode_json( client_status($id) ) );
-    Mojo::IOLoop->next_tick( sub { replay_history( $id, 0 ) } );
+    # History is replayed only after an accepted login.
     $c->on(
         message => sub( $c, $raw ) {
             if ( length($raw) > $MAX_WS_MSG_BYTES ) {

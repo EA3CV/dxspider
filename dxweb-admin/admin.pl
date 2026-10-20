@@ -57,6 +57,9 @@ my $DXS_PORT        = $ENV{DXS_PORT}        // 27754;
 my $DXWEB_HOST      = $ENV{DXWEB_HOST}      // '0.0.0.0';
 my $DXWEB_PORT      = $ENV{DXWEB_PORT}      // 7381;     # default Admin UI port
 my $RECONNECT       = $ENV{RECONNECT_SEC}   // 3;
+# WebSocket protocol ping/pong: no inactivity expiry, but reap dead peers.
+my $WS_PING_INTERVAL_SEC = $ENV{WS_PING_INTERVAL_SEC} // 30;
+my $WS_PONG_GRACE_SEC    = $ENV{WS_PONG_GRACE_SEC} // 90;
 my $MAX_INPUT_BYTES = $ENV{MAX_INPUT_BYTES} // 262144;
 my $MAX_HISTORY     = $ENV{MAX_HISTORY}     // 250;
 my $MAX_HISTORY_BYTES         = $ENV{MAX_HISTORY_BYTES}         // 524288;
@@ -864,7 +867,7 @@ sub handle_response($msg) {
                 }
             );
         }
-        ws_send_guarded( $cid, $json );
+        ws_send_response( $cid, $json );
         return;
     }
     ws_send_guarded( $cid, encode_json($msg) );
@@ -1956,6 +1959,11 @@ sub terminal_start($id,$m) {
     }
     my @pw=getpwnam($user);
     my ($uid,$gid,$home)=@pw[2,3,7];
+    unless (@pw >= 8 && defined($uid) && $uid =~ /\A\d+\z/
+            && defined($gid) && $gid =~ /\A\d+\z/
+            && defined($home) && length($home) && -d $home) {
+        terminal_event($id,'error','Unix account has incomplete uid/gid/home information');return;
+    }
     my $pty=eval{IO::Pty->new};
     unless($pty){terminal_event($id,'error','IO::Pty unavailable');return}
     my $pid=fork();
@@ -2060,6 +2068,27 @@ websocket '/ws' => sub($c) {
     $ip =~ s/^::ffff://i;
     $clients{$id} = { tx => $tx, ip => $ip, authenticated => 0 };
     $c->inactivity_timeout(0);
+    my $last_pong = time;
+    # Mojolicious 9.49 emits 'frame' for control frames, not 'pong'.
+    $tx->on(frame => sub {
+        my ($tx, $frame) = @_;
+        return unless $frame->[4] == 10; # WS_PONG
+        $last_pong = time;
+    });
+    my $heartbeat = Mojo::IOLoop->recurring($WS_PING_INTERVAL_SEC => sub {
+        return unless exists $clients{$id};
+        if (time - $last_pong > $WS_PONG_GRACE_SEC) {
+            warn "DXWEB_ADMIN_WS_CLOSE client=$id reason=heartbeat_timeout pong_age=" . (time - $last_pong) . "\n";
+            $c->finish(1001 => 'heartbeat timeout');
+            return;
+        }
+        my $ok = eval { $tx->send([1, 0, 0, 0, 9, 'dxweb-admin']); 1 };
+        if (!$ok) {
+            warn "DXWEB_ADMIN_WS_PING_ERROR client=$id error=" . ($@ || 'unknown') . "\n";
+            $c->finish(1011 => 'ping failure');
+            return;
+        }
+    });
     ws_send_guarded( $id, encode_json( client_status($id) ) );
     $c->on(
         message => sub( $c, $raw ) {
@@ -2465,7 +2494,7 @@ websocket '/ws' => sub($c) {
             }
         }
     );
-    $c->on( finish => sub { release_client( $id, 'browser_finish' ) } );
+    $c->on( finish => sub { Mojo::IOLoop->remove($heartbeat); release_client( $id, 'browser_finish' ) } );
 };
 
 # DXWeb Admin uses 7381 by default when started directly without an
