@@ -1509,6 +1509,9 @@ sub read_installed_release($path) {
     $v =~ s/\s+\z//;
     return $v =~ /\A\d+(?:\.\d+)+\z/ ? $v : undef;
 }
+$ENV{DXWEB_CLIENT_SCHEME} //= 'http';
+$ENV{DXWEB_CLIENT_HOST} //= '127.0.0.1';
+$ENV{DXWEB_SCHEME} //= 'http';
 my $DXWEB_CLIENT_PORT = $ENV{DXWEB_CLIENT_PORT} // 7380;
 my $software_version_ua = Mojo::UserAgent->new;
 $software_version_ua->max_redirects(0);
@@ -1527,7 +1530,7 @@ get '/software-versions.json' => sub($c) {
         },
     };
     # Query the live DXWeb process without blocking the Admin event loop.
-    $software_version_ua->get("http://127.0.0.1:$DXWEB_CLIENT_PORT/software-version.json" => sub($ua,$tx) {
+    $software_version_ua->get("$ENV{DXWEB_CLIENT_SCHEME}://$ENV{DXWEB_CLIENT_HOST}:$DXWEB_CLIENT_PORT/software-version.json" => sub($ua,$tx) {
         if ($tx->result->is_success) {
             my $v = $tx->result->json;
             $versions->{dxweb}{running} = $v->{running}
@@ -2501,7 +2504,14 @@ websocket '/ws' => sub($c) {
 # explicit Mojolicious command.  An explicit command line still wins, e.g.
 #   perl admin.pl daemon -l http://127.0.0.1:7310
 if ( !@ARGV ) {
-    app->start( 'daemon', '-l', "http://$DXWEB_HOST:$DXWEB_PORT" );
+    my $listen = "$ENV{DXWEB_SCHEME}://$DXWEB_HOST:$DXWEB_PORT";
+    if (($ENV{DXWEB_SCHEME} // 'http') eq 'https') {
+        die "DXWEB_TLS_CERT and DXWEB_TLS_KEY required for HTTPS\n"
+            unless $ENV{DXWEB_TLS_CERT} && $ENV{DXWEB_TLS_KEY};
+        $listen .= '?cert=' . $ENV{DXWEB_TLS_CERT}
+                 . '&key=' . $ENV{DXWEB_TLS_KEY};
+    }
+    app->start( 'daemon', '-l', $listen );
 }
 else {
     app->start;

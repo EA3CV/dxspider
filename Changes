@@ -1,3 +1,12 @@
+20Oct26======================================================================
+1. Integrated a new installer for DXWeb and DXWeb Admin: dxweb-manager.pl
+2. Added INSTALL_DXWEB, a comprehensive installation and upgrade guide 
+   covering direct deployment and an Nginx reverse proxy example.
+3. Improved systemd service configuration, backup management, and rollback
+   procedures.
+4. Removed anonymous sessions from DXWeb.
+5. Fixed session termination and cleanup issues.
+6. Updated DXWeb to version 2.8.70 and DXWeb Admin to 0.78.75.
 19Oct26======================================================================
 1. DXWeb: protocol WebSocket heartbeat and stale-client cleanup; quiet 
    sessions remain connected.
