@@ -25,18 +25,18 @@ sub login
 sub enqueue
 {
 	my ($conn, $msg) = @_;
-#	unless ($msg =~ /^[ABZ]/) {
+	unless ($conn->{disconnecting}) {
 		$msg =~ s/([\%\x00-\x1f\x7f-\xff])/sprintf("%%%02X", ord($1))/eg; 
 		push (@{$conn->{outqueue}}, $msg . "\n");
-#	}
+	}
 }
 
 sub dequeue
 {
 	my $conn = shift;
 
-	if ($conn && $conn->{msg} =~ /\cJ/) {
-		my @lines =  $conn->{msg} =~ /([^\cM\cJ]*)\cM?\cJ/g;
+	if ($conn && !$conn->{disconnecting} && $conn->{msg} =~ /\cJ/) {
+		my @lines = $conn->{msg} =~ /([^\cM\cJ]*)\cM?\cJ/g;
 		if ($conn->{msg} =~ /\cJ$/) {
 			delete $conn->{msg};
 		} else {
