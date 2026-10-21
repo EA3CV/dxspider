@@ -185,7 +185,6 @@ sub handle_11
 	my $origin = shift;
 	my $pc = shift;
 	my $recurse = shift || 0;
-	my $original_pc61_for_anomaly = ($pcno == 61 && $pc->[0] eq 'PC61' && $line =~ /^PC61\^/);
 
 	return if $self->check_available($origin, $pcno);
 
@@ -462,11 +461,6 @@ sub handle_11
 		return;
 	}
 
-	# PC61 anomaly observer v0.3 (original messages only; passive)
-	if ($original_pc61_for_anomaly) {
-		my $ok = eval { require DXSpotAnomaly; DXSpotAnomaly::observe($pc->[6], $pc->[8], $pc->[7], $self->{call}); 1 };
-		dbg("PC61 anomaly observer: $@") if !$ok && isdbg('pc61');
-	}
 
 	# here we verify the spotter is currently connected to the node it says it is one. AKA email sender verify
 	# but without the explicit probe to the node. We are relying on "historical" information, but it very likely
