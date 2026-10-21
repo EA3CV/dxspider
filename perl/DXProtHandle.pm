@@ -461,7 +461,6 @@ sub handle_11
 		return;
 	}
 
-
 	# here we verify the spotter is currently connected to the node it says it is one. AKA email sender verify
 	# but without the explicit probe to the node. We are relying on "historical" information, but it very likely
 	# to be current once we have seen the first PC92C from that node.
