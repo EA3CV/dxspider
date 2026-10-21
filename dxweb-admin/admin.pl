@@ -57,6 +57,9 @@ my $DXS_PORT        = $ENV{DXS_PORT}        // 27754;
 my $DXWEB_HOST      = $ENV{DXWEB_HOST}      // '0.0.0.0';
 my $DXWEB_PORT      = $ENV{DXWEB_PORT}      // 7381;     # default Admin UI port
 my $RECONNECT       = $ENV{RECONNECT_SEC}   // 3;
+# WebSocket protocol ping/pong: no inactivity expiry, but reap dead peers.
+my $WS_PING_INTERVAL_SEC = $ENV{WS_PING_INTERVAL_SEC} // 30;
+my $WS_PONG_GRACE_SEC    = $ENV{WS_PONG_GRACE_SEC} // 90;
 my $MAX_INPUT_BYTES = $ENV{MAX_INPUT_BYTES} // 262144;
 my $MAX_HISTORY     = $ENV{MAX_HISTORY}     // 250;
 my $MAX_HISTORY_BYTES         = $ENV{MAX_HISTORY_BYTES}         // 524288;
@@ -273,6 +276,7 @@ sub release_client( $id, $reason = 'browser_disconnect' ) {
         );
     }
     live_debug_stop($id);
+    log_window_stop_all($id);
     terminal_stop($id);
     delete $clients{$id};
     for my $rid ( keys %pending ) {
@@ -365,6 +369,11 @@ sub ws_send_response( $id, $json, $tries = 0 ) {
 sub client_can_receive_feed( $id, $targets = undef ) {
     my $cl = $clients{$id} or return 0;
     return 0 unless $cl->{authenticated};
+    if (ref($targets) eq 'HASH') {
+        return 0 unless ($cl->{priv} // 0) >= ($targets->{min_priv} // 9);
+        $targets = $targets->{calls};
+        return 0 unless ref($targets) eq 'ARRAY';
+    }
     return 1 unless ref($targets) eq 'ARRAY';
     my $call = uc( $cl->{call} // '' );
     return scalar grep { uc( $_ // '' ) eq $call } @$targets;
@@ -433,6 +442,18 @@ sub push_feed( $kind, $raw ) {
     if ( !$@ && ref $d eq 'HASH' ) {
         $payload = $d->{payload} if exists $d->{payload};
         $targets = $d->{targets} if ref( $d->{targets} ) eq 'ARRAY';
+    }
+    # PC93 channel messages are never broadcast to all authenticated browsers.
+    # Require an explicit, bounded target list and SYSOP privilege at fanout
+    # and history replay, including after logout/login of the same socket.
+    if ($kind eq 'network_chat') {
+        return unless ref($d) eq 'HASH' && ($d->{type} // '') eq 'network_chat';
+        return unless ($d->{channel} // '') =~ /\A(?:ERROR|SYSOP)\z/;
+        return unless ref($targets) eq 'ARRAY' && @$targets && @$targets <= 256;
+        return unless length($d->{text} // '') <= 4096;
+        $targets = { calls => $targets, min_priv => 9 };
+        $payload = { channel => $d->{channel}, from => $d->{from},
+                     text => $d->{text}, onode => $d->{onode} };
     }
     $counters{$kind}++ if exists $counters{$kind};
     $counters{total}++;
@@ -846,7 +867,7 @@ sub handle_response($msg) {
                 }
             );
         }
-        ws_send_guarded( $cid, $json );
+        ws_send_response( $cid, $json );
         return;
     }
     ws_send_guarded( $cid, encode_json($msg) );
@@ -929,7 +950,8 @@ sub handle_line($line) {
         N => 'ann',
         V => 'wwv',
         Y => 'wcy',
-        W => 'wx'
+        W => 'wx',
+        C => 'network_chat'
     );
     for my $let ( keys %map ) {
         if ( $state{web_call} && $line =~ /^\Q$let$state{web_call}\E\|(.*)$/s )
@@ -1487,6 +1509,9 @@ sub read_installed_release($path) {
     $v =~ s/\s+\z//;
     return $v =~ /\A\d+(?:\.\d+)+\z/ ? $v : undef;
 }
+$ENV{DXWEB_CLIENT_SCHEME} //= 'http';
+$ENV{DXWEB_CLIENT_HOST} //= '127.0.0.1';
+$ENV{DXWEB_SCHEME} //= 'http';
 my $DXWEB_CLIENT_PORT = $ENV{DXWEB_CLIENT_PORT} // 7380;
 my $software_version_ua = Mojo::UserAgent->new;
 $software_version_ua->max_redirects(0);
@@ -1505,7 +1530,7 @@ get '/software-versions.json' => sub($c) {
         },
     };
     # Query the live DXWeb process without blocking the Admin event loop.
-    $software_version_ua->get("http://127.0.0.1:$DXWEB_CLIENT_PORT/software-version.json" => sub($ua,$tx) {
+    $software_version_ua->get("$ENV{DXWEB_CLIENT_SCHEME}://$ENV{DXWEB_CLIENT_HOST}:$DXWEB_CLIENT_PORT/software-version.json" => sub($ua,$tx) {
         if ($tx->result->is_success) {
             my $v = $tx->result->json;
             $versions->{dxweb}{running} = $v->{running}
@@ -1751,6 +1776,136 @@ sub live_debug_start($id,$m) {
     live_debug_tick($id);
 }
 
+# Independent log consoles. Child processes never execute in the DXSpider event loop.
+# One process per WATCH/GREP window; bounded output, concurrency and lifetime.
+my %log_windows;
+sub log_window_event($id,$wid,$status,$detail='') {
+    ws_send_guarded($id,encode_json({type=>'log_window_status',window_id=>$wid,status=>$status,detail=>$detail}));
+}
+sub log_window_stop($id,$wid,$silent=0) {
+    my $w=delete $log_windows{$id}{$wid} or return;
+    Mojo::IOLoop->remove($w->{timer}) if $w->{timer};
+    Mojo::IOLoop->singleton->reactor->remove($w->{fh}) if $w->{fh};
+    close $w->{fh} if $w->{fh};
+    if ($w->{pid}) {
+        kill 'TERM',$w->{pid};
+        my $reaped=waitpid($w->{pid},POSIX::WNOHANG());
+        if ($reaped==0) {
+            my $child=$w->{pid};
+            my $reaper;
+            my $tries=0;
+            $reaper=Mojo::IOLoop->recurring(0.25=>sub {
+                if (waitpid($child,POSIX::WNOHANG())!=0) {Mojo::IOLoop->remove($reaper);return}
+                kill 'KILL',$child if ++$tries>=8;
+            });
+        }
+    }
+    log_window_event($id,$wid,'stopped') unless $silent;
+}
+sub log_window_stop_all($id) {
+    log_window_stop($id,$_,1) for keys %{ $log_windows{$id} || {} };
+    delete $log_windows{$id};
+}
+sub log_window_start($id,$m) {
+    my $wid=$m->{window_id}//'';
+    return unless $wid =~ /\A[a-zA-Z0-9_-]{1,40}\z/;
+    my $mode=lc($m->{mode}//'');
+    return log_window_event($id,$wid,'error','Invalid mode') unless $mode eq 'watch' || $mode eq 'grep';
+    log_window_stop($id,$wid,1);
+    my $active=scalar keys %{ $log_windows{$id} || {} };
+    return log_window_event($id,$wid,'error','Too many log windows') if $active>=6;
+    my $same=scalar grep { ($_->{mode}//'') eq $mode } values %{ $log_windows{$id} || {} };
+    return log_window_event($id,$wid,'error','Too many concurrent searches') if $same>=($mode eq 'grep'?2:4);
+    my $filter=$m->{filter}//'';
+    return log_window_event($id,$wid,'error','Filter too long') if length($filter)>512;
+    require Text::ParseWords;
+    # Keep regex backslashes intact: shellwords() would turn \d into d.
+    my @terms=eval { Text::ParseWords::parse_line(q{\s+},1,$filter) };
+    @terms=map { my $v=$_; $v =~ s/\A(["'])(.*)\1\z/$2/s; $v } @terms;
+    return log_window_event($id,$wid,'error','Invalid quoting') if $@;
+    return log_window_event($id,$wid,'error','Too many expressions') if @terms>12;
+    for my $term (@terms) {
+        return log_window_event($id,$wid,'error','Invalid expression')
+            if length($term)>128 || $term =~ /\A-/ || $term =~ /\.pm\z/i || $term =~ /\(\?\??\{/ || $term eq '!';
+        my $regex=$term =~ /^!/ ? substr($term,1) : $term;
+        eval { qr/$regex/i };
+        return log_window_event($id,$wid,'error','Invalid regular expression') if $@;
+    }
+    my $context=$m->{context}//0;
+    return log_window_event($id,$wid,'error','Invalid context') unless "$context" =~ /\A\d{1,2}\z/ && $context<=20;
+    my @args=($^X,"$DXSPIDER_ROOT/perl/".($mode eq 'watch'?'watchdbg':'grepdbg'));
+    if ($mode eq 'grep') {
+        my $date=$m->{date}//'';
+        return log_window_event($id,$wid,'error','Invalid date') unless live_debug_path('debug',$date);
+        require Time::Local;
+        my ($y,$mo,$d)=split /-/,$date;
+        my $target=Time::Local::timegm(0,0,12,$d,$mo-1,$y);
+        my @now=gmtime(time);
+        my $today=Time::Local::timegm(0,0,12,$now[3],$now[4],$now[5]+1900);
+        my $days=int(($today-$target)/86400);
+        return log_window_event($id,$wid,'error','Date must be within the last 365 days') if $days<0 || $days>365;
+        push @args,$days;
+    }
+    push @args,"-$context" if $context;
+    push @args,@terms;
+    pipe(my $reader,my $writer) or return log_window_event($id,$wid,'error','Cannot create pipe');
+    my $pid=fork();
+    unless (defined $pid) {close $reader;close $writer;return log_window_event($id,$wid,'error','Cannot fork')}
+    if (!$pid) {
+        close $reader;
+        open STDOUT,'>&',$writer or POSIX::_exit(126);
+        open STDERR,'>&',$writer or POSIX::_exit(126);
+        close $writer;
+        select STDOUT; $|=1;  # grepdbg uses buffered print() by default.
+        chdir $DXSPIDER_ROOT or POSIX::_exit(126);
+        $ENV{DXSPIDER_ROOT}=$DXSPIDER_ROOT;
+        eval { POSIX::nice(10) };
+        exec { $args[0] } @args;
+        POSIX::_exit(127);
+    }
+    close $writer;
+    my $flags=fcntl($reader,F_GETFL,0);
+    fcntl($reader,F_SETFL,$flags|O_NONBLOCK);
+    my $w={pid=>$pid,fh=>$reader,mode=>$mode,bytes=>0,started=>time,window_started=>time,window_bytes=>0};
+    $log_windows{$id}{$wid}=$w;
+    my $reactor=Mojo::IOLoop->singleton->reactor;
+    $reactor->io($reader=>sub {
+        return unless $log_windows{$id}{$wid} && $log_windows{$id}{$wid}==$w;
+        my $buf='';my $n=sysread($reader,$buf,4096);
+        if (defined $n && $n>0) {
+            $w->{bytes}+=$n;
+            if (time-$w->{window_started}>=60) {
+                $w->{window_started}=time;
+                $w->{window_bytes}=0;
+            }
+            $w->{window_bytes}+=$n;
+            if ($mode eq 'watch' && $w->{window_bytes}>4194304) {
+                log_window_event($id,$wid,'truncated','WATCH exceeded 4 MiB/min; stopped to protect the admin server');
+                log_window_stop($id,$wid,1);return;
+            }
+            if ($w->{bytes}>1048576 && $mode eq 'grep') {
+                log_window_event($id,$wid,'truncated','Search exceeded 1 MiB');
+                log_window_stop($id,$wid,1);return;
+            }
+            $buf =~ s/[^\x09\x0a\x0d\x20-\x7e\x80-\xff]/?/g;
+            ws_send_guarded($id,encode_json({type=>'log_window_data',window_id=>$wid,text=>$buf}));
+        } elsif (defined($n) && $n==0) {
+            log_window_stop($id,$wid,1);
+            log_window_event($id,$wid,'finished');
+        } elsif ($! != EAGAIN && $! != EWOULDBLOCK && $! != EINTR) {
+            log_window_stop($id,$wid,1);
+            log_window_event($id,$wid,'error','Read failed');
+        }
+    })->watch($reader,1,0);
+    $w->{timer}=Mojo::IOLoop->recurring(1=>sub {
+        return unless $log_windows{$id}{$wid} && $log_windows{$id}{$wid}==$w;
+        if ($mode eq 'grep' && time-$w->{started}>30) {
+            log_window_stop($id,$wid,1);log_window_event($id,$wid,'timeout','Search timed out');
+        }
+    });
+    log_window_event($id,$wid,'running');
+}
+
 # Terminal Linux: one local OpenSSH session per authenticated SYSOP WebSocket.
 # Never log terminal input or output (passwords and passphrases can traverse PTY).
 my %terminal_sessions;
@@ -1801,8 +1956,17 @@ sub terminal_start($id,$m) {
     unless (defined($user) && $user =~ /\A[a-z_][a-z0-9_.-]{0,31}\z/i && defined(getpwnam($user))) {
         terminal_event($id,'error','Invalid Unix account or DXSpider identity unavailable');return;
     }
+    my $port = $m->{port} // 22;
+    unless ($port =~ /\A[0-9]{1,5}\z/ && $port >= 1 && $port <= 65535) {
+        terminal_event($id,'error','Invalid SSH port');return;
+    }
     my @pw=getpwnam($user);
     my ($uid,$gid,$home)=@pw[2,3,7];
+    unless (@pw >= 8 && defined($uid) && $uid =~ /\A\d+\z/
+            && defined($gid) && $gid =~ /\A\d+\z/
+            && defined($home) && length($home) && -d $home) {
+        terminal_event($id,'error','Unix account has incomplete uid/gid/home information');return;
+    }
     my $pty=eval{IO::Pty->new};
     unless($pty){terminal_event($id,'error','IO::Pty unavailable');return}
     my $pid=fork();
@@ -1828,7 +1992,7 @@ sub terminal_start($id,$m) {
             exec('/usr/bin/ssh','-tt','-o','BatchMode=no','-o','StrictHostKeyChecking=ask',
                  '-o','ConnectTimeout=10','-o','ForwardAgent=no','-o','ClearAllForwardings=yes',
                  '-o','PermitLocalCommand=no','-o','RequestTTY=force',
-                 '-l',$user,'localhost');
+                 '-p',$port,'-l',$user,'localhost');
         };
         # Errors on the child side must be visible in the browser terminal.
         if ($@) { my $err=$@; syswrite(STDERR,"Terminal startup failed: $err"); }
@@ -1861,7 +2025,7 @@ sub terminal_start($id,$m) {
         terminal_stop($id) if waitpid($pid,POSIX::WNOHANG())==$pid;
     });
     # This only confirms the SSH process started, not successful authentication.
-    terminal_event($id,'starting',"SSH localhost as $user");
+    terminal_event($id,'starting',"SSH localhost:$port as $user");
 }
 sub terminal_input($id,$m) {
     my $s=$terminal_sessions{$id} or return;
@@ -1907,6 +2071,27 @@ websocket '/ws' => sub($c) {
     $ip =~ s/^::ffff://i;
     $clients{$id} = { tx => $tx, ip => $ip, authenticated => 0 };
     $c->inactivity_timeout(0);
+    my $last_pong = time;
+    # Mojolicious 9.49 emits 'frame' for control frames, not 'pong'.
+    $tx->on(frame => sub {
+        my ($tx, $frame) = @_;
+        return unless $frame->[4] == 10; # WS_PONG
+        $last_pong = time;
+    });
+    my $heartbeat = Mojo::IOLoop->recurring($WS_PING_INTERVAL_SEC => sub {
+        return unless exists $clients{$id};
+        if (time - $last_pong > $WS_PONG_GRACE_SEC) {
+            warn "DXWEB_ADMIN_WS_CLOSE client=$id reason=heartbeat_timeout pong_age=" . (time - $last_pong) . "\n";
+            $c->finish(1001 => 'heartbeat timeout');
+            return;
+        }
+        my $ok = eval { $tx->send([1, 0, 0, 0, 9, 'dxweb-admin']); 1 };
+        if (!$ok) {
+            warn "DXWEB_ADMIN_WS_PING_ERROR client=$id error=" . ($@ || 'unknown') . "\n";
+            $c->finish(1011 => 'ping failure');
+            return;
+        }
+    });
     ws_send_guarded( $id, encode_json( client_status($id) ) );
     $c->on(
         message => sub( $c, $raw ) {
@@ -1993,6 +2178,17 @@ websocket '/ws' => sub($c) {
             if ($t eq 'terminal_disconnect') {terminal_stop($id);return}
             if ($t eq 'terminal_input') {terminal_input($id,$m);return}
             if ($t eq 'terminal_resize') {terminal_resize($id,$m);return}
+            if ($t eq 'log_window_start') {
+                my $wid=$m->{window_id}//'';
+                my $ok=eval {log_window_start($id,$m);1};
+                unless ($ok) {
+                    my $err=$@||'unknown error';
+                    app->log->error('log_window_start failed: '.$err);
+                    log_window_event($id,$wid,'error','Server error; see DXWeb Admin journal') if $wid =~ /\A[a-zA-Z0-9_-]{1,40}\z/;
+                }
+                return;
+            }
+            if ($t eq 'log_window_stop') {my $wid=$m->{window_id}//'';log_window_stop($id,$wid) if $wid =~ /\A[a-zA-Z0-9_-]{1,40}\z/;return}
             if ($t eq 'live_debug_start') {live_debug_start($id,$m);return}
             if ($t eq 'live_debug_stop') {live_debug_stop($id);return}
             if ($t eq 'live_debug_pause') {
@@ -2301,14 +2497,21 @@ websocket '/ws' => sub($c) {
             }
         }
     );
-    $c->on( finish => sub { release_client( $id, 'browser_finish' ) } );
+    $c->on( finish => sub { Mojo::IOLoop->remove($heartbeat); release_client( $id, 'browser_finish' ) } );
 };
 
 # DXWeb Admin uses 7381 by default when started directly without an
 # explicit Mojolicious command.  An explicit command line still wins, e.g.
 #   perl admin.pl daemon -l http://127.0.0.1:7310
 if ( !@ARGV ) {
-    app->start( 'daemon', '-l', "http://$DXWEB_HOST:$DXWEB_PORT" );
+    my $listen = "$ENV{DXWEB_SCHEME}://$DXWEB_HOST:$DXWEB_PORT";
+    if (($ENV{DXWEB_SCHEME} // 'http') eq 'https') {
+        die "DXWEB_TLS_CERT and DXWEB_TLS_KEY required for HTTPS\n"
+            unless $ENV{DXWEB_TLS_CERT} && $ENV{DXWEB_TLS_KEY};
+        $listen .= '?cert=' . $ENV{DXWEB_TLS_CERT}
+                 . '&key=' . $ENV{DXWEB_TLS_KEY};
+    }
+    app->start( 'daemon', '-l', $listen );
 }
 else {
     app->start;

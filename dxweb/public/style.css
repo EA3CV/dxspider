@@ -431,7 +431,7 @@ body.authenticated #loginButton{background:#dff2e3;border-color:#6fa77b;color:#1
 @media(max-width:850px){#filters.panel.active{overflow-y:auto}#filters .vf-split{display:flex;flex-direction:column;overflow:visible;min-height:auto}#filters .vf-left{overflow:visible;flex:0 0 auto}#filters .vf-right{min-height:260px;flex:0 0 300px}#filters .vf-right .resultArea{min-height:150px}}
 
 /* v2.8.29: compact monospace text only in Filters command responses. */
-#filters .vf-right [data-output="filters"]{font-size:12px!important;line-height:1.35!important;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace!important;}
+#filters .vf-right [data-output="filters"]{font-size:calc(12px * var(--panel-zoom,1))!important;line-height:1.35!important;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace!important;}
 
 /* v2.8.31: Console anchored to the far edge of the entire navigation row. */
 .tabs{flex-wrap:nowrap;min-width:0}
@@ -843,3 +843,16 @@ button:focus-visible,input:focus-visible,select:focus-visible{
   height:26px!important;min-height:26px!important;max-height:26px!important;
   line-height:1.2!important;vertical-align:middle!important;
 }
+
+/* Console zoom must apply to nested output without minimum font overrides. */
+#consoleOutput.consoleOutput,
+#consoleOutput .consoleCommandLine,
+#consoleOutput .consoleResponse {font-size:inherit!important;}
+#consoleOutput.consoleOutput {font-size:var(--console-font-size,13px)!important;}
+/* One authoritative size for Filters command output at every zoom step. */
+#filters .vf-right [data-output="filters"] {font-size:calc(13px * var(--panel-zoom,1))!important;}
+
+/* Spots pause: same selected-state palette as the navigation tabs. */
+#spots .panelHead #spotPause{box-sizing:border-box!important;height:26px!important;min-height:26px!important;max-height:26px!important;padding:0 7px!important;border-radius:5px!important}
+#spots .panelHead #spotPause.active{background:#155aa8!important;color:#fff!important;border-color:#155aa8!important}
+html[data-theme="dark"] #spots .panelHead #spotPause.active{background:#3266a8!important;color:#fff!important;border-color:#3266a8!important}

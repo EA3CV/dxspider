@@ -461,6 +461,7 @@ sub handle_11
 		return;
 	}
 
+
 	# here we verify the spotter is currently connected to the node it says it is one. AKA email sender verify
 	# but without the explicit probe to the node. We are relying on "historical" information, but it very likely
 	# to be current once we have seen the first PC92C from that node.
@@ -2767,10 +2768,12 @@ sub handle_93
 		my $local = $via eq 'LOCAL' ? '*' : $via;
 
 		$self->send_announce(1, pc12($from, $text, $local, $sysop, $wx, $pcall), $from, $local, $text, $sysop, $pcall, $wx, $via eq 'LOCAL' ? $via : undef);
+		Web::publish_network_chat('SYSOP', $from, $text, $onode) if $to eq 'SYSOP' && Web->can('publish_network_chat');
 		return if $via eq 'LOCAL';
 	} elsif (!is_callsign($to) && $text =~ /^#\d+ /) {
 		# chat messages really only locally connected users
 		$self->send_chat(1, $line, $from, '*', $text, $to, $pcall, '0');
+		Web::publish_network_chat('ERROR', $from, $text, $onode) if $to eq 'ERROR' && Web->can('publish_network_chat');
 	}
 
 	# broadcast this chat sentence everywhere unless it is targetted to 'LOCAL'
