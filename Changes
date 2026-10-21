@@ -1,3 +1,5 @@
+21Oct26======================================================================
+1. Fix the "too many connections, too quickly" mechanism.
 20Oct26======================================================================
 1. Integrated a new installer for DXWeb and DXWeb Admin: dxweb-manager.pl
 2. Added INSTALL_DXWEB, a comprehensive installation and upgrade guide 
