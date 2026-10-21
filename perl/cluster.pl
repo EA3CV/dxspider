@@ -365,7 +365,7 @@ sub new_channel
 				if (@lastconns && @lastconns >= $DXUser::maxconnlist) {	# meaning it's full 
 					# the number of seconds since the start of the first conn -> end of the last conn
 					# in the list
-					my $diff = $lastconns[$n-1]->[1] - $lastconns[0]->[0];
+					my $diff = $lastconns[$n-1]->[1] - $lastconns[0]->[0]; 
 					dbg("new_channel nextlogin $call t: $t first: $lastconns[0]->[0] last: $lastconns[-1]->[1] av: $diff tmlaverage: $tmlaverage systime: $systime") if isdbg('new');
 					if ( $diff <=  $tmlaverage ) {
 						my $l = $tmladd - $diff;

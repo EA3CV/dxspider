@@ -35,22 +35,26 @@ sub dequeue
 {
 	my $conn = shift;
 
-	if ($conn && !$conn->{disconnecting} && $conn->{msg} =~ /\cJ/) {
-		my @lines = $conn->{msg} =~ /([^\cM\cJ]*)\cM?\cJ/g;
-		if ($conn->{msg} =~ /\cJ$/) {
-			delete $conn->{msg};
-		} else {
-			$conn->{msg} =~ s/([^\cM\cJ]*)\cM?\cJ//g;
-		}
-		$conn->{linesin} += @lines;
-		$Msg::total_lines_in += @lines;
-		for (@lines) {
-			if (defined $_) {
-				s/\%([0-9A-F][0-9A-F])/chr(hex($1))/eg;
-			} else {
-				$_ = '';
+	unless ($conn->{disconnecting}) {
+		if ($conn && $conn->{msg} =~ /\cJ/) {
+			my @lines =  $conn->{msg} =~ /([^\cM\cJ]*)\cM?\cJ/g;
+			if ($conn->{msg} =~ /\cJ$/) {
+				delete $conn->{msg};
 			}
-			&{$conn->{rproc}}($conn, $_) if exists $conn->{rproc};
+			else {
+				$conn->{msg} =~ s/([^\cM\cJ]*)\cM?\cJ//g;
+			}
+			$conn->{linesin} += @lines;
+			$Msg::total_lines_in += @lines;
+			for (@lines) {
+				if (defined $_) {
+					s/\%([0-9A-F][0-9A-F])/chr(hex($1))/eg;
+				}
+				else {
+					$_ = '';
+				}
+				&{$conn->{rproc}}($conn, $_) if exists $conn->{rproc};
+			}
 		}
 	}
 }
