@@ -352,7 +352,7 @@ sub new_channel
 				$l = $tmlmaxdelay if $l > $tmlmaxdelay;
 				$user->nextlogin($l + $main::systime);
 				eval { DXHealth::connection_rapid_throttled($call); 1 };
-				DbgLog('chan', "$call logging in too  quickly, banned for $l seconds");
+				LogDbg('chan', "$call logging in too  quickly, banned for $l seconds");
 #				already_conn($conn, $call, "new_channel nextlogin $call on $host is not allowed to login for another $l secs, disconnected" );
 				$conn->disconnect;
 				return;
