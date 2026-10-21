@@ -14,6 +14,11 @@ use warnings;
 use utf8;
 use Mojolicious::Lite -signatures;
 use POSIX ();
+use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK);
+use Errno qw(EAGAIN EWOULDBLOCK EINTR);
+use MIME::Base64 qw(encode_base64 decode_base64);
+use IO::Pty ();
+use File::Spec ();
 use Mojo::IOLoop;
 use Mojo::URL;
 use Mojo::UserAgent;
@@ -218,7 +223,13 @@ sub browser_client_snapshot() {
     return {
         clients       => $total,
         authenticated => 0 + $auth,
-        anonymous     => $total - $auth
+        anonymous     => $total - $auth,
+        users         => [ map {
+            my $cl = $clients{$_};
+            +{ call => $cl->{call}, ip => $cl->{ip} || '',
+               startt => 0 + ($cl->{authenticated_at} || 0),
+               registered => $cl->{registered} ? \1 : \0 }
+        } grep { $clients{$_}{authenticated} && defined($clients{$_}{call}) && length($clients{$_}{call}) } keys %clients ]
     };
 }
 
@@ -261,6 +272,8 @@ sub release_client( $id, $reason = 'browser_disconnect' ) {
             }
         );
     }
+    live_debug_stop($id);
+    terminal_stop($id);
     delete $clients{$id};
     for my $rid ( keys %pending ) {
         if ( $pending{$rid}{client} == $id ) {
@@ -657,6 +670,7 @@ sub handle_response($msg) {
                 return;
             }
             $cl->{authenticated} = 1;
+            $cl->{authenticated_at} = time;
             $cl->{call}          = $msg->{call};
             $cl->{generation}    = $msg->{generation};
             $cl->{priv}          = $priv;
@@ -973,6 +987,8 @@ sub connect_dxs() {
                     }
                     %pending = ();
                     for my $id ( keys %clients ) {
+                        # The DXSpider authority is gone: revoke privileged PTYs now.
+                        terminal_stop($id, 1);
                         $clients{$id}{authenticated} = 0;
                         delete $clients{$id}{call};
                     }
@@ -1146,12 +1162,52 @@ sub send_history_summary( $id, $window = '15m' ) {
     );
 }
 
+# Process age from Linux /proc, without invoking systemctl or blocking DXSpider.
+sub _proc_age_seconds {
+    my ($pid, $host_uptime, $ticks) = @_;
+    return undef unless defined $pid && $pid =~ /\A\d+\z/ && $ticks > 0;
+    open my $fh, '<', "/proc/$pid/stat" or return undef;
+    my $line = <$fh> // '';
+    close $fh;
+    $line =~ /^\d+\s+\(.*\)\s+(.+)$/ or return undef;
+    my @f = split /\s+/, $1;
+    return undef unless @f > 19 && $f[19] =~ /\A\d+\z/;
+    my $age = $host_uptime - $f[19] / $ticks;
+    return $age >= 0 ? $age : undef;
+}
+
+sub _dxweb_process_age {
+    my ($host_uptime, $ticks) = @_;
+    opendir my $dh, '/proc' or return undef;
+    my @pids = grep { /\A\d+\z/ } readdir $dh;
+    closedir $dh;
+    my $best;
+    for my $pid (@pids) {
+        open my $fh, '<:raw', "/proc/$pid/cmdline" or next;
+        local $/;
+        my $cmd = <$fh> // '';
+        close $fh;
+        my @args = split /\0/, $cmd;
+        next unless grep { m{(?:^|/)dxweb/app\.pl\z} } @args;
+        my $age = _proc_age_seconds($pid, $host_uptime, $ticks);
+        $best = $age if defined $age && (!defined($best) || $age > $best);
+    }
+    return $best;
+}
+
 sub local_system_snapshot {
     my %r = ( collected_at => time, admin_pid => 0 + $$ );
     if ( open my $fh, '<', '/proc/uptime' ) {
         my $line = <$fh> // '';
         $r{host_uptime_seconds} = 0 + $1 if $line =~ /^([0-9.]+)/;
         close $fh;
+    }
+    if (defined $r{host_uptime_seconds}) {
+        my $ticks = POSIX::sysconf(&POSIX::_SC_CLK_TCK);
+        if (defined $ticks && $ticks > 0) {
+            $r{admin_uptime_seconds} = _proc_age_seconds($$, $r{host_uptime_seconds}, $ticks);
+            $r{dxweb_uptime_seconds} = _dxweb_process_age($r{host_uptime_seconds}, $ticks);
+        }
     }
     if ( open my $fh, '<', '/proc/loadavg' ) {
         my $line = <$fh> // '';
@@ -1638,6 +1694,193 @@ sub websocket_client_ip($c) {
     return $remote;
 }
 
+
+# Live Debug: per-browser bounded incremental file reader, no subprocesses.
+my %live_debug;
+sub live_debug_stop($id) {
+    my $watch = delete $live_debug{$id} or return;
+    Mojo::IOLoop->remove($watch->{timer}) if $watch->{timer};
+    close $watch->{fh} if $watch->{fh};
+}
+sub live_debug_path($source,$date) {
+    return unless $source =~ /\A(?:debug|spots|log|wwv|wcy)\z/;
+    return unless $date =~ /\A(20\d\d)-(0[1-9]|1[0-2])-([0-2]\d|3[01])\z/;
+    my ($y,$m,$d)=($1,$2,$3);
+    require Time::Local;
+    my $epoch=eval { Time::Local::timegm(0,0,12,$d,$m-1,$y) };
+    return unless defined $epoch;
+    my @t=gmtime($epoch);
+    return unless $t[5]+1900==$y && $t[4]+1==int($m) && $t[3]==int($d);
+    my $file=($source eq 'debug'||$source eq 'spots') ? sprintf('%03d.dat',$t[7]+1) : "$m.dat";
+    return "$FindBin::Bin/../local_data/$source/$y/$file";
+}
+sub live_debug_tick($id) {
+    my $w=$live_debug{$id} or return;
+    my $cl=$clients{$id};
+    unless ($cl && $cl->{authenticated} && ($cl->{priv}//0)>=9) { live_debug_stop($id);return }
+    return if $w->{paused};
+    my $path=$w->{path};
+    my @st=stat($path);
+    if (!@st || !-f _) {return}
+    if (!$w->{fh} || $w->{inode}!=$st[1] || $st[7]<$w->{offset}) {
+        my $first = !$w->{fh};
+        close $w->{fh} if $w->{fh};
+        open my $fh,'<:raw',$path or return;
+        $w->{fh}=$fh;$w->{inode}=$st[1];$w->{offset}=0 unless $first;
+        ws_send_guarded($id,encode_json({type=>'live_debug_data',rotated=>\1,text=>"\n--- File opened: $path ---\n"}));
+    }
+    my $fh=$w->{fh};
+    seek($fh,$w->{offset},0) or return;
+    my $buf='';my $n=read($fh,$buf,8192);
+    if (defined($n) && $n>0) {
+        $w->{offset}+=$n;
+        $buf =~ s/[^\x09\x0a\x0d\x20-\x7e\x80-\xff]/?/g;
+        ws_send_guarded($id,encode_json({type=>'live_debug_data',text=>$buf}));
+    }
+}
+sub live_debug_start($id,$m) {
+    live_debug_stop($id);
+    my $source=$m->{source}//'debug';my $date=$m->{date}//'';
+    my $path=live_debug_path($source,$date);
+    unless ($path) {ws_send_guarded($id,encode_json({type=>'live_debug_result',status=>'error',error=>'Invalid source or date'}));return}
+    $live_debug{$id}={path=>$path,offset=>0,inode=>-1,paused=>0};
+    # Historical files start near the end, not at the beginning of multi-GB logs.
+    if (-f $path) {my @st=stat($path);$live_debug{$id}{offset}=$st[7]>32768?$st[7]-32768:0;}
+    $live_debug{$id}{timer}=Mojo::IOLoop->recurring(0.5=>sub {live_debug_tick($id)});
+    ws_send_guarded($id,encode_json({type=>'live_debug_result',status=>'ok',path=>"$source / $date"}));
+    live_debug_tick($id);
+}
+
+# Terminal Linux: one local OpenSSH session per authenticated SYSOP WebSocket.
+# Never log terminal input or output (passwords and passphrases can traverse PTY).
+my %terminal_sessions;
+sub terminal_event($id,$status,$message='') {
+    ws_send_guarded($id,encode_json({type=>'terminal_status',status=>$status,message=>$message}));
+}
+sub terminal_default_user() {
+    my $root=File::Spec->canonpath($DXSPIDER_ROOT);
+    my %uids;
+    for my $entry (glob '/proc/[0-9]*/cmdline') {
+        my ($pid)=$entry =~ m{/proc/(\d+)/cmdline\z}; next unless $pid;
+        open my $fh,'<',$entry or next;
+        local $/; my $cmd=<$fh>//''; close $fh;
+        next unless $cmd =~ m{(?:^|\0)(?:[^\0]*/)?(?:perl|cluster\.pl)(?:\0|$)};
+        next unless $cmd =~ /cluster\.pl/;
+        my $cwd=readlink("/proc/$pid/cwd")//'';
+        next unless File::Spec->canonpath($cwd) eq $root || File::Spec->canonpath($cwd) eq "$root/perl";
+        open my $sf,'<',"/proc/$pid/status" or next;
+        my $st=do{local $/;<$sf>};close $sf;
+        my ($uid)=$st =~ /^Uid:\s+(\d+)\s+(\d+)/m;
+        my ($euid)=$st =~ /^Uid:\s+\d+\s+(\d+)/m;
+        $uids{$euid}=1 if defined $euid;
+    }
+    return unless keys(%uids)==1;
+    my ($uid)=keys %uids;
+    return scalar(getpwuid($uid));
+}
+sub terminal_stop($id,$silent=0) {
+    my $session=delete $terminal_sessions{$id} or return;
+    Mojo::IOLoop->remove($session->{reaper}) if $session->{reaper};
+    Mojo::IOLoop->remove($session->{writer}) if $session->{writer};
+    eval { Mojo::IOLoop->singleton->reactor->remove($session->{pty}) };
+    close $session->{pty};
+    my $pid=$session->{pid};
+    if ($pid && waitpid($pid,POSIX::WNOHANG())==0) {
+        kill 'TERM', -$pid;
+        # Escalation timer is deliberately short; do not leave SSH children behind.
+        Mojo::IOLoop->timer(1.5=>sub {
+            if (waitpid($pid,POSIX::WNOHANG())==0) {kill 'KILL',-$pid;waitpid($pid,POSIX::WNOHANG())}
+        });
+    }
+    terminal_event($id,'disconnected') unless $silent;
+}
+sub terminal_start($id,$m) {
+    terminal_stop($id,1);
+    my $user=$m->{user}//'';
+    $user=terminal_default_user() if $user eq '';
+    unless (defined($user) && $user =~ /\A[a-z_][a-z0-9_.-]{0,31}\z/i && defined(getpwnam($user))) {
+        terminal_event($id,'error','Invalid Unix account or DXSpider identity unavailable');return;
+    }
+    my @pw=getpwnam($user);
+    my ($uid,$gid,$home)=@pw[2,3,7];
+    my $pty=eval{IO::Pty->new};
+    unless($pty){terminal_event($id,'error','IO::Pty unavailable');return}
+    my $pid=fork();
+    unless(defined $pid){close $pty;terminal_event($id,'error','Cannot fork SSH');return}
+    if($pid==0) {
+        eval {
+            POSIX::setsid();
+            # make_slave_controlling_terminal returns a status, not a filehandle.
+            $pty->make_slave_controlling_terminal() or die "controlling PTY: $!";
+            my $slave=$pty->slave() or die "PTY slave: $!";
+            open(STDIN,'<&',$slave) or die "PTY stdin: $!";
+            open(STDOUT,'>&',$slave) or die "PTY stdout: $!";
+            open(STDERR,'>&',$slave) or die "PTY stderr: $!";
+            close $slave;
+            close $pty;
+            # Drop privileges only after the controlling terminal is established.
+            POSIX::setgid($gid)==0 or die "setgid: $!";
+            POSIX::setuid($uid)==0 or die "setuid: $!";
+            $ENV{HOME}=$home; $ENV{USER}=$user; $ENV{LOGNAME}=$user;
+            chdir($home) or die "chdir: $!";
+            $ENV{TERM}='xterm-256color';
+            delete @ENV{qw(SSH_ASKPASS SSH_ASKPASS_REQUIRE DISPLAY)};
+            exec('/usr/bin/ssh','-tt','-o','BatchMode=no','-o','StrictHostKeyChecking=ask',
+                 '-o','ConnectTimeout=10','-o','ForwardAgent=no','-o','ClearAllForwardings=yes',
+                 '-o','PermitLocalCommand=no','-o','RequestTTY=force',
+                 '-l',$user,'localhost');
+        };
+        # Errors on the child side must be visible in the browser terminal.
+        if ($@) { my $err=$@; syswrite(STDERR,"Terminal startup failed: $err"); }
+        POSIX::_exit(127);
+    }
+    $pty->close_slave();
+    my $flags=fcntl($pty,F_GETFL,0);
+    fcntl($pty,F_SETFL,$flags|O_NONBLOCK) if defined $flags;
+    my $session={pty=>$pty,pid=>$pid,queue=>''};
+    $terminal_sessions{$id}=$session;
+    Mojo::IOLoop->singleton->reactor->io($pty=>sub {
+        return unless $terminal_sessions{$id} && $terminal_sessions{$id}==$session;
+        my $buf=''; my $n=sysread($pty,$buf,8192);
+        if(defined($n) && $n>0) {
+            ws_send_guarded($id,encode_json({type=>'terminal_data',data=>encode_base64($buf,'')}));
+        } elsif(defined($n) && $n==0 || !defined($n) && !$!{EAGAIN} && !$!{EWOULDBLOCK} && !$!{EINTR}) {
+            terminal_stop($id);
+        }
+    });
+    Mojo::IOLoop->singleton->reactor->watch($pty,1,0);
+    $session->{writer}=Mojo::IOLoop->recurring(0.04=>sub {
+        return unless $terminal_sessions{$id} && $terminal_sessions{$id}==$session;
+        return unless length $session->{queue};
+        my $n=syswrite($pty,$session->{queue},8192);
+        if(defined($n) && $n>0){substr($session->{queue},0,$n,'')}
+        elsif(!defined($n) && !$!{EAGAIN} && !$!{EWOULDBLOCK} && !$!{EINTR}){terminal_stop($id)}
+    });
+    $session->{reaper}=Mojo::IOLoop->recurring(1=>sub {
+        return unless $terminal_sessions{$id} && $terminal_sessions{$id}==$session;
+        terminal_stop($id) if waitpid($pid,POSIX::WNOHANG())==$pid;
+    });
+    # This only confirms the SSH process started, not successful authentication.
+    terminal_event($id,'starting',"SSH localhost as $user");
+}
+sub terminal_input($id,$m) {
+    my $s=$terminal_sessions{$id} or return;
+    my $b=$m->{data}//'';
+    return unless $b =~ /\A[A-Za-z0-9+\/=]*\z/ && length($b)<=16384;
+    my $bytes=eval{decode_base64($b)};
+    return unless defined $bytes && length($bytes)<=8192;
+    if(length($s->{queue})+length($bytes)>32768){terminal_stop($id);return}
+    $s->{queue}.=$bytes;
+}
+sub terminal_resize($id,$m) {
+    my $s=$terminal_sessions{$id} or return;
+    my ($cols,$rows)=($m->{cols}//0,$m->{rows}//0);
+    return unless $cols =~ /\A\d+\z/ && $rows =~ /\A\d+\z/ && $cols>=20 && $cols<=300 && $rows>=5 && $rows<=120;
+    my $winsize=pack('SSSS',$rows,$cols,0,0);
+    eval {require 'sys/ioctl.ph'; no warnings 'experimental::args_array_with_signatures'; ioctl($s->{pty},&TIOCSWINSZ,$winsize)};
+    kill 'WINCH', -$s->{pid};
+}
+
 websocket '/ws' => sub($c) {
     unless ( websocket_origin_allowed($c) ) {
         $c->render( status => 403, text => 'WebSocket origin forbidden' );
@@ -1703,6 +1946,8 @@ websocket '/ws' => sub($c) {
             }
             if ( $t eq 'logout' ) {
                 return unless $clients{$id}{authenticated};
+                # Do not retain an interactive Unix shell during logout.
+                terminal_stop($id, 1);
 
                 # Do not queue duplicate logout operations for this connection.
                 return if grep {
@@ -1742,6 +1987,17 @@ websocket '/ws' => sub($c) {
                         }
                     )
                 );
+                return;
+            }
+            if ($t eq 'terminal_connect') {terminal_start($id,$m);return}
+            if ($t eq 'terminal_disconnect') {terminal_stop($id);return}
+            if ($t eq 'terminal_input') {terminal_input($id,$m);return}
+            if ($t eq 'terminal_resize') {terminal_resize($id,$m);return}
+            if ($t eq 'live_debug_start') {live_debug_start($id,$m);return}
+            if ($t eq 'live_debug_stop') {live_debug_stop($id);return}
+            if ($t eq 'live_debug_pause') {
+                my $w=$live_debug{$id};
+                if ($w) { $w->{paused}=$m->{paused} ? 1 : 0; live_debug_tick($id) unless $w->{paused}; }
                 return;
             }
             if ( $t =~ /^reg_(?:pending|history)$/ ) {

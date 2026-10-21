@@ -85,6 +85,44 @@ function spotFeedRestore(){
  spotCounts={human:0,rbn:0};spotItems=[];renderSpots();
 }
 
+
+// Independent presentation-only zoom for Filters, ANN, WWV, WCY and CONTEST.
+// Spots and Console retain their existing, independently persisted controls.
+const panelZoomNames=['filters','ann','wwv','wcy','contest'];
+const panelZoomLevels=Object.create(null);
+function panelZoomApply(panel,percent,save=false){
+ if(!panelZoomNames.includes(panel))return;
+ const value=Math.max(70,Math.min(150,Math.round(percent/10)*10));
+ panelZoomLevels[panel]=value;
+ const section=document.getElementById(panel);
+ if(!section)return;
+ section.style.setProperty('--panel-zoom',String(value/100));
+ const label=section.querySelector('[data-zoom-reset]');
+ if(label)label.textContent=value+' %';
+ if(save&&authenticated&&authUser){
+  try{localStorage.setItem('dxspider.dxweb.panelZoom.'+authUser.toUpperCase()+'.'+panel,String(value))}catch(_){}
+ }
+}
+function panelZoomRestore(){
+ for(const panel of panelZoomNames){
+  let value=100;
+  if(authenticated&&authUser){
+   try{const saved=Number(localStorage.getItem('dxspider.dxweb.panelZoom.'+authUser.toUpperCase()+'.'+panel));if(saved>=70&&saved<=150)value=saved}catch(_){}
+  }
+  panelZoomApply(panel,value);
+ }
+}
+for(const panel of panelZoomNames){
+ const control=document.querySelector('[data-zoom-panel="'+panel+'"]');
+ if(!control)continue;
+ control.addEventListener('click',event=>{
+  const button=event.target.closest('button');if(!button)return;
+  if(button.hasAttribute('data-zoom-reset'))panelZoomApply(panel,100,true);
+  else if(button.hasAttribute('data-zoom-step'))panelZoomApply(panel,(panelZoomLevels[panel]||100)+Number(button.dataset.zoomStep),true);
+ });
+}
+panelZoomRestore();
+
 function loginState(ok,m={}){
  authenticated=ok;document.body.classList.toggle('authenticated',ok);document.body.classList.toggle('anonymous',!ok); authUser=ok?(m.call||authUser):null;authRegistered=ok?Boolean(m.registered):false;passwordUsed=ok?Boolean(m.password_used):false;
  $('loginButton').textContent=ok?`Logout ${authUser}`:'Login';
@@ -95,6 +133,7 @@ function loginState(ok,m={}){
  spotFontForSession();
  spotFeedRestore();
  spotPresentationRestore();
+ panelZoomRestore();
 }
 function updateRegistrationAccess(){
  const loggedIn=authenticated,registered=authenticated&&authRegistered;
@@ -147,7 +186,7 @@ $('registerForm').addEventListener('submit',e=>{
  try{ssids=parseSsidSpec($('registerSsids').value);$('registerSsids').value=compactSsidSpec(ssids)}
  catch(err){$('registerResult').textContent=err.message;return}
  $('registerSubmit').disabled=true;$('registerResult').textContent='Sending request…';
- if(!send({type:'reg_request',call:$('registerCall').value.trim().toUpperCase(),ssids,name:$('registerName').value.trim(),email:$('registerEmail').value.trim(),language:$('registerLanguage').value||'EN',comment:$('registerComment').value.trim()})){$('registerSubmit').disabled=false;$('registerResult').textContent='DXSpider connection is not ready.'}
+ if(!send({type:'reg_request',call:$('registerCall').value.trim().toUpperCase(),ssids,name:$('registerName').value.trim(),email:$('registerEmail').value.trim(),locator:$('registerLocator').value.trim().toUpperCase(),language:$('registerLanguage').value||'EN',comment:$('registerComment').value.trim()})){$('registerSubmit').disabled=false;$('registerResult').textContent='DXSpider connection is not ready.'}
 });
 
 function clearSessionData(){
@@ -495,7 +534,7 @@ function updateSpotLayout(){
  if(signature!==previous){
   const groupHeaders=groups.filter(g=>g.fields.length).map(g=>`<th colspan="${g.fields.length}">${g.name}</th>`).join('');
   const hasExtras=!!groupHeaders;
-  $('spotHeaders').innerHTML=`<tr class="spotHeadGroup">${cols.filter(x=>!x.group).map(x=>`<th ${hasExtras?'rowspan="2"':''} class="${x.key==='comment'?'commentHeader':(x.key==='distance'||x.key==='bearing'?'spotGeoNumeric':'')}">${x.title}${x.key==='comment'?'<span class="commentResizeHandle" role="separator" aria-label="Resize Comment column" title="Drag to resize Comment"></span>':''}</th>`).join('')}${groupHeaders}</tr>${hasExtras?`<tr class="spotHeadSub">${groups.map(g=>g.fields.map(f=>`<th>${f[1]}</th>`).join('')).join('')}</tr>`:''}`;
+  $('spotHeaders').innerHTML=`<tr class="spotHeadGroup">${cols.filter(x=>!x.group).map(x=>`<th ${hasExtras?'rowspan="2"':''} class="spotField-${x.key} ${x.key==='comment'?'commentHeader':(x.key==='distance'||x.key==='bearing'?'spotGeoNumeric':'')}">${x.title}${x.key==='comment'?'<span class="commentResizeHandle" role="separator" aria-label="Resize Comment column" title="Drag to resize Comment"></span>':''}</th>`).join('')}${groupHeaders}</tr>${hasExtras?`<tr class="spotHeadSub">${groups.map(g=>g.fields.map(f=>`<th>${f[1]}</th>`).join('')).join('')}</tr>`:''}`;
   renderSpots();
  }
 }
@@ -516,7 +555,7 @@ updateSpotLayout();
 function renderSpots(){
  const human=$('showHuman').checked,rbn=$('showRbn').checked;
  const a=spotItems.filter(x=>(x.type==='human'&&human)||(x.type==='rbn'&&rbn));
- $('spotRows').innerHTML=(spotNewestFirst?a.slice(-250).reverse():a.slice(-250)).map(x=>`<tr class="${x._newUntil>Date.now()?'spotFresh':''}" style="${x._newUntil>Date.now()?'animation-delay:-'+((3000-(x._newUntil-Date.now()))/1000).toFixed(2)+'s':''}">${spotVisibleColumns.map(col=>`<td class="${col.key==='distance'||col.key==='bearing'?'spotGeoNumeric':''}" title="${col.key==='distance'||col.key==='bearing'?esc(geoCalculate(x).source):esc(x[col.key]??'')}">${col.key==='type'?(x.type==='human'?'C':'R'):col.key==='distance'||col.key==='bearing'?esc(geoRenderValue(x,col.key)):esc(x[col.key]??'')}</td>`).join('')}</tr>`).join('');
+ $('spotRows').innerHTML=(spotNewestFirst?a.slice(-250).reverse():a.slice(-250)).map(x=>`<tr class="${x._newUntil>Date.now()?'spotFresh':''}" style="${x._newUntil>Date.now()?'animation-delay:-'+((3000-(x._newUntil-Date.now()))/1000).toFixed(2)+'s':''}">${spotVisibleColumns.map(col=>`<td class="spotField-${col.key} ${col.key==='distance'||col.key==='bearing'?'spotGeoNumeric':''}" title="${col.key==='distance'||col.key==='bearing'?esc(geoCalculate(x).source):esc(x[col.key]??'')}">${col.key==='type'?(x.type==='human'?'C':'R'):col.key==='distance'||col.key==='bearing'?esc(geoRenderValue(x,col.key)):esc(x[col.key]??'')}</td>`).join('')}</tr>`).join('');
  const visibleCount=(human?spotCounts.human:0)+(rbn?spotCounts.rbn:0);
  const spotViewport=$('spotRows').closest('.spotResultArea');
  if(spotViewport)spotViewport.scrollTop=spotNewestFirst?0:spotViewport.scrollHeight;

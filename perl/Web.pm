@@ -962,6 +962,7 @@ sub _user_add
 		generation    => ++$web_user_generation_seq,
 		auth_request_id => $authmeta ? $id : undef,
 	};
+	DXHealth::logical_web_up($call, $ip, $self->{call});
 	$self->_web_refresh_user_filters($call);
 
 	$self->tell_login('loginu', $call);
@@ -1001,6 +1002,7 @@ sub _remove_user
 	# _add_thingy() already performs DXSpider's normal DXUser accounting when
 	# the presence is added.  Do not close() the DXUser again here: that would
 	# add a second connlist entry and persist a duplicate session record.
+	DXHealth::logical_web_down($call, $self->{call});
 	delete $self->{web_users}{$call};
 
 	$self->tell_login('logoutu', $call);
@@ -1338,7 +1340,7 @@ sub _registration_request
 	unless (ref($ssids) eq 'ARRAY') { $self->_error($id, 'reg_request', 'bad_arguments'); return; }
 	my ($ok, $result) = DXReg::create_request(
 		call => $req->{call}, email => $req->{email}, language => ($req->{language} || 'EN'),
-		ssids => $ssids, name => $req->{name}, comment => $req->{comment}, source => 'USER', ip => $ip,
+		ssids => $ssids, name => $req->{name}, locator => $req->{locator}, comment => $req->{comment}, source => 'USER', ip => $ip,
 	);
 	unless ($ok) { $self->_error($id, 'reg_request', 'registration_rejected', {messages => [$result]}); return; }
 	$self->_response($id, 'ok', 'reg_request', {result => $result});

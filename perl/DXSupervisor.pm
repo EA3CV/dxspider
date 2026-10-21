@@ -118,9 +118,17 @@ sub connections {
     my $hrows = $hist->{rows} || {};
 
     my %calls = map { $_ => 1 } (keys %live, keys %$hrows);
-    my @calls = sort keys %calls;
-    my $truncated = @calls > $MAX_CONNECTIONS ? 1 : 0;
-    splice(@calls, $MAX_CONNECTIONS) if @calls > $MAX_CONNECTIONS;
+    # Live channels must never be displaced by retained history.
+    my @active = sort keys %live;
+    my @offline = sort {
+        ($hrows->{$b}{last_event} || 0) <=> ($hrows->{$a}{last_event} || 0)
+            || $a cmp $b
+    } grep { !exists $live{$_} } keys %$hrows;
+    my $slots = $MAX_CONNECTIONS - scalar(@active);
+    $slots = 0 if $slots < 0;
+    my $truncated = @offline > $slots ? 1 : 0;
+    splice(@offline, $slots) if @offline > $slots;
+    my @calls = (@active, @offline);
     my @rows;
     for my $call (@calls) {
         my $c = $live{$call};
@@ -154,6 +162,32 @@ sub connections {
             do_pc9x => $c ? ($rnode ? _maybe_bool($rnode->do_pc9x) : (defined $c->{do_pc9x} ? _maybe_bool($c->{do_pc9x}) : undef)) : undef,
             via_pc92 => $rnode ? _maybe_bool($rnode->via_pc92) : undef,
             is_self => $c && (($c->{call} || '') eq ($main::mycall || '')) ? 1 : 0,
+        };
+    }
+    # Offline logical Web users are retained separately from physical channels.
+    # Do not show a stale OFFLINE row when the same CALL is currently present.
+    my %web_live;
+    for my $ch (@all_full) {
+        next unless eval { $ch->is_web };
+        $web_live{uc($_)} = 1 for keys %{ $ch->{web_users} || {} };
+    }
+    my $logical_offline = DXHealth::logical_web_snapshot();
+    for my $e (sort { ($b->{last_event} || 0) <=> ($a->{last_event} || 0) } @$logical_offline) {
+        next if $web_live{$e->{call}} || $live{$e->{call}};
+        if (@rows >= $MAX_CONNECTIONS && @active <= $MAX_CONNECTIONS) {
+            $truncated = 1;
+            last;
+        }
+        push @rows, {
+            call => $e->{call}, kind => 'web', online => 0, logical_web => 1,
+            state => 'offline', outbound => undef, ip => $e->{ip} || '',
+            connected_since => 0, cnum => undef, queue_depth => undef,
+            errors => undef, bytes_in => undef, bytes_out => undef,
+            connect_count => 0 + ($e->{connect_count} || 0),
+            disconnect_count => 0 + ($e->{disconnect_count} || 0),
+            last_connect => 0 + ($e->{last_connect} || 0),
+            last_disconnect => 0 + ($e->{last_disconnect} || 0),
+            last_event => 0 + ($e->{last_event} || 0),
         };
     }
     my $o=_base();
