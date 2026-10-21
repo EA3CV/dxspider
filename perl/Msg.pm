@@ -468,7 +468,7 @@ sub _rcv {                     # Complement to _send
 	my $msg = shift;
     my $sock = $conn->{sock};
     return unless defined($sock);
-	return if $conn->{disonnecting};
+	return if $conn->{disconnecting};
 
 	$total_in += length $msg;
 	$conn->{datain} += length $msg;
