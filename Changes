@@ -1,3 +1,5 @@
+21Oct26======================================================================
+1. Fix the "too many connections, too quickly" mechanism. 
 16Oct26======================================================================
 1. DXWeb Admin: Completed and validated the Linux SSH terminal, including
    Unix account authentication, session lifecycle management, cleanup,

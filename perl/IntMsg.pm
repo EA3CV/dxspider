@@ -25,8 +25,10 @@ sub login
 sub enqueue
 {
 	my ($conn, $msg) = @_;
-	$msg =~ s/([\%\x00-\x1f\x7f-\xff])/sprintf("%%%02X", ord($1))/eg; 
-    push (@{$conn->{outqueue}}, $msg . "\n");
+#	unless ($msg =~ /^[ABZ]/) {
+		$msg =~ s/([\%\x00-\x1f\x7f-\xff])/sprintf("%%%02X", ord($1))/eg; 
+		push (@{$conn->{outqueue}}, $msg . "\n");
+#	}
 }
 
 sub dequeue
