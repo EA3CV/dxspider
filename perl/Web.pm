@@ -273,6 +273,7 @@ our $web_generation_seq = 0;
 our $web_user_generation_seq = 0;
 
 my $json = DXJSON->new;
+my $web_wire_json = DXJSON->new->ascii(1); # Keep #WEB lines 7-bit clean
 
 sub is_webcall
 {
@@ -574,7 +575,7 @@ sub wcy
 sub _encode_protocol_value
 {
 	my ($value) = @_;
-	my $wrapped = $json->encode({v => $value});
+	my $wrapped = $web_wire_json->encode({v => $value});
 	return unless defined $wrapped;
 
 	# DXJSON is canonical, and a one-key object is always {"v":<value>}.
@@ -706,7 +707,7 @@ sub _send_json
 		$s = _encode_protocol_object(\@pairs);
 	}
 	else {
-		$s = $json->encode($data);
+		$s = $web_wire_json->encode($data);
 	}
 
 	unless (defined $s) {

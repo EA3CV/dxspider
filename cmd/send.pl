@@ -20,6 +20,13 @@ my ($self, $line) = @_;
 return (1, $self->msg('e5')) if $self->remotecmd || $self->inscript;
 return (1, $self->msg('e36')) unless $self->state =~ /^prompt/;
 
+# Special local registration wizard; other SP commands remain unchanged.
+if (uc(($line // '') =~ s/^\s+|\s+$//gr) eq 'REGISTER') {
+    return (1, 'Registration subsystem is not enabled')
+        unless $main::reg_enable && DXReg::ready();
+    return DXReg::sp_register_start($self);
+}
+
 my @out;
 my $loc = $self->{loc} = {};
 my $notincalls = 1;
@@ -56,6 +63,7 @@ if ($self->state eq "prompt") {
 				my $m = shift @f;
 				my $oref = DXMsg::get($m);
 				return (0, $self->msg('m4', $m)) unless $oref;
+				return (1, "Local administrative messages cannot be copied") if $oref->{local_only};
 				return (0, $self->msg('m16')) unless @f;
 			
 				# separate copy to everyone listed

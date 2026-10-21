@@ -856,3 +856,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{
 #spots .panelHead #spotPause{box-sizing:border-box!important;height:26px!important;min-height:26px!important;max-height:26px!important;padding:0 7px!important;border-radius:5px!important}
 #spots .panelHead #spotPause.active{background:#155aa8!important;color:#fff!important;border-color:#155aa8!important}
 html[data-theme="dark"] #spots .panelHead #spotPause.active{background:#3266a8!important;color:#fff!important;border-color:#3266a8!important}
+
+/* DXWeb logo: copyright remains in the existing page footer. */
+.topbar .brand{min-width:0;display:flex;align-items:center}
+.topbar .brand .dxBrandLogo{display:block;width:clamp(165px,22vw,300px);max-width:100%;height:auto;object-fit:contain;flex:0 1 auto}
+@media(max-width:767px){.topbar .brand .dxBrandLogo{width:clamp(82px,17vw,140px);max-height:36px}}
+@media(max-width:420px){.topbar .brand .dxBrandLogo{width:clamp(70px,19vw,90px)}}

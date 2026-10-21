@@ -1,6 +1,9 @@
 21Oct26======================================================================
 1. Fix the "too many connections, too quickly" mechanism.
-2. DXWeb 2.8.71: Added a Pause toggle to the Spots view.
+2. DXWeb 2.8.73: Added a Pause toggle to the Spots view.
+3. DXWeb Admin 0.78.80: DXReg.pm: Added support for SP REGISTER from terminal
+4. JSON/WebSocket Encoding: Standardized Unicode character transmission from 
+   the browser using JSON \uXXXX escape sequences, preventing encoding issues
 20Oct26======================================================================
 1. Integrated a new installer for DXWeb and DXWeb Admin: dxweb-manager.pl
 2. Added INSTALL_DXWEB, a comprehensive installation and upgrade guide 

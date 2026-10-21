@@ -25,6 +25,7 @@ use Mojo::UserAgent;
 use Socket qw(AF_INET AF_INET6 inet_pton);
 use Mojo::IOLoop::Subprocess;
 use Mojo::JSON  qw(encode_json decode_json);
+use JSON::PP (); # ASCII-safe JSON on the DXSpider line transport
 use Time::HiRes qw(time);
 use FindBin;
 
@@ -473,7 +474,14 @@ sub send_line($l) { return unless $stream; $stream->write( $l . "\n" ) }
 
 sub send_dxs($o) {
     return unless $state{web_call};
-    send_line( 'I' . $state{web_call} . '|' . encode_json($o) );
+    my $wire = JSON::PP->new->ascii(1)->encode($o);
+    if (($o->{type} // '') =~ /\Areg_(?:accept|reject)\z/) {
+        # Log only the request ID and whether Unicode escaping was used.
+        # Never log the SYSOP note, credentials or registration data.
+        app->log->info(sprintf('registration outbound action=%s id=%s escaped_unicode=%s',
+            $o->{type}, $o->{id} // '-', $wire =~ /\\u[0-9a-fA-F]{4}/ ? 'yes' : 'no'));
+    }
+    send_line( 'I' . $state{web_call} . '|' . $wire );
 }
 
 sub pending_timeout($id) {
@@ -486,6 +494,8 @@ sub pending_timeout($id) {
         cancel_pending_auth($id)                               if $pending{$id};
         return;
     }
+    app->log->error('registration timeout action=' . $p->{action} . ' id=' . $id)
+        if ($p->{action} // '') =~ /\Areg_(?:accept|reject)\z/;
     delete $pending{$id};
     my $cid = $p->{client};
     my $cl  = $clients{$cid} or return;
@@ -624,6 +634,11 @@ sub replay_history( $id, $pos = 0 ) {
 sub handle_response($msg) {
     my $id = $msg->{id};
     my $p  = delete $pending{$id} or return;
+    if (($p->{action} // '') =~ /\Areg_(?:accept|reject)\z/) {
+        app->log->info('registration response action=' . $p->{action}
+            . ' id=' . $id . ' status=' . ($msg->{status} // '-')
+            . ' error=' . ($msg->{error} // '-'));
+    }
     Mojo::IOLoop->remove( $p->{timer} ) if $p->{timer};
     if ( $p->{internal_history} ) {
         $history_inflight = 0;
@@ -2213,7 +2228,7 @@ websocket '/ws' => sub($c) {
                 return;
             }
             if ( $t =~ /^reg_(?:accept|reject)$/ ) {
-                dxs_request(
+                my $pending_id = dxs_request(
                     $id, $t,
                     {
                         type       => $t,
@@ -2222,6 +2237,16 @@ websocket '/ws' => sub($c) {
                         note       => $m->{note} // ''
                     }
                 );
+                unless ( defined $pending_id ) {
+                    ws_send_guarded(
+                        $id,
+                        encode_json({
+                            type   => $t . '_result',
+                            status => 'error',
+                            error  => 'request_not_accepted'
+                        })
+                    );
+                }
                 return;
             }
             if ( $t eq 'reg_delete_user' ) {
