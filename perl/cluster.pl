@@ -340,8 +340,8 @@ sub new_channel
 		}
 
 		# Is this user has a nextlogin time, is it > now?
-		my $t = $user->nextlogin || 0;
 		if ($tmlaverage && $user) {
+			my $t = $user->nextlogin || 0;
 			if ($t > 0 && $t < $systime) {
 				LogDbg('chan', sprintf("new_channel $call with nextlogin at %s cleared at %s", cldatetime($user->nextlogin), cldatetime($systime)) );
 				delete $user->{nextlogin};
@@ -352,7 +352,7 @@ sub new_channel
 				$l = $tmlmaxdelay if $l > $tmlmaxdelay;
 				$user->nextlogin($l + $main::systime);
 				eval { DXHealth::connection_rapid_throttled($call); 1 };
-				DbgLog('chan', "$call logging in too  quickly, banned for $l seconds");
+				LogDbg('chan', "$call logging in too  quickly, banned for $l seconds");
 #				already_conn($conn, $call, "new_channel nextlogin $call on $host is not allowed to login for another $l secs, disconnected" );
 				$conn->disconnect;
 				return;
@@ -365,7 +365,7 @@ sub new_channel
 				if (@lastconns && @lastconns >= $DXUser::maxconnlist) {	# meaning it's full 
 					# the number of seconds since the start of the first conn -> end of the last conn
 					# in the list
-					my $diff = $lastconns[2]->[1] - $lastconns[0]->[0]; 
+					my $diff = $lastconns[$n-1]->[1] - $lastconns[0]->[0]; 
 					dbg("new_channel nextlogin $call t: $t first: $lastconns[0]->[0] last: $lastconns[-1]->[1] av: $diff tmlaverage: $tmlaverage systime: $systime") if isdbg('new');
 					if ( $diff <=  $tmlaverage ) {
 						my $l = $tmladd - $diff;

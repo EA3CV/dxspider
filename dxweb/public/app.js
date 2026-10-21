@@ -63,7 +63,7 @@ const consoleFontKeyBase='dxspider.dxweb.consoleFont.';
 let consoleFontPercent=100;
 function consoleFontApply(value,save=false){
  consoleFontPercent=Math.max(70,Math.min(150,Math.round(value/10)*10));
- const area=$('consoleOutput');if(area)area.style.fontSize=(13*consoleFontPercent/100)+'px';
+ const area=$('consoleOutput');if(area)area.style.setProperty('--console-font-size',(13*consoleFontPercent/100)+'px');
  $('consoleFontReset').textContent=consoleFontPercent+' %';
  if(save&&authenticated&&authUser){try{localStorage.setItem(consoleFontKeyBase+authUser.toUpperCase(),String(consoleFontPercent))}catch(_){}}
 }
@@ -128,7 +128,7 @@ function loginState(ok,m={}){
  $('loginButton').textContent=ok?`Logout ${authUser}`:'Login';
  $('loginButton').dataset.mobileLabel=ok?(authUser||'Login'):'Login';
  $('profileButton').hidden=!ok;
- if(!ok){$('profileDialog').close();$('passwordDialog').close();}
+ if(!ok){$('profileDialog').close();$('passwordDialog').close();const dlg=$('loginDialog');if(dlg&&!dlg.open)dlg.showModal();}else{const dlg=$('loginDialog');if(dlg&&dlg.open)dlg.close();}
  updateRegistrationAccess();
  spotFontForSession();
  spotFeedRestore();
@@ -200,7 +200,7 @@ function clearSessionData(){
 function connect(){
  const proto=location.protocol==='https:'?'wss':'ws'; ws=new WebSocket(`${proto}://${location.host}${new URL("./ws",location.href).pathname}`);
  ws.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error('dxweb message handler error',err,e.data);$('status').textContent='ui-error'}};
- ws.onclose=()=>{logoutPending=false;$('loginSubmit').disabled=false;$('status').textContent='disconnected';loginState(false);setTimeout(connect,2000)};
+ ws.onclose=()=>{logoutPending=false;$('loginSubmit').disabled=false;$('status').textContent='disconnected';clearSessionData();loginState(false);setTimeout(connect,2000)};
 }
 function selectTab(id){
  activeTab=id; document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));
@@ -213,7 +213,8 @@ $('loginButton').onclick=()=>{
  if(authenticated){if(logoutPending)return;logoutPending=true;clearSessionData();send({type:'logout'});$('loginButton').textContent='Logging out…';return}
  $('loginError').textContent='';$('loginDialog').showModal();$('loginCall').focus();
 };
-$('loginCancel').addEventListener('click',()=>{$('loginDialog').close();$('loginError').textContent=''});
+$('loginCancel').hidden=true;
+$('loginDialog').addEventListener('cancel',e=>{if(!authenticated)e.preventDefault()});
 $('loginForm').addEventListener('submit',e=>{
  e.preventDefault();if(authenticated)return;
  const call=$('loginCall').value.trim().toUpperCase();if(!call)return;
