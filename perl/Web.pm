@@ -59,7 +59,7 @@ sub new
 	# logical user belongs to this #WEB-n connection and was authenticated by
 	# WebCluster.  The flag is deliberately actor-local: never copy it into the
 	# persistent DXUser record.
-	return bless {
+	my $actor = bless {
 		call        => $call,
 		dcall       => $call,
 		user        => $user,
@@ -82,6 +82,12 @@ sub new
 		errors      => 0,
 		_output     => [],
 	}, $class;
+
+	# Standard show/mydx (show/dx filter) needs the authenticated user's
+	# effective spot filter, just as a normal DXCommandmode session does.
+	# This is a transient actor, not a registered DXChannel.
+	Filter::load_dxchan($actor, 'spots', 0);
+	return $actor;
 }
 
 # Capture direct command output locally.  This is used, for example, by the
@@ -633,6 +639,38 @@ sub local_send
 	return $self->SUPER::local_send($let, $buf);
 }
 
+# RX-only PC93 chat bridge for authenticated DXWeb Admin logical users.
+# Called after the native PC93 acceptance checks; never affects PC93 routing.
+sub publish_network_chat
+{
+    my ($target, $from, $text, $onode) = @_;
+    return unless $target eq 'ERROR' || $target eq 'SYSOP';
+    for my $channel (DXChannel::get_all()) {
+        next unless $channel && $channel->isa('Web');
+        next unless ($channel->{web_role} || '') eq 'dxweb-admin';
+        my @targets;
+        for my $call (keys %{ $channel->{web_users} || {} }) {
+            my $owned = $channel->{web_users}{$call} || next;
+            next unless ($owned->{priv} || 0) >= 9;
+            next unless $owned->{authenticated};
+            if ($target eq 'ERROR') {
+                my $user = DXUser::get_current($call) || next;
+                next unless $user->in_group('ERROR');
+            }
+            push @targets, $call;
+        }
+        next unless @targets;
+        my $payload = _encode_protocol_object([
+            ['type', 'network_chat'], ['channel', $target],
+            ['from', $from], ['text', $text], ['onode', $onode || ''],
+            ['targets', \@targets],
+        ]);
+        next unless defined $payload;
+        next unless $channel->_web_feed_can_write(length($payload) + length($channel->{call} || '') + 4);
+        $channel->SUPER::local_send('C', $payload);
+    }
+}
+
 sub _send_json
 {
 	my ($self, $data) = @_;
@@ -718,6 +756,11 @@ sub _response
 sub _error
 {
 	my ($self, $id, $action, $error, $extra) = @_;
+	if ($action eq 'auth' || $action eq 'user_add' || $action eq 'user_del') {
+		my $who = ref($extra) eq 'HASH' ? ($extra->{call} || '-') : '-';
+		my $role = $self->{web_role} || 'webcluster';
+		dbg("Web $self->{call}: $action rejected call=$who role=$role reason=$error") if isdbg('connect');
+	}
 	$extra ||= {};
 	$extra->{error} = $error;
 	$self->_response($id, 'error', $action, $extra);
@@ -968,7 +1011,9 @@ sub _user_add
 	$self->tell_login('loginu', $call);
 	$self->tell_buddies('loginb', $call);
 
-	dbg("web: Web $self->{call} USER_ADD $call from $ip") if isdbg('web');
+	my $role = $self->{web_role} || 'webcluster';
+	my $auth_source = $authmeta ? ($authmeta->{auth_source} || 'dxspider') : 'external';
+	dbg("Web $self->{call}: $call authenticated from $ip role=$role auth=$auth_source generation=$self->{web_users}{$call}{generation}") if isdbg('connect');
 
 	$self->_response($id, 'ok', $authmeta ? 'auth' : 'user_add', {
 		call          => $call,
@@ -1008,7 +1053,10 @@ sub _remove_user
 	$self->tell_login('logoutu', $call);
 	$self->tell_buddies('logoutb', $call);
 
-	dbg("web: Web $self->{call} " . ($reason || 'USER_DEL') . " $call") if isdbg('web');
+	my $role = $self->{web_role} || 'webcluster';
+	my $ip = $owned->{ip} || '-';
+	my $why = $reason || 'USER_DEL';
+	dbg("Web $self->{call}: $call disconnected from $ip role=$role reason=$why") if isdbg('connect');
 	return 1;
 }
 

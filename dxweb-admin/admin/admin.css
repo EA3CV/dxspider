@@ -1595,3 +1595,86 @@ body.v2-shell #liveDebug #liveDebugSource{
   line-height:normal!important;
   vertical-align:middle;
 }
+
+/* Network Chat: same typography and independent persistent zoom as feed panels. */
+#networkChatSection #networkChatOutput {font-size:calc(13px * var(--panel-zoom,1))!important;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;min-height:16rem}
+#networkChatSection .networkChatHint {font-size:12px;opacity:.75;padding:0 12px}
+#networkChatSection .panelHead {flex-wrap:wrap;gap:8px}
+#networkChatSection select {max-width:100%;font:inherit}
+
+/* v0.78.57: Network Chat uses the entire available workspace, like Live Debug. */
+body.v2-shell #networkChatSection.section.active{display:flex!important;flex-direction:column!important;height:100%!important;min-height:0!important;overflow:hidden!important}
+body.v2-shell #networkChatSection #networkChat.panel{display:flex!important;flex-direction:column!important;flex:1 1 auto!important;width:100%!important;height:auto!important;min-height:0!important;max-height:none!important;box-sizing:border-box!important;overflow:hidden!important}
+body.v2-shell #networkChatSection #networkChatOutput{flex:1 1 auto!important;min-height:0!important;height:auto!important;max-height:none!important;overflow:auto!important;margin:0!important;white-space:pre-wrap}
+body.v2-shell #networkChatSection .networkChatHint{flex:0 0 auto;margin:8px 0 0;padding:0 4px;font-size:11px}
+@media(max-width:760px){body.v2-shell #networkChatSection.section.active{min-height:65vh!important}body.v2-shell #networkChatSection .panelHead{align-items:flex-start}}
+
+/* Independent log consoles: scoped to Live Debug, existing RAW controls unchanged. */
+.logDeskToolbar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.logWorkspace{position:relative;min-height:650px;border:1px solid var(--border,#536477);border-radius:8px;overflow:auto}
+.logFloat{position:absolute;width:min(570px,94%);height:300px;min-width:300px;min-height:190px;resize:both;overflow:hidden;display:flex;flex-direction:column;background:var(--panel-bg,#192330);color:var(--text,#e5e7eb);border:1px solid #728198;border-radius:8px;box-shadow:0 6px 20px #0004}
+.logFloatHead{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 8px;cursor:move;background:var(--surface,#334155);touch-action:none}
+.logFloatActions{display:flex;gap:3px;align-items:center}.logFloatActions button{padding:2px 5px}
+.logFloatBar{display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding:6px}.logFloatBar>input:first-child{flex:1;min-width:100px}
+.logFloatOutput{flex:1;min-height:0;overflow:auto;margin:0;padding:8px;background:#0b1220;color:#e5e7eb;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.45 monospace}
+.logFloatState{font-size:11px;padding:3px 8px}.logMax{left:0!important;top:0!important;width:100%!important;height:100%!important;resize:none}
+@media(max-width:700px){.logWorkspace{min-height:600px}.logFloat{width:96%!important;left:2%!important;min-width:0}.logFloatHead{cursor:default}.logFloatActions{flex-wrap:wrap}}
+
+/* v0.78.62: compact log workspace controls on the Source toolbar. */
+body.v2-shell #liveDebug .liveDebugToolbar .logDeskToolbar{display:inline-flex;align-items:center;gap:var(--dxui-toolbar-gap,5px);flex-wrap:wrap;margin:0 0 0 auto;padding:0}
+body.v2-shell #liveDebug .liveDebugToolbar .logDeskToolbar button{box-sizing:border-box;height:var(--dxui-control-height,28px);min-height:0;padding:0 8px;font-family:Arial,Helvetica,sans-serif;font-size:var(--dxui-control-font,12px);border-radius:var(--dxui-control-radius,5px)}
+body.v2-shell #liveDebug .logFloatHead button,body.v2-shell #liveDebug .logFloatBar button{font-size:11px;line-height:1.15;padding:3px 6px;min-height:22px;height:auto}
+body.v2-shell #liveDebug .logFloatActions{flex-wrap:nowrap}
+body.v2-shell #liveDebug .logFloat{min-width:0}
+@media(max-width:700px){body.v2-shell #liveDebug .liveDebugToolbar .logDeskToolbar{margin-left:0}}
+
+/* v0.78.64: unified compact Debug workbench. */
+body.v2-shell #liveDebugSection.section.active{height:auto!important;min-height:calc(100vh - 125px)!important}
+body.v2-shell #liveDebug.panel{flex:0 0 auto;overflow:visible}
+body.v2-shell #liveDebugOutput[hidden]{display:none!important}
+body.v2-shell #liveDebug .liveDebugToolbar{padding:6px 9px;gap:5px}
+body.v2-shell #liveDebug .liveDebugToolbar button,body.v2-shell #liveDebug .liveDebugToolbar select,body.v2-shell #liveDebug .liveDebugToolbar input{height:var(--dxui-control-height,28px);min-height:0;box-sizing:border-box}
+body.v2-shell #liveDebug .logFloatHead button,body.v2-shell #liveDebug .logFloatBar button,body.v2-shell #liveDebug .logFloatBar input:not([type="checkbox"]){height:var(--dxui-control-height,28px);min-height:0;box-sizing:border-box;padding:0 6px;font-size:var(--dxui-control-font,12px);border-radius:var(--dxui-control-radius,5px)}
+body.v2-shell #liveDebug .logFloatBar label{font-size:12px;display:inline-flex;align-items:center;gap:3px}
+body.v2-shell #liveDebug .logFloatBar input[type="checkbox"]{width:14px;height:14px}
+body.v2-shell #liveDebug .logFloatActions{flex-shrink:0}
+body.v2-shell #liveDebug .logFloatHead{min-height:32px}
+body.v2-shell #liveDebug .logFloatOutput{white-space:pre;overflow-wrap:normal;word-break:normal}
+body.v2-shell .logWorkspace{flex:1 1 auto;min-height:calc(100vh - 270px);overflow:auto}
+.logHelpDialog{width:min(740px,95vw);max-height:85vh;overflow:auto;border:1px solid #728198;border-radius:9px;background:var(--panel-bg,#192330);color:var(--text,#e5e7eb);padding:18px;box-shadow:0 15px 60px #0008}
+.logHelpDialog::backdrop{background:#0009}
+.logHelpTop{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.logHelpContent{line-height:1.55;font-size:13px}
+.logHelpContent code{font-family:monospace;background:#64748b25;padding:1px 4px;border-radius:3px}
+@media(max-width:700px){body.v2-shell .logWorkspace{min-height:480px}body.v2-shell #liveDebug .logFloat{max-width:100%}}
+
+/* v0.78.65: compact per-window controls; override legacy generic button styles. */
+body.v2-shell #liveDebug .rawLegacyControls[hidden]{display:none!important}
+body.v2-shell #liveDebug .logFloat button,
+body.v2-shell #liveDebug .logFloat input:not([type="checkbox"]){height:var(--dxui-control-height,28px)!important;min-height:0!important;max-height:28px!important;line-height:1.1!important;padding:0 6px!important;font-size:var(--dxui-control-font,12px)!important;font-weight:500!important;box-sizing:border-box!important;border-radius:var(--dxui-control-radius,5px)!important}
+body.v2-shell #liveDebug .logFloatBar{padding:4px 6px;gap:4px}
+body.v2-shell #liveDebug .logFloatHead{padding:3px 6px;min-height:30px}
+body.v2-shell #liveDebug .logFloatBar label{font-size:11px}
+body.v2-shell #liveDebug .logFloatBar input[type="number"]{width:48px!important;min-width:48px!important;flex:0 0 48px!important}
+body.v2-shell #liveDebug .logFloatBar input[type="date"]{width:132px!important;flex:0 0 132px!important}
+body.v2-shell #liveDebug .logFloatBar>input:first-child{min-width:110px;flex:1 1 140px}
+body.v2-shell #liveDebug .logFloatActions button{flex-shrink:0}
+
+/* v0.78.66: force window controls to the exact Source select control metrics. */
+body .logWorkspace .logFloat .logFloatBar button,
+body .logWorkspace .logFloat .logFloatHead button,
+body .logWorkspace .logFloat .logFloatBar input:not([type="checkbox"]),
+body .logWorkspace .logFloat .logFloatBar select {
+  appearance:auto;box-sizing:border-box!important;
+  height:var(--dxui-control-height,28px)!important;
+  min-height:0!important;max-height:var(--dxui-control-height,28px)!important;
+  padding:0 6px!important;margin:0!important;
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:var(--dxui-control-font,12px)!important;
+  font-weight:400!important;line-height:normal!important;
+  border-radius:var(--dxui-control-radius,5px)!important;
+  width:auto;min-width:0;
+}
+body .logWorkspace .logFloat .logFloatBar input[type="number"]{width:48px!important}
+body .logWorkspace .logFloat .logFloatBar input[type="date"]{width:132px!important}
+body .logWorkspace .logFloat .logFloatBar>input:first-child{flex:1 1 140px;min-width:110px}
