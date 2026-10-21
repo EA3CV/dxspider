@@ -1,5 +1,6 @@
 21Oct26======================================================================
 1. Fix the "too many connections, too quickly" mechanism. 
+2. Fix some other long standing issues that also made point 1 above worse.  
 19Oct26======================================================================
 1. DXWeb: protocol WebSocket heartbeat and stale-client cleanup; quiet 
    sessions remain connected.
