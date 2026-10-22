@@ -1,3 +1,9 @@
+22Oct26======================================================================
+1. Improved and unified the dark theme to provide a more consistent visual
+    appearance.
+2. Fixed buddy and set/logininfo notifications, including their reception and
+   display in the web interface.
+3. Updated DXWeb to 3.0.0 and DXWeb Admin to 1.0.0.
 21Oct26======================================================================
 1. Fix the "too many connections, too quickly" mechanism.
 2. DXWeb 2.8.73: Added a Pause toggle to the Spots view.

@@ -456,6 +456,14 @@ sub push_feed( $kind, $raw ) {
         $payload = { channel => $d->{channel}, from => $d->{from},
                      text => $d->{text}, onode => $d->{onode} };
     }
+    if ($kind eq 'user_notice') {
+        return unless ref($d) eq 'HASH' && ($d->{type} // '') eq 'user_notice';
+        return unless ref($targets) eq 'ARRAY' && @$targets && @$targets <= 256;
+        return unless defined($d->{text}) && !ref($d->{text}) && length($d->{text}) <= 4096;
+        my $o = { type => 'feed', feed => 'user_notice', payload => { text => $d->{text} } };
+        queue_fanout(encode_json($o), $targets);
+        return;
+    }
     $counters{$kind}++ if exists $counters{$kind};
     $counters{total}++;
     $last_feed_at = scalar( gmtime() ) . 'Z';
@@ -966,7 +974,8 @@ sub handle_line($line) {
         V => 'wwv',
         Y => 'wcy',
         W => 'wx',
-        C => 'network_chat'
+        C => 'network_chat',
+        B => 'user_notice'
     );
     for my $let ( keys %map ) {
         if ( $state{web_call} && $line =~ /^\Q$let$state{web_call}\E\|(.*)$/s )

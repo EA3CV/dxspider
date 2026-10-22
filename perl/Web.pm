@@ -642,6 +642,74 @@ sub local_send
 
 # RX-only PC93 chat bridge for authenticated DXWeb Admin logical users.
 # Called after the native PC93 acceptance checks; never affects PC93 routing.
+# Recipient selection remains authoritative in DXSpider, never in the browser.
+# Notifications are transient: no shared history and no spot accounting.
+sub publish_user_notice
+{
+    my ($family, $key, $source, $node) = @_;
+    return unless $family eq 'buddy' || $family eq 'logininfo';
+    return unless defined $source && length $source;
+    my $base = $source;
+    $base =~ s/-\d+$// if $family eq 'buddy';
+    for my $channel (DXChannel::get_all()) {
+        next unless $channel && $channel->isa('Web');
+        next unless ($channel->{web_role} || '') =~ /\A(?:dxweb|dxweb-admin)\z/;
+        my %by_text;
+        for my $recipient (keys %{$channel->{web_users} || {}}) {
+            my $owned = $channel->{web_users}{$recipient} || next;
+            next unless $owned->{authenticated};
+            next if $recipient eq $source;
+            my $user = DXUser::get_current($recipient) || next;
+            if ($family eq 'buddy') {
+                my $buddies = $user->buddies;
+                my $matched = ref($buddies) eq 'ARRAY' && grep { $_ eq $base } @$buddies;
+                next unless $matched;
+            } else {
+                next unless $user->wantlogininfo;
+            }
+            my $lang = $user->lang || $main::lang || 'en';
+            my $message = DXM::msg($lang, $key, $source, $node);
+            next unless defined $message && length $message;
+            push @{$by_text{$message}}, $recipient;
+        }
+        for my $message (keys %by_text) {
+            my $targets = $by_text{$message};
+            my $payload = _encode_protocol_object([
+                ['type','user_notice'], ['text',$message], ['targets',$targets],
+            ]);
+            next unless defined $payload;
+            unless ($channel->_web_feed_can_write(length($payload) + length($channel->{call} || '') + 4)) {
+                next;
+            }
+            $channel->SUPER::local_send('B', $payload);
+        }
+    }
+}
+
+# Show buddies already online, matching the command-mode login behavior.
+sub _web_initial_buddies
+{
+    my ($self, $recipient) = @_;
+    my $user = DXUser::get_current($recipient) || return;
+    my $buddies = $user->buddies;
+    return unless ref($buddies) eq 'ARRAY';
+    my $lang = $user->lang || $main::lang || 'en';
+    for my $buddy (@$buddies) {
+        my $route = Route::User::get($buddy) || next;
+        for my $node ($route->parents) {
+            my $key = $node eq $main::mycall ? 'loginb' : 'loginbn';
+            my $message = DXM::msg($lang, $key, $buddy, $node);
+            next unless defined $message && length $message;
+            my $payload = _encode_protocol_object([
+                ['type','user_notice'], ['text',$message], ['targets',[$recipient]],
+            ]);
+            next unless defined $payload;
+            next unless $self->_web_feed_can_write(length($payload) + length($self->{call} || '') + 4);
+            $self->SUPER::local_send('B', $payload);
+        }
+    }
+}
+
 sub publish_network_chat
 {
     my ($target, $from, $text, $onode) = @_;
@@ -1026,6 +1094,7 @@ sub _user_add
 		registered    => $authmeta ? ($authmeta->{registered} || 0) : 0,
 		generation    => $self->{web_users}{$call}{generation},
 	});
+	$self->_web_initial_buddies($call) if $authenticated;
 }
 
 sub _remove_user

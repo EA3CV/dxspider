@@ -556,8 +556,8 @@ window.addEventListener('load',updateSpotLayout);
 updateSpotLayout();
 function renderSpots(){
  const human=$('showHuman').checked,rbn=$('showRbn').checked;
- const a=spotItems.filter(x=>(x.type==='human'&&human)||(x.type==='rbn'&&rbn));
- $('spotRows').innerHTML=(spotNewestFirst?a.slice(-250).reverse():a.slice(-250)).map(x=>`<tr class="${x._newUntil>Date.now()?'spotFresh':''}" style="${x._newUntil>Date.now()?'animation-delay:-'+((3000-(x._newUntil-Date.now()))/1000).toFixed(2)+'s':''}">${spotVisibleColumns.map(col=>`<td class="spotField-${col.key} ${col.key==='distance'||col.key==='bearing'?'spotGeoNumeric':''}" title="${col.key==='distance'||col.key==='bearing'?esc(geoCalculate(x).source):esc(x[col.key]??'')}">${col.key==='type'?(x.type==='human'?'C':'R'):col.key==='distance'||col.key==='bearing'?esc(geoRenderValue(x,col.key)):esc(x[col.key]??'')}</td>`).join('')}</tr>`).join('');
+ const a=spotItems.filter(x=>x.type==='notice'||(x.type==='human'&&human)||(x.type==='rbn'&&rbn));
+ $('spotRows').innerHTML=(spotNewestFirst?a.slice(-250).reverse():a.slice(-250)).map(x=>`<tr class="${x._newUntil>Date.now()?'spotFresh':''}" style="${x._newUntil>Date.now()?'animation-delay:-'+((3000-(x._newUntil-Date.now()))/1000).toFixed(2)+'s':''}">${x.type==='notice'?`<td colspan="${spotVisibleColumns.length}" class="spotUserNotice">${esc(x.text)}</td>`:spotVisibleColumns.map(col=>`<td class="spotField-${col.key} ${col.key==='distance'||col.key==='bearing'?'spotGeoNumeric':''}" title="${col.key==='distance'||col.key==='bearing'?esc(geoCalculate(x).source):esc(x[col.key]??'')}">${col.key==='type'?(x.type==='human'?'C':'R'):col.key==='distance'||col.key==='bearing'?esc(geoRenderValue(x,col.key)):esc(x[col.key]??'')}</td>`).join('')}</tr>`).join('');
  const visibleCount=(human?spotCounts.human:0)+(rbn?spotCounts.rbn:0);
  const spotViewport=$('spotRows').closest('.spotResultArea');
  if(spotViewport)spotViewport.scrollTop=spotNewestFirst?0:spotViewport.scrollHeight;
@@ -581,7 +581,7 @@ function parseCC11(payload){
          locDx:f[18]||'',locSpotter:f[19]||''};
 }
 function acceptFeed(m){
- const k=(m.feed||'').toLowerCase();
+ const k=(m.feed||'').toLowerCase();if(k==='user_notice'){if(typeof m.payload?.text!=='string')return;spotItems.push({type:'notice',text:m.payload.text,_newUntil:0});if(spotItems.length>1000)spotItems.shift();renderSpots();return;}
  if(k==='human'||k==='rbn'){
    const p=parseCC11(m.payload);
    if(!p)return;
