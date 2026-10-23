@@ -212,7 +212,8 @@ our $max_ssid = 15;					# highest ssid to be searched for a spare one on multipl
 # $allowmultiple connections per callsign. 
 
 $allowdxby = 0;					# 1 = allow "dx by <othercall>", 0 - don't allow it
-$maxconnect_user = 3;			# the maximum no of concurrent connections a user can have at a time
+$maxconnect_user = 12;			# the maximum no of concurrent connections a base callsign can have on the cluster at a time
+                                                    # NOTE: this IGNORES SSIDs which are stripped off. 
 $maxconnect_node = 0;			# Ditto but for nodes. In either case if a new incoming connection
 								# takes the no of references in the routing table above these numbers
 								# then the connection is refused. This only affects INCOMING connections.
@@ -324,8 +325,9 @@ sub new_channel
 		$basecall =~ s/-\d+$//;	# remember this for later multiple user processing, it's used for other stuff than checking lockout status
 		if ($user) {
 			# make sure we act on any locked status that the actual incoming call has.
-			$lock = $user->lockout;
-		} elsif ($basecall ne $call) {
+			$lock = $user->lockout if exists $user->{lockout};
+		}
+		if ($basecall ne $call && !defined $lock) {
 			# if there isn't a SSID on the $call, then try the base
 			my $luser = DXUser::get_current($basecall);
 			$lock = $luser->lockout if $luser;
@@ -449,20 +451,14 @@ sub new_channel
 			$msg =~ s/$call/$newcall/;
 		}
 
-
 		# (fairly) politely disconnect people that are connected to too many other places at once
-		my $r = Route::get($call);
-		if ($conn->{sort} && $conn->{sort} =~ /^I/ && $r && $user) {
-			my @n = $r->parents;
-			my $m = $r->isa('Route::Node') ? $maxconnect_node : $maxconnect_user;
-			my $c = $user->maxconnect;
-			my $v;
-			$v = defined $c ? $c : $m;
-			if ($v && @n >= $v+$allowmultiple) {
-				my $nodes = join ',', @n;
-				LogDbg('chan', "$call has too many connections ($v) at $nodes - disconnected");
-				DXHealth::connection_too_many($call, eval { $conn->peerhost } || '', $v, scalar(@n));
-				already_conn($conn, $call, DXM::msg($lang, 'contomany', $call, $v, $nodes));
+		if ($conn->{sort} && $conn->{sort} =~ /^I/ && $user) {
+			my ($callcount, @calls) = Route::basecall_no($user);
+			my $m = $user->is_node ? $maxconnect_node : $maxconnect_user;
+			if ($m && $callcount >= $m+$allowmultiple) {
+				LogDbg('chan', "$call has too many connections ($m) disconnected");
+				DXHealth::connection_too_many($call, eval { $conn->peerhost } || '', $m, $callcount);
+				already_conn($conn, $call, DXM::msg($lang, 'contomany', $call, $m, join(' ', @calls)));
 				return;
 			}
 		}
