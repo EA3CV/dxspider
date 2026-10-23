@@ -985,3 +985,9 @@ html[data-theme="auto"] :is(button,input,select,textarea):disabled {opacity:.58;
 @media (min-width:768px) {
   .topbar .brand { position:relative; left:-30px; }
 }
+
+/* Login access explanation: available by click/touch and keyboard */
+.loginAccessHelp{margin:0 0 12px;font-size:13px;line-height:1.4}
+.loginAccessHelp summary{cursor:pointer;font-weight:600;color:#155aa8}
+.loginAccessHelp p{margin:7px 0 0}
+html[data-theme="dark"] .loginAccessHelp summary{color:#8dbfff}

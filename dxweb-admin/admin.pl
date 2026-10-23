@@ -29,6 +29,17 @@ use JSON::PP (); # ASCII-safe JSON on the DXSpider line transport
 use Time::HiRes qw(time);
 use FindBin;
 
+# Optional local configuration. Default: Linux terminal enabled.
+our $enable_linux_terminal = 1;
+my $admin_config = "$FindBin::Bin/config.pl";
+if (-e $admin_config) {
+    my $loaded = do $admin_config;
+    die "Cannot load $admin_config: " . ($@ || $! || "invalid return value") . "\n"
+        unless $loaded;
+}
+die "Invalid enable_linux_terminal in $admin_config (expected 0 or 1)\n"
+    unless defined($enable_linux_terminal) && "$enable_linux_terminal" =~ /\A[01]\z/;
+
 # Single source of truth for the Admin release version.
 my $ADMIN_VERSION = do {
     my $file = "$FindBin::Bin/VERSION";
@@ -217,6 +228,7 @@ sub public_status() {
         fanout_items        => scalar(@fanout),
         fanout_bytes        => $fanout_bytes,
         pending_requests    => scalar( keys %pending ),
+        enable_linux_terminal => $enable_linux_terminal ? \1 : \0,
         supervision_history => $history_store->status()
     };
 }
@@ -2007,8 +2019,16 @@ sub terminal_start($id,$m) {
             close $slave;
             close $pty;
             # Drop privileges only after the controlling terminal is established.
-            POSIX::setgid($gid)==0 or die "setgid: $!";
-            POSIX::setuid($uid)==0 or die "setuid: $!";
+            # A non-root service may start SSH as its own Unix identity.
+            # Only request an identity change when one is actually needed.
+            if ($> != $uid || $) != $gid) {
+                my $gid_rc = POSIX::setgid($gid);
+                defined($gid_rc) && $gid_rc == 0
+                    or die "Cannot switch to Unix group $gid (service eGID=" . (0+$)) . "): $!";
+                my $uid_rc = POSIX::setuid($uid);
+                defined($uid_rc) && $uid_rc == 0
+                    or die "Cannot switch to Unix user $user (UID $uid, service eUID $>): $!";
+            }
             $ENV{HOME}=$home; $ENV{USER}=$user; $ENV{LOGNAME}=$user;
             chdir($home) or die "chdir: $!";
             $ENV{TERM}='xterm-256color';
@@ -2196,6 +2216,10 @@ websocket '/ws' => sub($c) {
                         }
                     )
                 );
+                return;
+            }
+            if ($t =~ /\Aterminal_(?:connect|disconnect|input|resize)\z/ && !$enable_linux_terminal) {
+                terminal_event($id,'error','Linux terminal is disabled by server configuration');
                 return;
             }
             if ($t eq 'terminal_connect') {terminal_start($id,$m);return}
