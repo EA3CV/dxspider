@@ -28,7 +28,8 @@ sub add_new
 
 sub handle
 {
-	my ($self, $line) = @_;
+	my $self = shift;
+	my $line = uc shift;
 	my @args = split /\s+/, $line;
 	my $call;
 	# my $priv = shift @args;
@@ -45,20 +46,23 @@ sub handle
 	# A malformed item must not cause partial updates.
 	my @invalid = grep { !DXUtil::is_callsign($_) } map { uc $_ } @args;
 	if (@invalid) {
-		return (1, "Invalid callsign(s): " . join(', ', @invalid) . ". No changes made.");
+		my $i =  join(', ', @invalid) ;
+		return (1, "Invalid callsign(s): $i No changes made.");
 	}
 
 	foreach $call (@args) {
 		$call = uc $call;
 		unless ($self->remotecmd || $self->inscript) {
-			$call =~ s/-0$//;		    # this means just the base callsignx
+			$call =~ s/-0$//;	# this means just the base callsignx
 			$ref = DXUser::get_current($call);
 			if ($ref) {
-				push @out, mod_existing($self, $ref);    # lock the base call
-				} else {
-					push @out, add_new($self, $call);
-				}
-		} else {
+				push @out, mod_existing($self, $ref); # lock the base call
+			}
+			else {
+				push @out, add_new($self, $call);
+			}
+		}
+		else {
 			Log('DXCommand', $self->call . " attempted to lockout $call remotely");
 			push @out, $self->msg('sorry');
 		}
