@@ -18,7 +18,9 @@ sub mod_existing
 sub handle
 {
 
-	my ($self, $line) = @_;
+	my $self = shift;
+	my $line = uc shift;
+
 	my @args = split /\s+/, $line;
 	my $call;
 	# my $priv = shift @args;
@@ -41,12 +43,12 @@ sub handle
 	foreach $call (@args) {
 		$call = uc $call;
 		unless ($self->remotecmd || $self->inscript) {
-				if ($ref = DXUser::get_current($call)) {
-					push @out, mod_existing($self, $ref);
-				}
+			if ($ref = DXUser::get_current($call)) {
+				push @out, mod_existing($self, $ref);
 			}
 			Log('DXCommand', $self->call . " un-locked out $call");
-		} else {
+		}
+		else {
 			Log('DXCommand', $self->call . " attempted to un-lockout $call remotely");
 			push @out, $self->msg('sorry');
 		}
