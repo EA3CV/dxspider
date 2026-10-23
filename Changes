@@ -1,3 +1,14 @@
+23Oct26======================================================================
+1. Reduce pc92_slug_time to 20 secs. This is the wait time to collect 
+   connection events before emitting PC92 A/D records. It was 60 secs.
+2. Fix the lockout code and commands so that (say) set/lockout g1tst will
+   lockout g1tst and g1tst-1 to g1tst-99. BUT an (say) unset/lock g1tst-3
+   will allow g1tst-3 only.
+3. Fix an (apparently) long standing bug where (quite a few) users never 
+   entered the routing table under certain conditions.
+4. Change the mechanism to prevent more than a certain number of concurrent
+   logins by a base callsign (e.g. g1tst + g1tst-1/-99) over the whole
+   cluster. This number is currently 12. 
 19Oct26======================================================================
 1. DXWeb: protocol WebSocket heartbeat and stale-client cleanup; quiet 
    sessions remain connected.

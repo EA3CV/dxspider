@@ -432,7 +432,7 @@ sub normal
 	my ($pcno) = $field[0] =~ /^PC(\d\d)/; # just get the number
 	unless (defined $pcno && $pcno >= 10 && $pcno <= 99) {
 		DXHealth::protocol_reject_unknown($self->{call}, $line);
-		dbg("PCPROT: unknown protocol") if isdbg('chanerr');
+		dbg("PCPROT: unknown protocol") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
@@ -440,7 +440,7 @@ sub normal
 	my $n = check($pcno, \@field);
 	if ($n) {
 		DXHealth::protocol_reject_malformed($self->{call}, $pcno, $n, $line);
-		dbg("PCPROT: bad field $n, dumped (" . parray($checklist[$pcno-10]) . ")") if isdbg('chanerr');
+		dbg("PCPROT: bad field $n, dumped (" . parray($checklist[$pcno-10]) . ")") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
@@ -773,7 +773,7 @@ sub send_announce
 									 @a[0..2],
 									 @b[0..2], $a[3], $b[3]);
 		unless ($filter) {
-			dbg("PCPROT: Rejected by input announce filter") if isdbg('chanerr');
+			dbg("PCPROT: Rejected by input announce filter") if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 	}
@@ -787,7 +787,7 @@ sub send_announce
 				return;
 			}
 		} else {
-			dbg("PCPROT: Duplicate Announce ignored") if isdbg('chanerr');
+			dbg("PCPROT: Duplicate Announce ignored") if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 	}
@@ -844,7 +844,7 @@ sub send_chat
 									 @a[0..2],
 									 @b[0..2], $a[3], $b[3]);
 		unless ($filter) {
-			dbg("PCPROT: Rejected by input announce filter") if isdbg('chanerr');
+			dbg("PCPROT: Rejected by input announce filter") if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 	}
@@ -857,7 +857,7 @@ sub send_chat
 				return;
 			}
 		} else {
-			dbg("PCPROT: Duplicate Announce ignored") if isdbg('chanerr');
+			dbg("PCPROT: Duplicate Announce ignored") if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 	}
@@ -975,7 +975,7 @@ sub send_local_config
 				my @rout = map {my $r = Route::User::get($_); $r ? ($r) : ()} $node->users;
 				$self->send_route($main::mycall, \&pc16, 1, $node, @rout) if @rout && $self->user->wantsendpc16;
 			} else {
-				dbg("sent a null value") if isdbg('chanerr');
+				dbg("sent a null value") if isdbg('chanerr') || isdbg('routelow');
 			}
 		}
 	}
@@ -1098,7 +1098,7 @@ sub route
 	my ($self, $call, $line) = @_;
 
 	if (ref $self && $call eq $self->{call}) {
-		dbg("PCPROT: Trying to route back to source, dropped") if isdbg('chanerr');
+		dbg("PCPROT: Trying to route back to source, dropped") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
@@ -1111,7 +1111,7 @@ sub route
 		$dxchan = $cl->dxchan if $cl;
 		if (ref $dxchan) {
 			if (ref $self && $dxchan eq $self) {
-				dbg("PCPROT: Trying to route back to source, dropped") if isdbg('chanerr');
+				dbg("PCPROT: Trying to route back to source, dropped") if isdbg('chanerr') || isdbg('routelow');
 				return;
 			}
 			dbg("route: $call -> $dxchan->{call} using normal route" ) if isdbg('route');
@@ -1125,7 +1125,7 @@ sub route
 			return 1;
 		}
 	} else {
-		dbg("PCPROT: No route available, dropped") if isdbg('chanerr');
+		dbg("PCPROT: No route available, dropped") if isdbg('chanerr') || isdbg('routelow');
 	}
 }
 
@@ -1504,7 +1504,7 @@ sub send_route
 
 		# don't send messages with $self's call in back to them
 		if ($r->call eq $self->{call}) {
-			dbg("PCPROT: trying to send $self->{call} back itself") if isdbg('chanerr');
+			dbg("PCPROT: trying to send $self->{call} back itself") if isdbg('chanerr') || isdbg('routelow');
 			next;
 		}
 
@@ -1518,7 +1518,7 @@ sub send_route
 					dbg("PCPROT: send_route $self->{call}/" . $r->call . " rejected by output filter") if isdbg('filter');
 				}
 			} else {
-				dbg("was sent a null value") if isdbg('chanerr');
+				dbg("was sent a null value") if isdbg('chanerr') || isdbg('routelow');
 			}
 		} else {
 			push @rin, $r unless $self->{isolate} && $r->call ne $main::mycall;
@@ -1740,7 +1740,7 @@ sub in_filter_route
 
 	if ($self->{inroutefilter}) {
 		($filter, $hops) = $self->{inroutefilter}->it($self->{call}, $self->{dxcc}, $self->{itu}, $self->{cq}, $r->call, $r->dxcc, $r->itu, $r->cq, $self->state, $r->state);
-		dbg("PCPROT: $self->{call}/" . $r->call . ' rejected by in_filter_route') if !$filter && isdbg('chanerr');
+		dbg("PCPROT: $self->{call}/" . $r->call . ' rejected by in_filter_route') if !$filter && isdbg('chanerr') || isdbg('routelow');
 	}
 	return $filter;
 }
@@ -1755,7 +1755,7 @@ sub eph_dup
 	$s =~ s/\^H\d\d?\^?\~?$//;
 	$r = 1 if exists $eph{$s};    # pump up the dup if it keeps circulating
 	$eph{$s} = $main::systime + $t;
-	dbg("PCPROT: emphemeral duplicate") if $r && isdbg('chanerr');
+	dbg("PCPROT: emphemeral duplicate") if $r && isdbg('chanerr') || isdbg('routelow');
 	return $r;
 }
 
