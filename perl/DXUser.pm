@@ -1195,11 +1195,12 @@ my $exists = -e $filename ? "OVERWRITING" : "CREATING";
 print "perl user_json $exists $filename\n";
 
 del_file();
-init(2);
+init(3);
 %u = ();
 my $count = 0;
 my $err = 0;
 
+DXUser::sync();
 while (<DATA>) {
 	chomp;
 	my @f = split /\t/;
@@ -1207,6 +1208,11 @@ while (<DATA>) {
 	if ($ref) {
 		$ref->put();
 		$count++;
+        if ($count % 500 == 0) {
+            print "\rCount: $count";
+            STDOUT->flush;
+            DXUser::sync();
+        }
 	} else {
 		print "# Error: $f[0]\t$f[1]\n";
 		$err++

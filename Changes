@@ -1,3 +1,6 @@
+23Oct26======================================================================
+1. Change the export user preamble to make recreation of users file faster or
+   more reliable. ESPECIALLY when using SQLite3 users file version. 
 05Jul26======================================================================
 1. Change the way that DXSpider stops. Hopefully this will help those sysops
    that are having trouble stopping their nodes. 
