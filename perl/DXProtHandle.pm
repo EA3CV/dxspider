@@ -86,9 +86,9 @@ sub check_available
 	my $self = shift;
 	my $origin = shift;
 	my $pcno = shift;
-	
+
 	return 0 if $self == $main::me;
-	
+
 	unless ($self->is_node && $self->state eq 'normal') {
 		dbg("PC$pcno sent to $self->{call} ignored as this channel is not yet initialised (state: $self-{state})");
 		return 1;
@@ -116,7 +116,7 @@ sub handle_10
 	}
 
 	return if $self->check_available($origin, $pcno);
-			
+
 	# is it for me or one of mine?
 	my ($from, $to, $via, $call, $dxchan);
 	$from = $pc->[1];
@@ -151,13 +151,13 @@ sub handle_10
 			return;
 		}
 	}
-	
+
 	# will we allow it at all?
 	if ($censorpc) {
 		my @bad;
 		if (@bad = BadWords::check($pc->[3])) {
 			DXHealth::operator_event('badlist', 'badword', $self->{call}, $pc->[6], 'PC10');
-			my $bw = join ', ', @bad; 
+			my $bw = join ', ', @bad;
 			dbg($line) if isdbg('nologchan');
 			dbg("PCPROT: Badwords: '$bw', dropped");
 			return;
@@ -196,8 +196,8 @@ sub handle_11
 		}
 	}
 
-	dbg("---") if isdbg("spot") || isdbg("pc61"); 
-	dbg("INPUT $self->{call}: $line via: $origin recurse: $recurse") if isdbg("spot") || isdbg("pc61"); 
+	dbg("---") if isdbg("spot") || isdbg("pc61");
+	dbg("INPUT $self->{call}: $line via: $origin recurse: $recurse") if isdbg("spot") || isdbg("pc61");
 
 #	my ($hops) = $pc->[8] =~ /^H(\d+)/;
 
@@ -248,11 +248,11 @@ sub handle_11
 		dbg("PCPROT: useless 'BUSTED' spot") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
-	
+
 	my $nossid = $pc->[6];
     $nossid =~ s/-\d+$//;
 
-	# is this is a 'bad spotter' or an unknown user then ignore it. 
+	# is this is a 'bad spotter' or an unknown user then ignore it.
 	if ($badspotter->in($nossid)) {
 		DXHealth::operator_event('badlist', 'badspotter', $self->{call}, $pc->[7], sprintf('PC%02d', $pcno));
 		dbg($line) if isdbg('nologchan');
@@ -303,16 +303,16 @@ sub handle_11
 		}
 		if ($pc61_extract_route) {
 			$self->populate_routing_table($pc->[7], $pc->[6], $pc->[8]);
-		} 
+		}
 	}
 
 	# remove all auto generated FTx spots at this point
-	
+
 	# this is where we decide to delay PC11s in the hope that a PC61 will be along soon.
 	my $key = join '|', @spot[0..2,4,7]; # not including text
 
 	my $dupe_reason = '';			# returned by reference for dupes found
-	
+
 	unless ($recurse) {
 
 		if ($pcno == 61) {
@@ -337,20 +337,20 @@ sub handle_11
 				# so we allow the PC61 to be counted later, but count the now discarded PC11
 				# because it *did* come in.
 				++$pc11_rx;
-			} 
+			}
 		}
 
 		if ($pcno == 11) {
 
 			# if this fires then we have already had one or more PC11s but no PC61 for this spot
 			if ($pc11_saved{$key}) {
-				
+
 				dbg("DUPE $self->{call} $pc->[0] key: $key recurse: $recurse is already being processed, ignored") if isdbg("spot");
 				return;		# because it's a dup
 			}
 
 			if ((Spot::dup_find(@spot[0..4,7,14], \$dupe_reason))) {
-				
+
 				dbg("DUPE $self->{call} $pc->[0] key: $key recurse: $recurse is already a DUPE, ignored") if isdbg("spot");
 				$recurse = 0;
 				return;		# because it's a dup
@@ -376,10 +376,10 @@ sub handle_11
 				$line = join '^', @$pc, $hops, '~';
 
 				# update the stats (NOTE, this record was a PC11, it has now become a PC61
-				# this is NOT the same choosing a better PC61, that is a separate record. 
-				++$pc11_rx;		# 'cos we received as a PC11 it and it won't be a pc11 anymore 
+				# this is NOT the same choosing a better PC61, that is a separate record.
+				++$pc11_rx;		# 'cos we received as a PC11 it and it won't be a pc11 anymore
 				--$pc61_rx;		# 'cos we'll increment it later as it's now a pc61, no double counting
-				
+
 #				dbg("CHANGED saved key: $key PC11 line to $line") if isdbg('spot');
 				delete $pc11_saved{$key};
 			}
@@ -395,9 +395,9 @@ sub handle_11
 	}
 
 	$key .= "|$pc->[8]" if @$pc > 8 && is_ipaddr($pc->[8]);
-			 
+
 	dbg("PROCESSING $self->{call}: $pc->[0] key: $key") if isdbg('spot');
-	
+
 	if ($pcno == 11) {
 		++$pc11_rx;
 	} else {
@@ -419,7 +419,7 @@ sub handle_11
 				dbg("PCPROT: PC61 $ip is not a public Internet address, dropped");
 				return;
 			}
-			
+
 			if (DXCIDR::find($ip)) {
 				DXHealth::operator_event('pc61_drop', 'badip', $self->{call}, $pc->[7], 'PC61');
 				dbg($line) if isdbg('nologchan');
@@ -431,7 +431,7 @@ sub handle_11
 			dbg("PCPROT: PC61 $ip is not an IP address, dropped");
 		}
 	}
-	
+
 	# we until here to do any censorship to try and reduce the amount of noise that repeated copies
 	# from other connected nodes cause
 	if ($censorpc) {
@@ -475,7 +475,7 @@ sub handle_11
 		my $uref = DXUser::get_current($pc->[7]);
 		my $s = '';
 		my $ip = $pcno == 61 ?  $pc->[8] : '';
-		my ($hops) = $pc->[$pcno == 61 ? 9 : 8] =~ /H(\d+)/; 
+		my ($hops) = $pc->[$pcno == 61 ? 9 : 8] =~ /H(\d+)/;
 
 		if ($nroute && (($nroute->last_PC92C && $nroute->users) || ($local && !$local->do_pc9x))) {
 #			$s .= "User $pc->[6] not logged in, " unless $uroute;
@@ -494,7 +494,7 @@ sub handle_11
 			return unless $sv < 2;
 		}
 	}
-	
+
 	#
 	# Now finally: save the spot itself and then send it on its merry way to the users
 	#
@@ -513,7 +513,7 @@ sub handle_11
 		$s .=  " route: $origin";
 		dbg($s);
 	}
-	
+
 	#
 	# @spot at this point contains:-
 	# freq, spotted call, time, text, spotter, spotted cc, spotters cc, orig node
@@ -604,7 +604,7 @@ sub handle_11
 			dbg("END $self->{call}: RECURSED $data removed and finished $stats") if isdbg('spot');
 			delete $pc11_saved{$key};
 		} else {
-			dbg("END $self->{call}: RECURSED NO KEY finished $stats") if isdbg('spot'); 
+			dbg("END $self->{call}: RECURSED NO KEY finished $stats") if isdbg('spot');
 		}
 		$recurse = 0;
 	} else {
@@ -964,7 +964,7 @@ sub handle_18
 	my $parent = Route::Node::get($self->{call});
 
 	my ($software, $version, $build) = (undef, 0, 0);
-	 
+
 	# record the type and version offered
 	if (($software, $version) = $pc->[1] =~ /(DXSpider|CC\s*Cluster)\s+Version: (\d+(?:\.\d+)?)/i) {
 		$version += 0;
@@ -1027,7 +1027,7 @@ sub handle_18
 			return;
 		}
 	}
-	
+
 	if ($pc->[1] =~ /CC\s*Cluster/i || $pc->[1] =~ /\bpc9x/i) {
 		if ($self->{isolate}) {
 			dbg("PC18 $self->{call} pc9x recognised, but node is isolated, using old protocol");
@@ -1052,7 +1052,7 @@ sub handle_18
 			return;
 		}
 	}
-	
+
 
 	# first clear out any nodes on this dxchannel
 	my @rout = $parent->del_nodes;
@@ -1598,7 +1598,7 @@ sub handle_41
 	my $pc = shift;
 
 	return if $self->check_available($origin, $pcno);
-	
+
 	my $call = $pc->[1];
 	my $sort = $pc->[2];
 	my $val = $pc->[3];
@@ -1976,7 +1976,7 @@ sub _add_thingy
 	my @rout;
 
 	dbg("DXProt::_add_thingy $parent->{call}: $call $is_node $is_extnode $ip") if isdbg('routelow');
-	
+
 	# Reject invalid user advertisements before any DXUser normalization cleanup.
 	# The cleanup below may delete an existing DXUser record.
 	if (!$is_node && $dxchan) {
@@ -2058,12 +2058,12 @@ sub _add_thingy
 				delete $things_del{$call};
 			}
 			$user->close($main::systime, $ip) if $user;		# this just updates lastseen and the connlist list containing the IP address
-		} else {				
+		} else {
 			dbgprintring(10) if isdbg('nologchan');
 			dbg("DXProt::add_thingy: Trying to add parent $call to itself $ncall, ignored");
 		}
 	}
-	
+
 	return @rout;
 }
 
@@ -2229,7 +2229,7 @@ sub pc92_handle_first_slot
 	my @radd;
 
 	my ($call, $is_node, $is_extnode, $here, $version, $build) = @$slot;
-	
+
 	if ($call && $is_node) {
 		if ($call eq $main::mycall) {
 			LogDbg('err', "PCPROT: $self->{call} : $call looped back onto \$main::mycall ($main::mycall), ignored");
@@ -2392,7 +2392,7 @@ sub handle_92
 
 			($parent, $add) = $self->pc92_handle_first_slot(\@ent, $parent, $t, $hops);
 			return unless $parent; # dupe
-			
+
 			push @radd, $add if $add;
 			$parent->reset_obs;
 			# PC92K fields 5/6 are the remote node's advertised node/user
@@ -2414,7 +2414,7 @@ sub handle_92
 			}
 
 			dbg("PCPROT: PC92 K v: $version ov: $oldversion b: $build ob: $oldbuild pk: " . ($parent->K || '0') . " uk: " . ($user->K || 0)) if isdbg('pc92k');
-				
+
 			if (is_numeric($version) || is_numeric($build)) {
 				my $changed = 0;
 				if (($oldversion ne $version || $build ne $oldbuild)) {
@@ -2439,7 +2439,7 @@ sub handle_92
 					$self->state('normal');
 					dbg(sprintf "PCPROT: PC92 K rec, node $call updated state now 'normal'");
 				}
-				
+
 				unless (DXChannel::get($user->call)) { # only do this if not connected
 					my $oldpriv = $user->priv;
 					my $oldlock = $user->lockout;
@@ -2519,7 +2519,7 @@ sub handle_92
 				LogDbg('err',"PCPROT: $self->{call} : type $sort $_->[0] trying to change type to " . $_->[1]?"Node":"User" . ", ignored");
 				next;
 			}
-			
+
 			push @nent, $_;
 		}
 
@@ -2661,7 +2661,7 @@ sub find_chat_group_users
 {
 	my $group = shift;
 	my @out;
-	
+
 }
 
 sub handle_93
@@ -2705,7 +2705,7 @@ sub handle_93
 	}
 
 	if (isdbg('progress')) {
-		my $vs = $via ne '*' ? " via $via" : ''; 
+		my $vs = $via ne '*' ? " via $via" : '';
 		my $s = "ANNTALK: $from\@$onode$vs -> $to '$text' route: $origin";
 		dbg($s);
 	}
@@ -2839,7 +2839,7 @@ sub handle_default
 sub populate_routing_table
 {
 	my ($self, $node, $user, $ip) = @_;
-	
+
 	my $rn = Route::Node::get($node);
 	unless ($rn) {
 		$rn = Route::Node->new($node);
@@ -2855,7 +2855,7 @@ sub populate_routing_table
 		}
 		$ru = Route::User::get($user);
 	}
-	
+
 	# Add/Change any IP address info
 
 	# as we have a route to a user, if it (or the node) does not exist then create them

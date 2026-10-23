@@ -15,7 +15,7 @@
 # Configuration:
 #   /spider/local/DXVars.pm
 #
-# Version : 1.5
+# Version : 1.7
 # Date    : 16-Sep-2026
 #
 
@@ -37,7 +37,7 @@ use Fcntl qw(:flock);
 use Encode qw(encode);
 use MIME::Base64 qw(encode_base64);
 
-our $VERSION = '1.5';
+our $VERSION = '1.7';
 
 my $json = DXJSON->new->canonical(1)->pretty(1);
 
@@ -98,6 +98,66 @@ sub ready
     return $ready;
 }
 
+
+# Registration messages remain on this node and are not copied to SMTP.
+sub _local_registration_notice
+{
+    my ($to, $subject, $lines) = @_;
+    my $ok = eval {
+        require DXMsg;
+        DXMsg::store_local_registration(uc($to // ''), $subject, $lines);
+        1;
+    };
+    DXLog::LogDbg('err', "DXReg: local SP notification failed: $@") unless $ok;
+    return $ok;
+}
+
+sub _flush_local_sp
+{
+    my ($r) = @_;
+    return 1 unless ref($r) eq 'HASH' && $r->{sp_pending};
+    my $kind = $r->{sp_pending};
+    return 0 unless $kind =~ /\A(?:REQUEST|ACCEPTED|REJECTED)\z/;
+    my $id = int($r->{id});
+    my $to = $kind eq 'REQUEST' ? uc($main::myalias // '') : uc($r->{call} // '');
+    my $subject = $kind eq 'REQUEST' ? "REGISTER #$id" : "REGISTRATION $kind #$id";
+    my @body = $kind eq 'REQUEST' ? (
+        "Call: $r->{call}", "Email: $r->{email}",
+        "Language: $r->{language}",
+        'SSIDs: ' . join(',', @{ $r->{requested_ssids} || [] }),
+        "Review with register/show $id"
+    ) : $kind eq 'ACCEPTED' ? (
+        "Your registration request #$id has been accepted.",
+        'Please contact your SYSOP for login credentials if needed.',
+        (defined($r->{note}) && length($r->{note}) ? "Note: $r->{note}" : ())
+    ) : (
+        "Your registration request #$id has been rejected.",
+        (defined $r->{note} ? "Note: $r->{note}" : ())
+    );
+    my $ok = eval {
+        require DXMsg;
+        DXMsg::store_local_registration($to, $subject, \@body)
+            unless DXMsg::local_registration_exists($to, $subject);
+        1;
+    };
+    unless ($ok) {
+        DXLog::LogDbg('err', "DXReg: local SP delivery pending for #$id ($kind): $@");
+        return 0;
+    }
+    delete $r->{sp_pending};
+    my ($saved, $err) = _save();
+    unless ($saved) {
+        $r->{sp_pending} = $kind;
+        DXLog::LogDbg('err', "DXReg: local SP ACK save failed for #$id: $err");
+        return 0;
+    }
+    return 1;
+}
+
+sub _flush_pending_local_sp
+{
+    _flush_local_sp($_) for grep { $_->{sp_pending} } @requests;
+}
 
 # ------------------------------------------------------------
 # create_request
@@ -215,9 +275,11 @@ sub create_request
     push @requests, $request;
     _index_request($request);
 
+    $request->{sp_pending} = 'REQUEST';
     my ($saved, $save_err) = _save();
 
     unless ($saved) {
+        delete $request->{sp_pending};
         pop @requests;
         _rebuild_indexes();
         --$next_id if $next_id > 1;
@@ -243,6 +305,7 @@ sub create_request
         )
     );
 
+    _flush_local_sp($request);
     _queue_admin_request_notifications($request);
 
     return (1, $request);
@@ -466,6 +529,7 @@ sub accept_request
         processed_at   => $request->{processed_at},
         processed_by   => $request->{processed_by},
         note           => $request->{note},
+        sp_pending     => $request->{sp_pending},
     );
 
     my $dx_ok  = 0;
@@ -550,6 +614,7 @@ sub accept_request
     $request->{processed_by}   = $sysop;
     $request->{note}           = $note;
 
+    $request->{sp_pending} = 'ACCEPTED';
     my ($saved, $save_err) = _save();
 
     unless ($saved) {
@@ -558,6 +623,7 @@ sub accept_request
         $request->{processed_at}   = $old_request{processed_at};
         $request->{processed_by}   = $old_request{processed_by};
         $request->{note}           = $old_request{note};
+        $request->{sp_pending}     = $old_request{sp_pending};
 
         my ($rollback_ok, $rollback_errors) = _rollback_dxusers(\@snapshots);
         unless ($rollback_ok) {
@@ -594,6 +660,7 @@ sub accept_request
         )
     );
 
+    _flush_local_sp($request);
     _queue_user_accept_email($request, $password);
 
     return (
@@ -1038,6 +1105,7 @@ sub reject_request
         processed_at => $request->{processed_at},
         processed_by => $request->{processed_by},
         note          => $request->{note},
+        sp_pending    => $request->{sp_pending},
     );
 
     $request->{status}       = 'REJECTED';
@@ -1045,6 +1113,7 @@ sub reject_request
     $request->{processed_by} = $sysop;
     $request->{note}         = $note;
 
+    $request->{sp_pending} = 'REJECTED';
     my ($saved, $save_err) = _save();
 
     unless ($saved) {
@@ -1052,6 +1121,7 @@ sub reject_request
         $request->{processed_at} = $old{processed_at};
         $request->{processed_by} = $old{processed_by};
         $request->{note}         = $old{note};
+        $request->{sp_pending}   = $old{sp_pending};
 
         DXLog::LogDbg(
             'err',
@@ -1079,6 +1149,7 @@ sub reject_request
         )
     );
 
+    _flush_local_sp($request);
     _queue_user_reject_email($request);
 
     return (1, $request);
@@ -2637,6 +2708,95 @@ sub _data_file
 }
 
 
+my @fields = qw(email language name locator ssids comment);
+my @questions = (
+    'Email address:', 'Language [EN]:', 'Name (optional):',
+    'Locator (optional):', 'Requested SSIDs (e.g. 1-3,5,8-10; optional):',
+    'Comment (optional):'
+);
+sub sp_register_start {
+    my ($self) = @_;
+    return (1, 'Registration only available from a local session')
+        if $self->remotecmd || $self->inscript;
+    return (1, 'Registration already in progress') if $self->{regsp};
+    $self->{regsp} = { index => 0, call => uc($self->call) };
+    $self->func('DXReg::sp_register_step');
+    $self->state('regsp');
+    return (1, "Registration for " . $self->call,
+        'Type /ABORT at any point to cancel.', $questions[0]);
+}
+sub _sp_register_finish {
+    my ($self) = @_;
+    delete $self->{regsp};
+    $self->func(undef);
+    $self->state('prompt');
+}
+sub sp_register_step {
+    my ($self, $line) = @_;
+    my $r = $self->{regsp};
+    unless ($r) { _sp_register_finish($self); return ('Registration cancelled'); }
+    $line //= '';
+    $line =~ s/^\s+|\s+$//g;
+    if (uc($line) eq '/ABORT' || uc($line) eq '/QUIT') {
+        _sp_register_finish($self); return ('Registration cancelled');
+    }
+    my $i = $r->{index};
+    if ($i < @fields) {
+        my $field = $fields[$i];
+        return ('Email address is required:', $questions[$i])
+            if $field eq 'email' && $line eq '';
+        return ('Invalid email address:', $questions[$i])
+            if $field eq 'email' && $line !~ /^[^\s\@]+\@[^\s\@]+\.[^\s\@]+$/;
+        return ('Language must be two letters:', $questions[$i])
+            if $field eq 'language' && $line ne '' && $line !~ /^[a-z]{2}$/i;
+        return ('Name too long:', $questions[$i])
+            if $field eq 'name' && length($line) > 80;
+        return ('Comment too long:', $questions[$i])
+            if $field eq 'comment' && length($line) > 500;
+        return ('Invalid locator:', $questions[$i])
+            if $field eq 'locator' && $line ne '' && !is_qra(uc($line));
+        if ($field eq 'ssids') {
+            my @v;
+            my %seen;
+            for my $token ($line eq '' ? () : split(/,/, $line, -1)) {
+                $token =~ s/^\s+|\s+$//g;
+                return ('Invalid SSIDs (use 1..99, ranges such as 1-3, comma-separated):', $questions[$i])
+                    unless $token =~ /\A([1-9][0-9]?)(?:\s*-\s*([1-9][0-9]?))?\z/;
+                my ($first, $last) = ($1, defined($2) ? $2 : $1);
+                return ('Invalid SSID range (1..99, ascending):', $questions[$i])
+                    if $first > $last || $last > 99;
+                for my $n ($first .. $last) {
+                    push @v, $n unless $seen{$n}++;
+                }
+            }
+            @v = sort { $a <=> $b } @v;
+            $r->{ssids} = \@v;
+        } else { $r->{$field} = $line; }
+        $r->{index}++;
+        return ($questions[$r->{index}]) if $r->{index} < @fields;
+        return ("Call: $r->{call}", "Email: $r->{email}",
+            'Language: ' . ($r->{language} || 'EN'),
+            'Name: ' . ($r->{name} || '-'),
+            'Locator: ' . ($r->{locator} || '-'),
+            'SSIDs: ' . join(',', @{$r->{ssids} || []}),
+            'Comment: ' . ($r->{comment} || '-'),
+            'Submit registration request? [Y/N]:');
+    }
+    return ('Confirm with Y or N:') unless $line =~ /^(?:Y|N)$/i;
+    if (uc($line) eq 'N') { _sp_register_finish($self); return ('Registration cancelled'); }
+    my $ip;
+    if ($self->conn) {
+        $ip = $self->conn->{peerhost} || $self->conn->{ip} || $self->conn->{addr};
+    }
+    my ($ok, $result) = DXReg::create_request(
+        call => $r->{call}, email => $r->{email},
+        language => ($r->{language} || 'EN'),
+        name => $r->{name}, locator => $r->{locator},
+        ssids => ($r->{ssids} || []), comment => $r->{comment},
+        source => 'USER', ip => $ip);
+    _sp_register_finish($self);
+    return ($ok ? "Registration request #$result->{id} submitted (PENDING)" : "Registration failed: $result");
+}
 1;
 
 __END__

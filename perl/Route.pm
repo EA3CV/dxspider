@@ -280,9 +280,9 @@ sub cluster
 	my $maxusers = Route::User::max();
 	my $uptime = main::uptime();
 	my $localnodes = $DXChannel::count - $users;   # this is now wrong because of skimmers
-	
+
 	return ($nodes, $tot, $users, $maxlocalusers, $maxusers, $uptime, $localnodes);
-	
+
 
 }
 

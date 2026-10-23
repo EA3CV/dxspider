@@ -44,7 +44,10 @@ sub handle
 
 	# Validate the complete argument list before changing any DXUser record.
 	# A malformed item must not cause partial updates.
-	my @invalid = grep { !DXUtil::is_callsign($_) } map { uc $_ } @args;
+	return (1, $self->msg('lockoutuse')) unless @args;
+	my @invalid = grep {
+		!DXUtil::is_callsign($_) || /-(?:0|00|0[1-9])$/
+	} map { uc $_ } @args;
 	if (@invalid) {
 		my $i =  join(', ', @invalid) ;
 		return (1, "Invalid callsign(s): $i No changes made.");

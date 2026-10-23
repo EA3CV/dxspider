@@ -851,3 +851,143 @@ button:focus-visible,input:focus-visible,select:focus-visible{
 #consoleOutput.consoleOutput {font-size:var(--console-font-size,13px)!important;}
 /* One authoritative size for Filters command output at every zoom step. */
 #filters .vf-right [data-output="filters"] {font-size:calc(13px * var(--panel-zoom,1))!important;}
+
+/* Spots pause: same selected-state palette as the navigation tabs. */
+#spots .panelHead #spotPause{box-sizing:border-box!important;height:26px!important;min-height:26px!important;max-height:26px!important;padding:0 7px!important;border-radius:5px!important}
+#spots .panelHead #spotPause.active{background:#155aa8!important;color:#fff!important;border-color:#155aa8!important}
+html[data-theme="dark"] #spots .panelHead #spotPause.active{background:#3266a8!important;color:#fff!important;border-color:#3266a8!important}
+
+/* DXWeb logo: copyright remains in the existing page footer. */
+.topbar .brand{min-width:0;display:flex;align-items:center}
+.topbar .brand .dxBrandLogo{display:block;width:clamp(165px,22vw,300px);max-width:100%;height:auto;object-fit:contain;flex:0 1 auto}
+@media(max-width:767px){.topbar .brand .dxBrandLogo{width:clamp(82px,17vw,140px);max-height:36px}}
+@media(max-width:420px){.topbar .brand .dxBrandLogo{width:clamp(70px,19vw,90px)}}
+
+
+/* Unified DXSpider night palette v0.01 — presentation only, no layout/behaviour changes.
+   Contrast-oriented navy/slate surfaces; shared tokens across both frontends. */
+html[data-theme="dark"] {
+ --dx-night-bg:#172331;--dx-night-panel:#243447;--dx-night-raised:#2d4156;
+ --dx-night-input:#1c2b3c;--dx-night-border:#60768d;
+ --dx-night-text:#f0f5fa;--dx-night-muted:#c2d0de;
+ --dx-night-accent:#92c9ff;--dx-night-active:#285f9d;
+ --dx-night-hover:#38536e;--dx-night-focus:#ffd178;
+ color-scheme:dark;background:var(--dx-night-bg);color:var(--dx-night-text);
+ --ui-bg:var(--dx-night-bg);--ui-surface:var(--dx-night-panel);
+ --ui-surface-2:var(--dx-night-raised);--ui-surface-3:var(--dx-night-raised);
+ --ui-border:var(--dx-night-border);--ui-text:var(--dx-night-text);
+ --ui-muted:var(--dx-night-muted);--ui-accent:var(--dx-night-accent);
+ --ui-accent-soft:rgba(146,201,255,.18);
+ --v2-bg:var(--dx-night-bg);--v2-surface:var(--dx-night-panel);
+ --v2-border:var(--dx-night-border);--v2-muted:var(--dx-night-muted);
+ --v2-text:var(--dx-night-text);--v2-accent:var(--dx-night-accent);
+ --v2-accent-soft:rgba(146,201,255,.18);
+ --v2-chart-surface:var(--dx-night-panel);--v2-chart-grid:rgba(194,208,222,.23);
+}
+html[data-theme="dark"] body,
+html[data-theme="dark"] body.v2-shell,
+html[data-theme="dark"] body.v2-shell .workspace,
+html[data-theme="dark"] .workspace,
+html[data-theme="dark"] body.v2-shell #supervision .superPanel,
+html[data-theme="dark"] body.v2-shell #metrics.section.active {background:var(--dx-night-bg)!important;color:var(--dx-night-text)!important}
+html[data-theme="dark"] :is(.topbar,.v2Topbar,.v2ContextBar,footer,.panel,.superCard,.kpiCard,.metricChartCard,.chartCard,.metricsPanel,.timelinePanel,.dialogCard,.tabs,.subtabs,.tableWrap,.regTableWrap,.supervisionTableWrap,.supervisionBanner,.resultArea,.filterBuilder,.vf-left,.vf-right,.commandOutput,.feedlog,.logFloat,.logFloatHead,.logFloatBar) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] body.v2-shell :is(.v2Topbar,.v2ContextBar,.metricChartCard,.panel,.superCard,.kpiCard,.tableWrap,.supervisionTableWrap),
+html[data-theme="dark"] body.v2-shell #supervision :is(.superCard,.kpiCard,.tableWrap,.supervisionTableWrap) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(.tabs,.mainTabs,.subtabs,#operationTabs,#registrationTabs,#supervisionTabs) {background:var(--dx-night-panel)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(button,input,select,textarea,.themeToggle),
+html[data-theme="dark"] body.v2-shell #supervision :is(input:not([type="checkbox"]),select,button:not(.active)),
+html[data-theme="dark"] body.v2-shell dialog .dialogCard :is(input,textarea,select,button:not(.dangerButton)) {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(input,textarea)::placeholder {color:var(--dx-night-muted)!important;opacity:1}
+html[data-theme="dark"] :is(button,.themeToggle):hover:not(:disabled) {background:var(--dx-night-hover)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="dark"] :is(.tabs,.subtabs,.mainTabs,.segmented) button.active,
+html[data-theme="dark"] body.v2-shell .segmented button.active,
+html[data-theme="dark"] body.v2-shell #supervision button.active,
+html[data-theme="dark"] #spots .panelHead #spotPause.active {background:var(--dx-night-active)!important;color:#fff!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="dark"] :is(.panelHead h2,.panelHead h3,.dialogCard h2,.nodeCall,.brand,.cardTitle h3) {color:var(--dx-night-accent)!important}
+html[data-theme="dark"] :is(.counter,.fieldHint,.themeControl,.panelSub,.cardHint,.superNote,.metricsMeta,.kpiLabel,.kpiCard small,.chartHead span,.miniHead span,footer,footer .copyright,.brandCopyright) {color:var(--dx-night-muted)!important;opacity:1!important}
+html[data-theme="dark"] :is(th,.spotTable th,.superTable thead th,.regTable thead th),
+html[data-theme="dark"] body.v2-shell #supervision th {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(td,.spotTable td,.superTable td,.regTable td),
+html[data-theme="dark"] body.v2-shell #supervision td {border-color:var(--dx-night-border)!important;color:var(--dx-night-text)!important}
+html[data-theme="dark"] body.v2-shell #supervision td {background:var(--dx-night-panel)!important}
+html[data-theme="dark"] :is(.spotTable,.superTable,.regTable) tbody tr:hover {background:var(--dx-night-hover)!important}
+html[data-theme="dark"] :is(.commandOutput,.feedlog,.consoleOutput,.resultArea) {background:var(--dx-night-input)!important;color:var(--dx-night-text)!important}
+html[data-theme="dark"] :is(.metricRow,.metricRow dt,.metricRow dd,.metricsV2,.metricList dd,.kpiCard strong) {color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(.metricRow dt,.metricList dt) {color:var(--dx-night-muted)!important}
+html[data-theme="dark"] :is(button,input,select,textarea,a,[tabindex]):focus-visible {outline:2px solid var(--dx-night-focus)!important;outline-offset:2px!important}
+html[data-theme="dark"] :is(button,input,select,textarea):disabled {opacity:.58;cursor:not-allowed}
+
+
+@media (prefers-color-scheme:dark) {
+
+/* Unified DXSpider night palette v0.01 — presentation only, no layout/behaviour changes.
+   Contrast-oriented navy/slate surfaces; shared tokens across both frontends. */
+html[data-theme="auto"] {
+ --dx-night-bg:#172331;--dx-night-panel:#243447;--dx-night-raised:#2d4156;
+ --dx-night-input:#1c2b3c;--dx-night-border:#60768d;
+ --dx-night-text:#f0f5fa;--dx-night-muted:#c2d0de;
+ --dx-night-accent:#92c9ff;--dx-night-active:#285f9d;
+ --dx-night-hover:#38536e;--dx-night-focus:#ffd178;
+ color-scheme:dark;background:var(--dx-night-bg);color:var(--dx-night-text);
+ --ui-bg:var(--dx-night-bg);--ui-surface:var(--dx-night-panel);
+ --ui-surface-2:var(--dx-night-raised);--ui-surface-3:var(--dx-night-raised);
+ --ui-border:var(--dx-night-border);--ui-text:var(--dx-night-text);
+ --ui-muted:var(--dx-night-muted);--ui-accent:var(--dx-night-accent);
+ --ui-accent-soft:rgba(146,201,255,.18);
+ --v2-bg:var(--dx-night-bg);--v2-surface:var(--dx-night-panel);
+ --v2-border:var(--dx-night-border);--v2-muted:var(--dx-night-muted);
+ --v2-text:var(--dx-night-text);--v2-accent:var(--dx-night-accent);
+ --v2-accent-soft:rgba(146,201,255,.18);
+ --v2-chart-surface:var(--dx-night-panel);--v2-chart-grid:rgba(194,208,222,.23);
+}
+html[data-theme="auto"] body,
+html[data-theme="auto"] body.v2-shell,
+html[data-theme="auto"] body.v2-shell .workspace,
+html[data-theme="auto"] .workspace,
+html[data-theme="auto"] body.v2-shell #supervision .superPanel,
+html[data-theme="auto"] body.v2-shell #metrics.section.active {background:var(--dx-night-bg)!important;color:var(--dx-night-text)!important}
+html[data-theme="auto"] :is(.topbar,.v2Topbar,.v2ContextBar,footer,.panel,.superCard,.kpiCard,.metricChartCard,.chartCard,.metricsPanel,.timelinePanel,.dialogCard,.tabs,.subtabs,.tableWrap,.regTableWrap,.supervisionTableWrap,.supervisionBanner,.resultArea,.filterBuilder,.vf-left,.vf-right,.commandOutput,.feedlog,.logFloat,.logFloatHead,.logFloatBar) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] body.v2-shell :is(.v2Topbar,.v2ContextBar,.metricChartCard,.panel,.superCard,.kpiCard,.tableWrap,.supervisionTableWrap),
+html[data-theme="auto"] body.v2-shell #supervision :is(.superCard,.kpiCard,.tableWrap,.supervisionTableWrap) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(.tabs,.mainTabs,.subtabs,#operationTabs,#registrationTabs,#supervisionTabs) {background:var(--dx-night-panel)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(button,input,select,textarea,.themeToggle),
+html[data-theme="auto"] body.v2-shell #supervision :is(input:not([type="checkbox"]),select,button:not(.active)),
+html[data-theme="auto"] body.v2-shell dialog .dialogCard :is(input,textarea,select,button:not(.dangerButton)) {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(input,textarea)::placeholder {color:var(--dx-night-muted)!important;opacity:1}
+html[data-theme="auto"] :is(button,.themeToggle):hover:not(:disabled) {background:var(--dx-night-hover)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="auto"] :is(.tabs,.subtabs,.mainTabs,.segmented) button.active,
+html[data-theme="auto"] body.v2-shell .segmented button.active,
+html[data-theme="auto"] body.v2-shell #supervision button.active,
+html[data-theme="auto"] #spots .panelHead #spotPause.active {background:var(--dx-night-active)!important;color:#fff!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="auto"] :is(.panelHead h2,.panelHead h3,.dialogCard h2,.nodeCall,.brand,.cardTitle h3) {color:var(--dx-night-accent)!important}
+html[data-theme="auto"] :is(.counter,.fieldHint,.themeControl,.panelSub,.cardHint,.superNote,.metricsMeta,.kpiLabel,.kpiCard small,.chartHead span,.miniHead span,footer,footer .copyright,.brandCopyright) {color:var(--dx-night-muted)!important;opacity:1!important}
+html[data-theme="auto"] :is(th,.spotTable th,.superTable thead th,.regTable thead th),
+html[data-theme="auto"] body.v2-shell #supervision th {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(td,.spotTable td,.superTable td,.regTable td),
+html[data-theme="auto"] body.v2-shell #supervision td {border-color:var(--dx-night-border)!important;color:var(--dx-night-text)!important}
+html[data-theme="auto"] body.v2-shell #supervision td {background:var(--dx-night-panel)!important}
+html[data-theme="auto"] :is(.spotTable,.superTable,.regTable) tbody tr:hover {background:var(--dx-night-hover)!important}
+html[data-theme="auto"] :is(.commandOutput,.feedlog,.consoleOutput,.resultArea) {background:var(--dx-night-input)!important;color:var(--dx-night-text)!important}
+html[data-theme="auto"] :is(.metricRow,.metricRow dt,.metricRow dd,.metricsV2,.metricList dd,.kpiCard strong) {color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(.metricRow dt,.metricList dt) {color:var(--dx-night-muted)!important}
+html[data-theme="auto"] :is(button,input,select,textarea,a,[tabindex]):focus-visible {outline:2px solid var(--dx-night-focus)!important;outline-offset:2px!important}
+html[data-theme="auto"] :is(button,input,select,textarea):disabled {opacity:.58;cursor:not-allowed}
+
+}
+
+/* Logo layout v2.8.79: full wordmark visible, no clipping in compact topbar. */
+.topbar .brand .dxBrandLogo{width:clamp(160px,22vw,260px)!important;height:auto!important;max-height:66px!important;object-fit:contain!important;display:block!important}
+@media(min-width:768px){.topbar{height:78px!important;min-height:78px!important;grid-template-rows:auto!important;overflow:visible!important}.topbar .brand{overflow:visible!important}}
+@media(max-width:767px){.topbar .brand .dxBrandLogo{width:clamp(105px,27vw,170px)!important;max-height:48px!important}.topbar .brand{overflow:visible!important}}
+
+/* v2.8.80: align the DXWeb wordmark closer to the left content edge.
+   Desktop-only offset; keep the compact mobile header unchanged. */
+@media (min-width:768px) {
+  .topbar .brand { position:relative; left:-30px; }
+}
+
+/* Login access explanation: available by click/touch and keyboard */
+.loginAccessHelp{margin:0 0 12px;font-size:13px;line-height:1.4}
+.loginAccessHelp summary{cursor:pointer;font-weight:600;color:#155aa8}
+.loginAccessHelp p{margin:7px 0 0}
+html[data-theme="dark"] .loginAccessHelp summary{color:#8dbfff}

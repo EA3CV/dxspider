@@ -121,6 +121,7 @@ sub alloc
 	$self->{delete} = shift;
 	$self->{deletetime} = shift || ($self->{t} + $maxage);
 	$self->{keep} = shift;
+	$self->{local_only} = shift || 0;
 	$self->{gotit} = [];
 #	$self->{lastt} = $main::systime;
 	$self->{lines} = [];
@@ -475,6 +476,7 @@ sub handle_49
 sub notify
 {
 	my $ref = shift;
+	return if $ref->{local_only}; # Never email or forward local administrative messages.
 	my $to = $ref->{to};
 	my $uref = DXUser::get_current($to);
 	my $dxchan = DXChannel::get($to);
@@ -548,6 +550,10 @@ sub store
 		dbg("To be stored in $fn\n") if isdbg('msg');
 		
 		# now save the file, overwriting what's there, YES I KNOW OK! (I will change it if it's a problem)
+		# Administrative notices are written to a temporary file first, so
+		# a crash cannot leave a partially written, apparently valid notice.
+		my $target = $fn;
+		$fn .= ".tmp.$$" if $ref->{local_only};
 		my $fh = new IO::File "$fn", "w";
 		if (defined $fh) {
 			my $rr = $ref->{rrreq} ? '1' : '0';
@@ -555,7 +561,7 @@ sub store
 			my $del = $ref->{delete} ? '1' : '0';
 			my $delt = $ref->{deletetime} || ($ref->{t} + $maxage);
 			my $keep = $ref->{keep} || '0';
-			print $fh "=== $ref->{msgno}^$ref->{to}^$ref->{from}^$ref->{t}^$priv^$ref->{subject}^$ref->{origin}^$ref->{'read'}^$rr^$del^$delt^$keep\n";
+			print $fh "=== $ref->{msgno}^$ref->{to}^$ref->{from}^$ref->{t}^$priv^$ref->{subject}^$ref->{origin}^$ref->{'read'}^$rr^$del^$delt^$keep^" . ($ref->{local_only} ? 1 : 0) . "\n";
 			print $fh "=== ", join('^', @{$ref->{gotit}}), "\n";
 			my $line;
 			$ref->{size} = 0;
@@ -564,7 +570,15 @@ sub store
 				$ref->{size} += (length $line) + 1;
 				print $fh "$line\n";
 			}
-			$fh->close;
+			unless ($fh->close) {
+				unlink $fn if $ref->{local_only};
+				confess "cannot close message file $fn: $!";
+			}
+			if ($ref->{local_only} && !rename($fn, $target)) {
+				my $err = $!;
+				unlink $fn;
+				confess "cannot publish local message $target: $err";
+			}
 			dbg("msg $ref->{msgno} stored\n") if isdbg('msg');
 			Log('msg', "msg $ref->{msgno} from $ref->{from} to $ref->{to} stored" );
 		} else {
@@ -748,6 +762,9 @@ sub queue_msg
 	my @nodelist = DXChannel::get_all_nodes;
 	foreach $ref (@msg) {
 
+		# Strictly local registration messages never enter forwarding or timeout handling.
+		next if $ref->{local_only};
+
 		# ignore 'delayed' messages until their waiting time has expired
 		if (exists $ref->{waitt}) {
 			next if $ref->{waitt} > $main::systime;
@@ -827,6 +844,50 @@ sub queue_msg
 }
 
 # is there a message for me?
+# Reconcile a local registration notice with both the in-memory directory and
+# persisted message files. A crash after store() but before add_dir() must not
+# cause a second notice to be created during a retry.
+sub local_registration_exists
+{
+    my ($to, $subject) = @_;
+    $to = uc($to // '');
+    for my $ref (@msg) {
+        return 1 if $ref->{local_only} && uc($ref->{to} // '') eq $to
+            && ($ref->{subject} // '') eq $subject;
+    }
+    opendir(my $dh, $msgdir) or die "cannot scan local message directory $msgdir: $!";
+    my @names = grep { /^m\d{6}$/ } readdir($dh);
+    closedir($dh);
+    for my $name (@names) {
+        my $ref = read_msg_header("$msgdir/$name");
+        next unless $ref && $ref->{local_only};
+        next unless uc($ref->{to} // '') eq $to
+            && ($ref->{subject} // '') eq $subject;
+        # Restore a persisted orphan to the live directory without duplicating
+        # an existing entry. It remains local_only and is never forwarded.
+        add_dir($ref) unless grep { $_->{msgno} == $ref->{msgno} } @msg;
+        return 1;
+    }
+    return 0;
+}
+
+# Store a strictly local administrative message. The persisted local_only bit
+# is checked by queue_msg and start_msg, including after reload.
+sub store_local_registration
+{
+    my ($to, $subject, $lines) = @_;
+    die "invalid local registration recipient" unless defined $to && $to =~ /^[A-Z0-9-]+$/;
+    die "invalid local registration body" unless ref($lines) eq 'ARRAY';
+    my $ref = DXMsg->alloc(next_transno('Msgno'), $to,
+        $main::mycall, $main::systime || time, 1, $subject,
+        $main::mycall, 0, 0);
+    $ref->{local_only} = 1;
+    $ref->store([@$lines]);
+    die "local registration message was not persisted" unless -f filename($ref->{msgno});
+    $ref->add_dir();
+    return $ref->{msgno};
+}
+
 sub for_me
 {
 	my $call = uc shift;
@@ -847,6 +908,7 @@ sub start_msg
 {
 	my ($self, $dxchan) = @_;
 	
+	return if $self->{local_only};
 	confess("trying to start started msg $self->{msgno} nodes: $self->{fromnode} -> $self->{tonode}") if $self->{tonode};
 	dbg("start msg $self->{msgno}\n") if isdbg('msg');
 	$self->{linesreq} = 10;
@@ -1010,6 +1072,10 @@ sub init
 		# add the message to the available queue
 		add_dir($ref); 
 	}
+
+	# DXReg::init runs before DXMsg::init in cluster.pl. Replay only after
+	# message headers have been loaded, so duplicate detection is meaningful.
+	DXReg::_flush_pending_local_sp() if $main::reg_enable && DXReg::ready();
 }
 
 # add the message to the directory listing

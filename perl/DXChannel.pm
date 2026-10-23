@@ -602,6 +602,8 @@ sub tell_login
 		next if $dxchan->{call} eq $main::mycall;
 		$dxchan->send($dxchan->msg($m, $call)) if $dxchan->{logininfo};
 	}
+	Web::publish_user_notice('logininfo', $m, $call)
+		if Web->can('publish_user_notice');
 }
 
 #
@@ -623,6 +625,8 @@ sub tell_buddies
 		next if $dxchan->{call} eq $main::mycall;
 		$dxchan->send($dxchan->msg($m, $call, $node)) if grep $_ eq $call, @{$dxchan->{user}->{buddies}} ;
 	}
+	Web::publish_user_notice('buddy', $m, $call, $node)
+		if Web->can('publish_user_notice');
 }
 
 # various access routines
