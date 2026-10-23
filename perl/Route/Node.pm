@@ -324,6 +324,11 @@ sub get_all
 	return values %list;
 }
 
+sub get_all_keys
+{
+	return keys %list;
+}
+
 sub _addparent
 {
 	my $self = shift;

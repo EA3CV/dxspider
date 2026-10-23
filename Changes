@@ -1,3 +1,15 @@
+23Oct26======================================================================
+1. Reduce pc92_slug_time to 20 secs. This is the wait time to collect 
+   connection events before emitting PC92 A/D records. It was 60 secs.
+2. Fix the lockout code and commands so that (say) set/lockout g1tst will
+   lockout g1tst and g1tst-1 to g1tst-99. BUT an (say) unset/lock g1tst-3
+   will allow g1tst-3 only.
+3. Fix an (apparently) long standing bug where (quite a few) users never 
+   entered the routing table under certain conditions.
+4. Change the mechanism to prevent more than a certain number of concurrent
+   logins by a base callsign (e.g. g1tst + g1tst-1/-99) over the whole
+   cluster. This number is currently 12. 
+5. Allow $maxconnect_user to have that many connections and not 1 less. 
 22Oct26======================================================================
 1. Improved and unified the dark theme to provide a more consistent visual
     appearance.
@@ -10,6 +22,7 @@
 3. DXWeb Admin 0.78.80: DXReg.pm: Added support for SP REGISTER from terminal
 4. JSON/WebSocket Encoding: Standardized Unicode character transmission from 
    the browser using JSON \uXXXX escape sequences, preventing encoding issues
+5. Fix some other long standing issues that also made the connection-rate problem worse.
 20Oct26======================================================================
 1. Integrated a new installer for DXWeb and DXWeb Admin: dxweb-manager.pl
 2. Added INSTALL_DXWEB, a comprehensive installation and upgrade guide 
