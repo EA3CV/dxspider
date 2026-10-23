@@ -25,8 +25,20 @@ use Mojo::UserAgent;
 use Socket qw(AF_INET AF_INET6 inet_pton);
 use Mojo::IOLoop::Subprocess;
 use Mojo::JSON  qw(encode_json decode_json);
+use JSON::PP (); # ASCII-safe JSON on the DXSpider line transport
 use Time::HiRes qw(time);
 use FindBin;
+
+# Optional local configuration. Default: Linux terminal enabled.
+our $enable_linux_terminal = 1;
+my $admin_config = "$FindBin::Bin/config.pl";
+if (-e $admin_config) {
+    my $loaded = do $admin_config;
+    die "Cannot load $admin_config: " . ($@ || $! || "invalid return value") . "\n"
+        unless $loaded;
+}
+die "Invalid enable_linux_terminal in $admin_config (expected 0 or 1)\n"
+    unless defined($enable_linux_terminal) && "$enable_linux_terminal" =~ /\A[01]\z/;
 
 # Single source of truth for the Admin release version.
 my $ADMIN_VERSION = do {
@@ -216,6 +228,7 @@ sub public_status() {
         fanout_items        => scalar(@fanout),
         fanout_bytes        => $fanout_bytes,
         pending_requests    => scalar( keys %pending ),
+        enable_linux_terminal => $enable_linux_terminal ? \1 : \0,
         supervision_history => $history_store->status()
     };
 }
@@ -455,6 +468,14 @@ sub push_feed( $kind, $raw ) {
         $payload = { channel => $d->{channel}, from => $d->{from},
                      text => $d->{text}, onode => $d->{onode} };
     }
+    if ($kind eq 'user_notice') {
+        return unless ref($d) eq 'HASH' && ($d->{type} // '') eq 'user_notice';
+        return unless ref($targets) eq 'ARRAY' && @$targets && @$targets <= 256;
+        return unless defined($d->{text}) && !ref($d->{text}) && length($d->{text}) <= 4096;
+        my $o = { type => 'feed', feed => 'user_notice', payload => { text => $d->{text} } };
+        queue_fanout(encode_json($o), $targets);
+        return;
+    }
     $counters{$kind}++ if exists $counters{$kind};
     $counters{total}++;
     $last_feed_at = scalar( gmtime() ) . 'Z';
@@ -473,7 +494,14 @@ sub send_line($l) { return unless $stream; $stream->write( $l . "\n" ) }
 
 sub send_dxs($o) {
     return unless $state{web_call};
-    send_line( 'I' . $state{web_call} . '|' . encode_json($o) );
+    my $wire = JSON::PP->new->ascii(1)->encode($o);
+    if (($o->{type} // '') =~ /\Areg_(?:accept|reject)\z/) {
+        # Log only the request ID and whether Unicode escaping was used.
+        # Never log the SYSOP note, credentials or registration data.
+        app->log->info(sprintf('registration outbound action=%s id=%s escaped_unicode=%s',
+            $o->{type}, $o->{id} // '-', $wire =~ /\\u[0-9a-fA-F]{4}/ ? 'yes' : 'no'));
+    }
+    send_line( 'I' . $state{web_call} . '|' . $wire );
 }
 
 sub pending_timeout($id) {
@@ -486,6 +514,8 @@ sub pending_timeout($id) {
         cancel_pending_auth($id)                               if $pending{$id};
         return;
     }
+    app->log->error('registration timeout action=' . $p->{action} . ' id=' . $id)
+        if ($p->{action} // '') =~ /\Areg_(?:accept|reject)\z/;
     delete $pending{$id};
     my $cid = $p->{client};
     my $cl  = $clients{$cid} or return;
@@ -624,6 +654,11 @@ sub replay_history( $id, $pos = 0 ) {
 sub handle_response($msg) {
     my $id = $msg->{id};
     my $p  = delete $pending{$id} or return;
+    if (($p->{action} // '') =~ /\Areg_(?:accept|reject)\z/) {
+        app->log->info('registration response action=' . $p->{action}
+            . ' id=' . $id . ' status=' . ($msg->{status} // '-')
+            . ' error=' . ($msg->{error} // '-'));
+    }
     Mojo::IOLoop->remove( $p->{timer} ) if $p->{timer};
     if ( $p->{internal_history} ) {
         $history_inflight = 0;
@@ -951,7 +986,8 @@ sub handle_line($line) {
         V => 'wwv',
         Y => 'wcy',
         W => 'wx',
-        C => 'network_chat'
+        C => 'network_chat',
+        B => 'user_notice'
     );
     for my $let ( keys %map ) {
         if ( $state{web_call} && $line =~ /^\Q$let$state{web_call}\E\|(.*)$/s )
@@ -1509,6 +1545,9 @@ sub read_installed_release($path) {
     $v =~ s/\s+\z//;
     return $v =~ /\A\d+(?:\.\d+)+\z/ ? $v : undef;
 }
+$ENV{DXWEB_CLIENT_SCHEME} //= 'http';
+$ENV{DXWEB_CLIENT_HOST} //= '127.0.0.1';
+$ENV{DXWEB_SCHEME} //= 'http';
 my $DXWEB_CLIENT_PORT = $ENV{DXWEB_CLIENT_PORT} // 7380;
 my $software_version_ua = Mojo::UserAgent->new;
 $software_version_ua->max_redirects(0);
@@ -1527,7 +1566,7 @@ get '/software-versions.json' => sub($c) {
         },
     };
     # Query the live DXWeb process without blocking the Admin event loop.
-    $software_version_ua->get("http://127.0.0.1:$DXWEB_CLIENT_PORT/software-version.json" => sub($ua,$tx) {
+    $software_version_ua->get("$ENV{DXWEB_CLIENT_SCHEME}://$ENV{DXWEB_CLIENT_HOST}:$DXWEB_CLIENT_PORT/software-version.json" => sub($ua,$tx) {
         if ($tx->result->is_success) {
             my $v = $tx->result->json;
             $versions->{dxweb}{running} = $v->{running}
@@ -1980,8 +2019,16 @@ sub terminal_start($id,$m) {
             close $slave;
             close $pty;
             # Drop privileges only after the controlling terminal is established.
-            POSIX::setgid($gid)==0 or die "setgid: $!";
-            POSIX::setuid($uid)==0 or die "setuid: $!";
+            # A non-root service may start SSH as its own Unix identity.
+            # Only request an identity change when one is actually needed.
+            if ($> != $uid || $) != $gid) {
+                my $gid_rc = POSIX::setgid($gid);
+                defined($gid_rc) && $gid_rc == 0
+                    or die "Cannot switch to Unix group $gid (service eGID=" . (0+$)) . "): $!";
+                my $uid_rc = POSIX::setuid($uid);
+                defined($uid_rc) && $uid_rc == 0
+                    or die "Cannot switch to Unix user $user (UID $uid, service eUID $>): $!";
+            }
             $ENV{HOME}=$home; $ENV{USER}=$user; $ENV{LOGNAME}=$user;
             chdir($home) or die "chdir: $!";
             $ENV{TERM}='xterm-256color';
@@ -2171,6 +2218,10 @@ websocket '/ws' => sub($c) {
                 );
                 return;
             }
+            if ($t =~ /\Aterminal_(?:connect|disconnect|input|resize)\z/ && !$enable_linux_terminal) {
+                terminal_event($id,'error','Linux terminal is disabled by server configuration');
+                return;
+            }
             if ($t eq 'terminal_connect') {terminal_start($id,$m);return}
             if ($t eq 'terminal_disconnect') {terminal_stop($id);return}
             if ($t eq 'terminal_input') {terminal_input($id,$m);return}
@@ -2210,7 +2261,7 @@ websocket '/ws' => sub($c) {
                 return;
             }
             if ( $t =~ /^reg_(?:accept|reject)$/ ) {
-                dxs_request(
+                my $pending_id = dxs_request(
                     $id, $t,
                     {
                         type       => $t,
@@ -2219,6 +2270,16 @@ websocket '/ws' => sub($c) {
                         note       => $m->{note} // ''
                     }
                 );
+                unless ( defined $pending_id ) {
+                    ws_send_guarded(
+                        $id,
+                        encode_json({
+                            type   => $t . '_result',
+                            status => 'error',
+                            error  => 'request_not_accepted'
+                        })
+                    );
+                }
                 return;
             }
             if ( $t eq 'reg_delete_user' ) {
@@ -2501,7 +2562,14 @@ websocket '/ws' => sub($c) {
 # explicit Mojolicious command.  An explicit command line still wins, e.g.
 #   perl admin.pl daemon -l http://127.0.0.1:7310
 if ( !@ARGV ) {
-    app->start( 'daemon', '-l', "http://$DXWEB_HOST:$DXWEB_PORT" );
+    my $listen = "$ENV{DXWEB_SCHEME}://$DXWEB_HOST:$DXWEB_PORT";
+    if (($ENV{DXWEB_SCHEME} // 'http') eq 'https') {
+        die "DXWEB_TLS_CERT and DXWEB_TLS_KEY required for HTTPS\n"
+            unless $ENV{DXWEB_TLS_CERT} && $ENV{DXWEB_TLS_KEY};
+        $listen .= '?cert=' . $ENV{DXWEB_TLS_CERT}
+                 . '&key=' . $ENV{DXWEB_TLS_KEY};
+    }
+    app->start( 'daemon', '-l', $listen );
 }
 else {
     app->start;

@@ -57,7 +57,7 @@ use vars qw($pc11_max_age $pc23_max_age $last_pc50 $eph_restime $eph_info_restim
 
 $pc9x_dupe_age = 60;			# catch loops of circular (usually) D records
 $pc10_dupe_age = 45;			# just something to catch duplicate PC10->PC93 conversions
-$pc92_slug_changes = 60*1;		# slug any changes going outward for this long
+$pc92_slug_changes = 10*2;		# slug any changes going outward for this long
 $last_pc92_slug = 0;			# the last time we sent out any delayed add or del PC92s
 $pc9x_time_tolerance = 15*60;	# the time on a pc9x is allowed to be out by this amount
 $pc9x_past_age = (122*60)+		# maximum age in the past of a px9x (a config record might be the only
@@ -86,9 +86,9 @@ sub check_available
 	my $self = shift;
 	my $origin = shift;
 	my $pcno = shift;
-	
+
 	return 0 if $self == $main::me;
-	
+
 	unless ($self->is_node && $self->state eq 'normal') {
 		dbg("PC$pcno sent to $self->{call} ignored as this channel is not yet initialised (state: $self-{state})");
 		return 1;
@@ -116,7 +116,7 @@ sub handle_10
 	}
 
 	return if $self->check_available($origin, $pcno);
-			
+
 	# is it for me or one of mine?
 	my ($from, $to, $via, $call, $dxchan);
 	$from = $pc->[1];
@@ -147,17 +147,17 @@ sub handle_10
 	# if we are converting announces to talk is it a dup?
 	if ($ann_to_talk) {
 		if (AnnTalk::is_talk_candidate($from, $pc->[3]) && AnnTalk::dup($from, $to, $pc->[3])) {
-			dbg("PCPROT: Dupe talk from announce, dropped") if isdbg('chanerr');
+			dbg("PCPROT: Dupe talk from announce, dropped") if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 	}
-	
+
 	# will we allow it at all?
 	if ($censorpc) {
 		my @bad;
 		if (@bad = BadWords::check($pc->[3])) {
 			DXHealth::operator_event('badlist', 'badword', $self->{call}, $pc->[6], 'PC10');
-			my $bw = join ', ', @bad; 
+			my $bw = join ', ', @bad;
 			dbg($line) if isdbg('nologchan');
 			dbg("PCPROT: Badwords: '$bw', dropped");
 			return;
@@ -196,8 +196,8 @@ sub handle_11
 		}
 	}
 
-	dbg("---") if isdbg("spot") || isdbg("pc61"); 
-	dbg("INPUT $self->{call}: $line via: $origin recurse: $recurse") if isdbg("spot") || isdbg("pc61"); 
+	dbg("---") if isdbg("spot") || isdbg("pc61");
+	dbg("INPUT $self->{call}: $line via: $origin recurse: $recurse") if isdbg("spot") || isdbg("pc61");
 
 #	my ($hops) = $pc->[8] =~ /^H(\d+)/;
 
@@ -245,14 +245,14 @@ sub handle_11
 	$pc->[2] = unpad($pc->[2]);		# take off leading and trailing blanks from spotted callsign
 	if ($pc->[2] =~ /BUST\w*$/) {
 		dbg($line) if isdbg('nologchan');
-		dbg("PCPROT: useless 'BUSTED' spot") if isdbg('chanerr');
+		dbg("PCPROT: useless 'BUSTED' spot") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
-	
+
 	my $nossid = $pc->[6];
     $nossid =~ s/-\d+$//;
 
-	# is this is a 'bad spotter' or an unknown user then ignore it. 
+	# is this is a 'bad spotter' or an unknown user then ignore it.
 	if ($badspotter->in($nossid)) {
 		DXHealth::operator_event('badlist', 'badspotter', $self->{call}, $pc->[7], sprintf('PC%02d', $pcno));
 		dbg($line) if isdbg('nologchan');
@@ -290,7 +290,7 @@ sub handle_11
 	if ($self->{inspotsfilter}) {
 		my ($filter, $hops) = $self->{inspotsfilter}->it(@spot);
 		unless ($filter) {
-			dbg("PCPROT: Rejected by input spot filter") if isdbg('chanerr');
+			dbg("PCPROT: Rejected by input spot filter") if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 	}
@@ -303,16 +303,16 @@ sub handle_11
 		}
 		if ($pc61_extract_route) {
 			$self->populate_routing_table($pc->[7], $pc->[6], $pc->[8]);
-		} 
+		}
 	}
 
 	# remove all auto generated FTx spots at this point
-	
+
 	# this is where we decide to delay PC11s in the hope that a PC61 will be along soon.
 	my $key = join '|', @spot[0..2,4,7]; # not including text
 
 	my $dupe_reason = '';			# returned by reference for dupes found
-	
+
 	unless ($recurse) {
 
 		if ($pcno == 61) {
@@ -337,20 +337,20 @@ sub handle_11
 				# so we allow the PC61 to be counted later, but count the now discarded PC11
 				# because it *did* come in.
 				++$pc11_rx;
-			} 
+			}
 		}
 
 		if ($pcno == 11) {
 
 			# if this fires then we have already had one or more PC11s but no PC61 for this spot
 			if ($pc11_saved{$key}) {
-				
+
 				dbg("DUPE $self->{call} $pc->[0] key: $key recurse: $recurse is already being processed, ignored") if isdbg("spot");
 				return;		# because it's a dup
 			}
 
 			if ((Spot::dup_find(@spot[0..4,7,14], \$dupe_reason))) {
-				
+
 				dbg("DUPE $self->{call} $pc->[0] key: $key recurse: $recurse is already a DUPE, ignored") if isdbg("spot");
 				$recurse = 0;
 				return;		# because it's a dup
@@ -376,10 +376,10 @@ sub handle_11
 				$line = join '^', @$pc, $hops, '~';
 
 				# update the stats (NOTE, this record was a PC11, it has now become a PC61
-				# this is NOT the same choosing a better PC61, that is a separate record. 
-				++$pc11_rx;		# 'cos we received as a PC11 it and it won't be a pc11 anymore 
+				# this is NOT the same choosing a better PC61, that is a separate record.
+				++$pc11_rx;		# 'cos we received as a PC11 it and it won't be a pc11 anymore
 				--$pc61_rx;		# 'cos we'll increment it later as it's now a pc61, no double counting
-				
+
 #				dbg("CHANGED saved key: $key PC11 line to $line") if isdbg('spot');
 				delete $pc11_saved{$key};
 			}
@@ -395,9 +395,9 @@ sub handle_11
 	}
 
 	$key .= "|$pc->[8]" if @$pc > 8 && is_ipaddr($pc->[8]);
-			 
+
 	dbg("PROCESSING $self->{call}: $pc->[0] key: $key") if isdbg('spot');
-	
+
 	if ($pcno == 11) {
 		++$pc11_rx;
 	} else {
@@ -419,7 +419,7 @@ sub handle_11
 				dbg("PCPROT: PC61 $ip is not a public Internet address, dropped");
 				return;
 			}
-			
+
 			if (DXCIDR::find($ip)) {
 				DXHealth::operator_event('pc61_drop', 'badip', $self->{call}, $pc->[7], 'PC61');
 				dbg($line) if isdbg('nologchan');
@@ -431,7 +431,7 @@ sub handle_11
 			dbg("PCPROT: PC61 $ip is not an IP address, dropped");
 		}
 	}
-	
+
 	# we until here to do any censorship to try and reduce the amount of noise that repeated copies
 	# from other connected nodes cause
 	if ($censorpc) {
@@ -475,7 +475,7 @@ sub handle_11
 		my $uref = DXUser::get_current($pc->[7]);
 		my $s = '';
 		my $ip = $pcno == 61 ?  $pc->[8] : '';
-		my ($hops) = $pc->[$pcno == 61 ? 9 : 8] =~ /H(\d+)/; 
+		my ($hops) = $pc->[$pcno == 61 ? 9 : 8] =~ /H(\d+)/;
 
 		if ($nroute && (($nroute->last_PC92C && $nroute->users) || ($local && !$local->do_pc9x))) {
 #			$s .= "User $pc->[6] not logged in, " unless $uroute;
@@ -494,7 +494,7 @@ sub handle_11
 			return unless $sv < 2;
 		}
 	}
-	
+
 	#
 	# Now finally: save the spot itself and then send it on its merry way to the users
 	#
@@ -513,7 +513,7 @@ sub handle_11
 		$s .=  " route: $origin";
 		dbg($s);
 	}
-	
+
 	#
 	# @spot at this point contains:-
 	# freq, spotted call, time, text, spotter, spotted cc, spotters cc, orig node
@@ -604,7 +604,7 @@ sub handle_11
 			dbg("END $self->{call}: RECURSED $data removed and finished $stats") if isdbg('spot');
 			delete $pc11_saved{$key};
 		} else {
-			dbg("END $self->{call}: RECURSED NO KEY finished $stats") if isdbg('spot'); 
+			dbg("END $self->{call}: RECURSED NO KEY finished $stats") if isdbg('spot');
 		}
 		$recurse = 0;
 	} else {
@@ -677,7 +677,7 @@ sub handle_12
 	# ignore PC12s from origins that use PCxx protocol
 	my $oref = Route::get($origin);
 	if ($oref->do_pc9x) {
-		dbg("PCPROT: PC12 rxed from PC9x node, ignored") if isdbg('chanerr');
+		dbg("PCPROT: PC12 rxed from PC9x node, ignored") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
@@ -702,7 +702,7 @@ sub handle_12
 		# ignore something that looks like a chat line coming in with sysop
 		# flag - this is a kludge...
 		if ($pc->[3] =~ /^\#\d+ / && $pc->[4] eq '*') {
-			dbg('PCPROT: Probable chat rewrite, dropped') if isdbg('chanerr');
+			dbg('PCPROT: Probable chat rewrite, dropped') if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 
@@ -769,20 +769,20 @@ sub handle_16
 
 	# dos I want users from this channel?
 	unless ($self->user->wantpc16) {
-		dbg("PCPROT: don't send users to $self->{call}") if isdbg('chanerr');
+		dbg("PCPROT: don't send users to $self->{call}") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
 	# is it me?
 	if ($ncall eq $main::mycall) {
-		dbg("PCPROT: trying to alter config on this node from outside!") if isdbg('chanerr');
+		dbg("PCPROT: trying to alter config on this node from outside!") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
 	my $h;
 	$h = 1 if DXChannel::get($ncall);
 	if ($h && $self->{call} ne $ncall) {
-		dbg("PCPROT: trying to update a local node, ignored") if isdbg('chanerr');
+		dbg("PCPROT: trying to update a local node, ignored") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
@@ -792,7 +792,7 @@ sub handle_16
 
 	# isolate now means only accept stuff from this call only
 	if ($self->{isolate} && $ncall ne $self->{call}) {
-		dbg("PCPROT: $self->{call} isolated, $ncall ignored") if isdbg('chanerr');
+		dbg("PCPROT: $self->{call} isolated, $ncall ignored") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
@@ -801,7 +801,7 @@ sub handle_16
 	if ($parent) {
 		$dxchan = $parent->dxchan;
 		if ($dxchan && $dxchan ne $self) {
-			dbg("PCPROT: PC16 from $self->{call} trying to alter locally connected $ncall, ignored!") if isdbg('chanerr');
+			dbg("PCPROT: PC16 from $self->{call} trying to alter locally connected $ncall, ignored!") if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 
@@ -813,7 +813,7 @@ sub handle_16
 
 	unless ($h) {
 		if ($parent->via_pc92) {
-			dbg("PCPROT: non-local node controlled by PC92, ignored") if isdbg('chanerr');
+			dbg("PCPROT: non-local node controlled by PC92, ignored") if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 	}
@@ -833,7 +833,7 @@ sub handle_16
 		my $rng = Route::Node::get($call);
 		my $u = DXUser::get_current($call) unless $rng;
 		if ($rng || ($u && $u->is_node)) {
-			dbg("PCPROT: $call is a node") if isdbg('chanerr');
+			dbg("PCPROT: $call is a node") if isdbg('chanerr') || isdbg('routelow');
 			next;
 		}
 
@@ -887,47 +887,47 @@ sub handle_17
 
 	# do I want users from this channel?
 	unless ($self->user->wantpc16) {
-		dbg("PCPROT: don't send users to $self->{call}") if isdbg('chanerr');
+		dbg("PCPROT: don't send users to $self->{call}") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
 	if ($ncall eq $main::mycall) {
-		dbg("PCPROT: trying to alter config on this node from outside!") if isdbg('chanerr');
+		dbg("PCPROT: trying to alter config on this node from outside!") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
 	# isolate now means only accept stuff from this call only
 	if ($self->{isolate} && $ncall ne $self->{call}) {
-		dbg("PCPROT: $self->{call} isolated, $ncall ignored") if isdbg('chanerr');
+		dbg("PCPROT: $self->{call} isolated, $ncall ignored") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
 	my $uref = Route::User::get($ucall);
 	unless ($uref) {
-		dbg("PCPROT: Route::User $ucall not in config") if isdbg('chanerr');
+		dbg("PCPROT: Route::User $ucall not in config") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 	my $parent = Route::Node::get($ncall);
 	unless ($parent) {
-		dbg("PCPROT: Route::Node $ncall not in config") if isdbg('chanerr');
+		dbg("PCPROT: Route::Node $ncall not in config") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
 	$dxchan = DXChannel::get($ncall);
 	if ($dxchan && $dxchan ne $self) {
-		dbg("PCPROT: PC17 from $self->{call} trying to alter locally connected $ncall, ignored!") if isdbg('chanerr');
+		dbg("PCPROT: PC17 from $self->{call} trying to alter locally connected $ncall, ignored!") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
 	unless ($dxchan) {
 		if ($parent->via_pc92) {
-			dbg("PCPROT: non-local node controlled by PC92, ignored") if isdbg('chanerr');
+			dbg("PCPROT: non-local node controlled by PC92, ignored") if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 	}
 
 	if (DXChannel::get($ucall)) {
-		dbg("PCPROT: trying do disconnect local user, ignored") if isdbg('chanerr');
+		dbg("PCPROT: trying do disconnect local user, ignored") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
@@ -964,7 +964,7 @@ sub handle_18
 	my $parent = Route::Node::get($self->{call});
 
 	my ($software, $version, $build) = (undef, 0, 0);
-	 
+
 	# record the type and version offered
 	if (($software, $version) = $pc->[1] =~ /(DXSpider|CC\s*Cluster)\s+Version: (\d+(?:\.\d+)?)/i) {
 		$version += 0;
@@ -1027,7 +1027,7 @@ sub handle_18
 			return;
 		}
 	}
-	
+
 	if ($pc->[1] =~ /CC\s*Cluster/i || $pc->[1] =~ /\bpc9x/i) {
 		if ($self->{isolate}) {
 			dbg("PC18 $self->{call} pc9x recognised, but node is isolated, using old protocol");
@@ -1052,7 +1052,7 @@ sub handle_18
 			return;
 		}
 	}
-	
+
 
 	# first clear out any nodes on this dxchannel
 	my @rout = $parent->del_nodes;
@@ -1159,14 +1159,14 @@ sub handle_19
 			if ($dxchan == $self) {
 				$h = 1;
 			} else {
-				dbg("PCPROT: PC19 from $self->{call} trying to alter wrong locally connected $call, ignored!") if isdbg('chanerr');
+				dbg("PCPROT: PC19 from $self->{call} trying to alter wrong locally connected $call, ignored!") if isdbg('chanerr') || isdbg('routelow');
 				next;
 			}
 		}
 
 		# isolate now means only accept stuff from this call only
 		if ($self->{isolate} && $call ne $self->{call}) {
-			dbg("PCPROT: $self->{call} isolated, $call ignored") if isdbg('chanerr');
+			dbg("PCPROT: $self->{call} isolated, $call ignored") if isdbg('chanerr') || isdbg('routelow');
 			next;
 		}
 
@@ -1178,7 +1178,7 @@ sub handle_19
 
 		unless ($h) {
 			if ($parent->via_pc92) {
-				dbg("PCPROT: non-local node controlled by PC92, ignored") if isdbg('chanerr');
+				dbg("PCPROT: non-local node controlled by PC92, ignored") if isdbg('chanerr') || isdbg('routelow');
 				next;
 			}
 		}
@@ -1298,7 +1298,7 @@ sub handle_21
 		if ($node) {
 
 			if ($node->via_pc92) {
-				dbg("PCPROT: controlled by PC92, ignored") if isdbg('chanerr');
+				dbg("PCPROT: controlled by PC92, ignored") if isdbg('chanerr') || isdbg('routelow');
 				return;
 			}
 
@@ -1376,7 +1376,7 @@ sub handle_23
 	my ($r) = $pc->[6] =~ /R=(\d+)/;
 	$r = 0 unless $r;
 	if (($pcno == 23 && $d < $main::systime - $pc23_max_age) || $d > $main::systime + 1500 || $pc->[2] < 0 || $pc->[2] > 23) {
-		dbg("PCPROT: WWV Date ($pc->[1] $pc->[2]) out of range") if isdbg('chanerr');
+		dbg("PCPROT: WWV Date ($pc->[1] $pc->[2]) out of range") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
@@ -1385,13 +1385,13 @@ sub handle_23
 	if ($self->{inwwvfilter}) {
 		my ($filter, $hops) = $self->{inwwvfilter}->it(@$pc[7,8], $origin, @dxcc);
 		unless ($filter) {
-			dbg("PCPROT: Rejected by input wwv filter") if isdbg('chanerr');
+			dbg("PCPROT: Rejected by input wwv filter") if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 	}
 	$pc->[7] =~ s/-\d+$//o;		# remove spotter's ssid
 	if (Geomag::dup($d,$sfi,$k,$i,$pc->[6],$pc->[7])) {
-		dbg("PCPROT: Dup WWV Spot ignored") if isdbg('chanerr');
+		dbg("PCPROT: Dup WWV Spot ignored") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
@@ -1582,7 +1582,7 @@ sub handle_39
 	if ($pc->[1] eq $self->{call}) {
 		$self->disconnect(1);
 	} else {
-		dbg("PCPROT: came in on wrong channel") if isdbg('chanerr');
+		dbg("PCPROT: came in on wrong channel") if isdbg('chanerr') || isdbg('routelow');
 	}
 }
 
@@ -1598,7 +1598,7 @@ sub handle_41
 	my $pc = shift;
 
 	return if $self->check_available($origin, $pcno);
-	
+
 	my $call = $pc->[1];
 	my $sort = $pc->[2];
 	my $val = $pc->[3];
@@ -1613,7 +1613,7 @@ sub handle_41
 	#			return unless $self->in_filter_route($ref);
 
 	if ($val eq $sort || $val =~ /^\s*$/) {
-		dbg('PCPROT: invalid value') if isdbg('chanerr');
+		dbg('PCPROT: invalid value') if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
@@ -1633,7 +1633,7 @@ sub handle_41
 
 	if ($sort == 1) {
 		if (($val =~ /spotter/i || $val =~ /self/i) && $user->name && $user->name ne $val) {
-			dbg("PCPROT: invalid name") if isdbg('chanerr');
+			dbg("PCPROT: invalid name") if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 		$user->name($val);
@@ -1646,7 +1646,7 @@ sub handle_41
 			$user->long($long) if $long;
 			$user->qra(DXBearing::lltoqra($lat, $long)) unless $user->qra;
 		} else {
-			dbg('PCPROT: not a valid lat/long') if isdbg('chanerr');
+			dbg('PCPROT: not a valid lat/long') if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 	} elsif ($sort == 4) {
@@ -1658,7 +1658,7 @@ sub handle_41
 			$user->long($long) if $long && !$user->long;
 			$user->qra(uc $val);
 		} else {
-			dbg('PCPROT: not a valid QRA locator') if isdbg('chanerr');
+			dbg('PCPROT: not a valid QRA locator') if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 	}
@@ -1803,12 +1803,12 @@ sub handle_73
 	# do some de-duping
 	my $d = cltounix($call, sprintf("%02d18Z", $pc->[2]));
 	if (($pcno == 23 && $d < $main::systime - $pc23_max_age) || $d > $main::systime + 1500 || $pc->[2] < 0 || $pc->[2] > 23) {
-		dbg("PCPROT: WCY Date ($call $pc->[2]) out of range") if isdbg('chanerr');
+		dbg("PCPROT: WCY Date ($call $pc->[2]) out of range") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 	$pc = [ map { unpad($_) } @$pc ];
 	if (WCY::dup($d)) {
-		dbg("PCPROT: Dup WCY Spot ignored") if isdbg('chanerr');
+		dbg("PCPROT: Dup WCY Spot ignored") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
@@ -1863,11 +1863,11 @@ sub _decode_pc92_call
 	my @part = split /:/, $icall;
 	my ($flag, $call) = unpack "A A*", $part[0];
 	unless (defined $flag && $flag ge '0' && $flag le '7') {
-		dbg("PCPROT: $icall no flag byte (0-7) at front of call, ignored") if isdbg('chanerr');
+		dbg("PCPROT: $icall no flag byte (0-7) at front of call, ignored") if isdbg('chanerr') || isdbg('routelow');
 		return ();
 	}
 	unless ($call && is_callsign($call)) {
-		dbg("PCPROT: $icall no recognisable callsign, ignored") if isdbg('chanerr');
+		dbg("PCPROT: $icall no recognisable callsign, ignored") if isdbg('chanerr') || isdbg('routelow');
 		return ();
 	}
 	my $is_node = $flag & 4;
@@ -1946,7 +1946,7 @@ sub _pc92_user_is_known_node
 	return 0 unless $node || ($user && $user->is_node);
 	my $from = $parent ? $parent->call : '-';
 	my $peer = $dxchan ? $dxchan->call : '-';
-	dbg("PCPROT: PC92$sort rejected user $call (node identity $normcall): known node; parent=$from; peer=$peer") if isdbg('chanerr');
+	dbg("PCPROT: PC92$sort rejected user $call (node identity $normcall): known node; parent=$from; peer=$peer") if isdbg('chanerr') || isdbg('routelow');
 	return 1;
 }
 
@@ -1960,7 +1960,7 @@ sub _pc92_invalid_extnode_user
     my $call = $slot->[0] || '-';
     my $from = $parent ? $parent->call : '-';
     my $peer = $dxchan ? $dxchan->call : '-';
-    dbg("PCPROT: PC92$sort rejected inconsistent external-node flag for $call; parent=$from; peer=$peer") if isdbg('chanerr');
+    dbg("PCPROT: PC92$sort rejected inconsistent external-node flag for $call; parent=$from; peer=$peer") if isdbg('chanerr') || isdbg('routelow');
     return 1;
 }
 
@@ -1974,6 +1974,8 @@ sub _add_thingy
 
 	my ($call, $is_node, $is_extnode, $here, $version, $build, $ip) = @$s;
 	my @rout;
+
+	dbg("DXProt::_add_thingy $parent->{call}: $call $is_node $is_extnode $ip") if isdbg('routelow');
 
 	# Reject invalid user advertisements before any DXUser normalization cleanup.
 	# The cleanup below may delete an existing DXUser record.
@@ -2050,17 +2052,18 @@ sub _add_thingy
 				$r->ip($ip);
 				Log('DXProt', "PC92A $call -> $ip on $ncall");
 			}
-			if ($pc92_slug_changes && $parent == $main::routeroot) {
-				$things_add{$call} = Route::get($call);
+			if ($r && $pc92_slug_changes && $parent == $main::routeroot) {
+				dbg("add_thingy: $call in add($things_del{$call})") if isdbg('routelow');
+				$things_add{$call} = $r;
 				delete $things_del{$call};
 			}
 			$user->close($main::systime, $ip) if $user;		# this just updates lastseen and the connlist list containing the IP address
-		} else {				
+		} else {
 			dbgprintring(10) if isdbg('nologchan');
 			dbg("DXProt::add_thingy: Trying to add parent $call to itself $ncall, ignored");
 		}
 	}
-	
+
 	return @rout;
 }
 
@@ -2071,21 +2074,24 @@ sub _del_thingy
 	my $dxchan = shift;
 	my ($call, $is_node, $is_extnode, $here, $version, $build) = @$s;
 	my @rout;
+	dbg("DXProt::_del_thingy $parent->{call}: $call $is_node $is_extnode") if isdbg('routelow');
 	if ($call) {
 		my $ref;
 		if ($is_node) {
-			$ref = Route::Node::get($call);
-			dbg("ROUTE: deleting node $call from " . $parent->call) if isdbg('routelow');
-			@rout = $ref->del($parent) if $ref;
+			if ($ref = Route::Node::get($call)) {
+				dbg("ROUTE: deleting node $call from " . $parent->call) if isdbg('routelow');
+				@rout = $ref->del($parent);
+			}
 		} else {
-			dbg("ROUTE: deleting user $call from " . $parent->call) if isdbg('routelow');
 			$ref = Route::User::get($call);
 			if ($ref) {
+				dbg("ROUTE: deleting user $call from " . $parent->call) if isdbg('routelow');
 				$dxchan->tell_buddies('logoutb', $call, $parent->call) if $dxchan;
 				@rout = $parent->del_user($ref);
 			}
 		}
-		if ($pc92_slug_changes && $parent == $main::routeroot) {
+		if ($ref && $pc92_slug_changes && $parent == $main::routeroot) {
+			dbg("del_thingy: $call in add($things_add{$call})") if isdbg('routelow');
 			$things_del{$call} = $ref unless exists $things_add{$call};
 			delete $things_add{$call};
 		}
@@ -2100,11 +2106,15 @@ sub gen_pc92_changes
 {
 	my @add = values %things_add;
 	my @del = values %things_del;
+	 dbg("pc92_changes del: " . join(' ', sort keys %things_del) ) if isdbg('routelow');
+	 dbg("pc92_changes add: " . join(' ', sort keys %things_add) ) if isdbg('routelow');
 	return (\@add, \@del);
 }
 
 sub clear_pc92_changes
 {
+	 dbg("clear pc92_changes del: " . join(' ', sort keys %things_del) ) if isdbg('routelow');
+	 dbg("clear pc92_changes add: " . join(' ', sort keys %things_add) ) if isdbg('routelow');
 	%things_add = %things_del = ();
 	$last_pc92_slug = $main::systime;
 }
@@ -2139,7 +2149,7 @@ sub check_pc9x_t
 
 	# check that the time is between 0 >= $t < 86400
 	unless ($t >= 0 && $t < 86400) {
-		dbg("PCPROT: time invalid t: $t, ignored") if isdbg('chanerr');
+		dbg("PCPROT: time invalid t: $t, ignored") if isdbg('chanerr') || isdbg('routelow');
 		return undef;
 	}
 
@@ -2219,6 +2229,7 @@ sub pc92_handle_first_slot
 	my @radd;
 
 	my ($call, $is_node, $is_extnode, $here, $version, $build) = @$slot;
+
 	if ($call && $is_node) {
 		if ($call eq $main::mycall) {
 			LogDbg('err', "PCPROT: $self->{call} : $call looped back onto \$main::mycall ($main::mycall), ignored");
@@ -2234,7 +2245,7 @@ sub pc92_handle_first_slot
 		# to try to reduce the number of dupe PC92s for this external node.
 		if (DXChannel::get($call) && $call ne $self->{call}) {
 			$parent = check_pc9x_t($call, $t, 92); # this will update the lastid time
-			dbg("PCPROT: locally connected node $call from other another node $self->{call}, ignored") if isdbg('chanerr');
+			dbg("PCPROT: locally connected node $call from other another node $self->{call}, ignored") if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 		if ($is_extnode) {
@@ -2245,7 +2256,7 @@ sub pc92_handle_first_slot
 					@radd = _add_thingy($oparent, $slot, $self, $hops);
 					$parent = $radd[0];
 				} else {
-					dbg("PCPROT: no previous C or A for this external node received, ignored") if isdbg('chanerr');
+					dbg("PCPROT: no previous C or A for this external node received, ignored") if isdbg('chanerr') || isdbg('routelow');
 					return;
 				}
 			}
@@ -2254,7 +2265,7 @@ sub pc92_handle_first_slot
 			$parent->PC92C_dxchan($self->{call}, $hops);
 		}
 	} else {
-		dbg("PCPROT: must be \$mycall or external node as first entry, ignored") if isdbg('chanerr');
+		dbg("PCPROT: must be \$mycall or external node as first entry, ignored") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 	$parent->here(Route::here($here));
@@ -2313,7 +2324,7 @@ sub handle_92
 		}
 	}
 	unless ($self->{do_pc9x}) {
-		dbg("PCPROT: PC9x come in from non-PC9x node, ignored") if isdbg('chanerr');
+		dbg("PCPROT: PC9x come in from non-PC9x node, ignored") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
@@ -2381,7 +2392,7 @@ sub handle_92
 
 			($parent, $add) = $self->pc92_handle_first_slot(\@ent, $parent, $t, $hops);
 			return unless $parent; # dupe
-			
+
 			push @radd, $add if $add;
 			$parent->reset_obs;
 			# PC92K fields 5/6 are the remote node's advertised node/user
@@ -2403,7 +2414,7 @@ sub handle_92
 			}
 
 			dbg("PCPROT: PC92 K v: $version ov: $oldversion b: $build ob: $oldbuild pk: " . ($parent->K || '0') . " uk: " . ($user->K || 0)) if isdbg('pc92k');
-				
+
 			if (is_numeric($version) || is_numeric($build)) {
 				my $changed = 0;
 				if (($oldversion ne $version || $build ne $oldbuild)) {
@@ -2428,7 +2439,7 @@ sub handle_92
 					$self->state('normal');
 					dbg(sprintf "PCPROT: PC92 K rec, node $call updated state now 'normal'");
 				}
-				
+
 				unless (DXChannel::get($user->call)) { # only do this if not connected
 					my $oldpriv = $user->priv;
 					my $oldlock = $user->lockout;
@@ -2467,6 +2478,17 @@ sub handle_92
 
 		my @ent = map {my @a = _decode_pc92_call($_); @a ? \@a : ()} grep {$_ && /^[0-7]/} $me, @$pc[5 .. $#$pc];
 
+		# PC92A/D may omit the originating node's first slot entirely.
+		# In that wire format pc->[4] is already the first advertised user,
+		# not an empty field.  Restore the implicit parent only when the
+		# first decoded entry is a user or an ordinary advertised node;
+		# retain explicit origin and external-node first slots unchanged.
+		if (($sort eq 'A' || $sort eq 'D') && @ent &&
+			!$ent[0]->[2] && (!$ent[0]->[1] || $ent[0]->[0] ne $parent->call)) {
+			my @origin_slot = _decode_pc92_call(_encode_pc92_call($parent));
+			unshift @ent, \@origin_slot if @origin_slot;
+		}
+
 		if (@ent) {
 
 			# look at the first one which will always be a node of some sort
@@ -2497,7 +2519,7 @@ sub handle_92
 				LogDbg('err',"PCPROT: $self->{call} : type $sort $_->[0] trying to change type to " . $_->[1]?"Node":"User" . ", ignored");
 				next;
 			}
-			
+
 			push @nent, $_;
 		}
 
@@ -2562,7 +2584,7 @@ sub handle_92
 			# remember this last PC92C for rebroadcast on demand
 			$parent->last_PC92C($line);
 		} else {
-			dbg("PCPROT: unknown action '$sort', ignored") if isdbg('chanerr');
+			dbg("PCPROT: unknown action '$sort', ignored") if isdbg('chanerr') || isdbg('routelow');
 			return;
 		}
 
@@ -2639,7 +2661,7 @@ sub find_chat_group_users
 {
 	my $group = shift;
 	my @out;
-	
+
 }
 
 sub handle_93
@@ -2659,7 +2681,7 @@ sub handle_93
 	# remember that we are converting PC10->PC93 and self will be $main::me if it
 	# comes from us
 	unless ($self->{do_pc9x}) {
-		dbg("PCPROT: PC9x come in from non-PC9x node, ignored") if isdbg('chanerr');
+		dbg("PCPROT: PC9x come in from non-PC9x node, ignored") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
@@ -2683,7 +2705,7 @@ sub handle_93
 	}
 
 	if (isdbg('progress')) {
-		my $vs = $via ne '*' ? " via $via" : ''; 
+		my $vs = $via ne '*' ? " via $via" : '';
 		my $s = "ANNTALK: $from\@$onode$vs -> $to '$text' route: $origin";
 		dbg($s);
 	}
@@ -2706,7 +2728,7 @@ sub handle_93
 
 	# ignore PC93 coming in from outside this node with a target of local
 	if ($to eq 'LOCAL' && $self != $main::me) {
-		dbg("PCPROT: incoming LOCAL chat not from local node, ignored") if isdbg('chanerr');
+		dbg("PCPROT: incoming LOCAL chat not from local node, ignored") if isdbg('chanerr') || isdbg('routelow');
 		return;
 	}
 
@@ -2799,7 +2821,7 @@ sub handle_default
 		if ($pcno >= 90) {
 			my $pcall = $pc->[1];
 			unless (is_callsign($pcall)) {
-				dbg("PCPROT: invalid callsign string '$pc->[1]', ignored") if isdbg('chanerr');
+				dbg("PCPROT: invalid callsign string '$pc->[1]', ignored") if isdbg('chanerr') || isdbg('routelow');
 				return;
 			}
 			my $t = $pc->[2];
@@ -2817,7 +2839,7 @@ sub handle_default
 sub populate_routing_table
 {
 	my ($self, $node, $user, $ip) = @_;
-	
+
 	my $rn = Route::Node::get($node);
 	unless ($rn) {
 		$rn = Route::Node->new($node);
@@ -2833,7 +2855,7 @@ sub populate_routing_table
 		}
 		$ru = Route::User::get($user);
 	}
-	
+
 	# Add/Change any IP address info
 
 	# as we have a route to a user, if it (or the node) does not exist then create them

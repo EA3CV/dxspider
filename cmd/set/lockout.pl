@@ -43,7 +43,10 @@ sub handle
 
 	# Validate the complete argument list before changing any DXUser record.
 	# A malformed item must not cause partial updates.
-	my @invalid = grep { !DXUtil::is_callsign($_) } map { uc $_ } @args;
+	return (1, $self->msg('lockoutuse')) unless @args;
+	my @invalid = grep {
+		!DXUtil::is_callsign($_) || /-(?:0|00|0[1-9])$/
+	} map { uc $_ } @args;
 	if (@invalid) {
 		return (1, "Invalid callsign(s): " . join(', ', @invalid) . ". No changes made.");
 	}
@@ -52,26 +55,24 @@ sub handle
 		$call = uc $call;
 		unless ($self->remotecmd || $self->inscript) {
 			if ($call =~ /-\d{1,2}$/) {	# This is a call + ssid, just do this exact call
-				$call =~ s/-0$//;		    # this means just the base callsignx
 				if ($ref = DXUser::get_current($call)) {
 					push @out, mod_existing($self, $ref);
 				} else {
 					push @out, add_new($self, $call);
 				}
 			} else {
-				# if this call exists, then lock it and go and find ssids 1 -> 99
-				# look for any ssids associated with it and lock them as well
-				# if this is a new call, just create it.
+				# Update the base record, creating it if necessary.
 				$ref = DXUser::get_current($call);
 				if ($ref) {
-					push @out, mod_existing($self, $ref);    # lock the base call
-					foreach my $ssid (1..99) {
-						$ref = DXUser::get_current("$call-$ssid");
-#						push @out, "try $call-$ssid" . ($ref ? " found" : "");
-						push @out, mod_existing($self, $ref)  if $ref;
-					}
+					push @out, mod_existing($self, $ref);
 				} else {
 					push @out, add_new($self, $call);
+				}
+				# Existing SSIDs are independent DXUser records: always scan
+				# them, even when the base record did not previously exist.
+				foreach my $ssid (1..99) {
+					$ref = DXUser::get_current("$call-$ssid");
+					push @out, mod_existing($self, $ref) if $ref;
 				}
 			}
 			Log('DXCommand', $self->call . " locked out $call");

@@ -280,9 +280,9 @@ sub cluster
 	my $maxusers = Route::User::max();
 	my $uptime = main::uptime();
 	my $localnodes = $DXChannel::count - $users;   # this is now wrong because of skimmers
-	
+
 	return ($nodes, $tot, $users, $maxlocalusers, $maxusers, $uptime, $localnodes);
-	
+
 
 }
 
@@ -384,6 +384,37 @@ sub delete_interface
 {
 
 }
+
+# This returns the number of parents a base callsign has.
+# takes any callsign, strips its ssid and searchs through list
+# for any matching base call (again, ignoring any SSID).
+sub basecall_no
+{
+	my $user = shift;
+	my $count = 0;
+	my $call = $user->call;
+	my $base = $call;
+	$base =~ s/-\d+//;
+	my $patt = qr/$base/;
+	my @calls;
+	my @keys;
+
+	if ($user->is_node) {
+		push @keys, Route::Node::get_all_keys();
+	} else {
+		push @keys, Route::User::get_all_keys();
+	}
+	foreach my $key (grep {m/^${$patt}(?:-\d+)?$}/} @keys ) {
+		dbg("base call: $base call: $key") if isdbg('routebase');
+		my $ref = get($key);
+		push @calls, $ref->{call};
+		$count += scalar $ref->parents;
+	}
+	$count++;
+	dbg("Route base calls on '$base' count: $count: " . join(' ', @calls)) if isdbg('routebase');
+	return ($count, @calls);
+}
+
 
 #
 # track destruction

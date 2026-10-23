@@ -1,36 +1,67 @@
+23Oct26======================================================================
+1. Reduce pc92_slug_time to 20 secs. This is the wait time to collect
+   connection events before emitting PC92 A/D records. It was 60 secs.
+2. Fix the lockout code and commands so that (say) set/lockout g1tst will
+   lockout g1tst and g1tst-1 to g1tst-99. BUT an (say) unset/lock g1tst-3
+   will allow g1tst-3 only.
+3. Fix an (apparently) long standing bug where (quite a few) users never
+   entered the routing table under certain conditions.
+4. Change the mechanism to prevent more than a certain number of concurrent
+   logins by a base callsign (e.g. g1tst + g1tst-1/-99) over the whole
+   cluster. This number is currently 12.
+5. Allow $maxconnect_user to have that many connections and not 1 less.
+22Oct26======================================================================
+1. Improved and unified the dark theme to provide a more consistent visual
+    appearance.
+2. Fixed buddy and set/logininfo notifications, including their reception and
+   display in the web interface.
+3. Updated DXWeb to 3.0.0 and DXWeb Admin to 1.0.0.
 21Oct26======================================================================
-1. Fix the "too many connections, too quickly" mechanism. 
-2. Fix some other long standing issues that also made point 1 above worse.  
+1. Fix the "too many connections, too quickly" mechanism.
+2. DXWeb 2.8.73: Added a Pause toggle to the Spots view.
+3. DXWeb Admin 0.78.80: DXReg.pm: Added support for SP REGISTER from terminal
+4. JSON/WebSocket Encoding: Standardized Unicode character transmission from
+   the browser using JSON \uXXXX escape sequences, preventing encoding issues
+5. Fix some other long standing issues that also made the connection-rate problem worse.
+20Oct26======================================================================
+1. Integrated a new installer for DXWeb and DXWeb Admin: dxweb-manager.pl
+2. Added INSTALL_DXWEB, a comprehensive installation and upgrade guide
+   covering direct deployment and an Nginx reverse proxy example.
+3. Improved systemd service configuration, backup management, and rollback
+   procedures.
+4. Removed anonymous sessions from DXWeb.
+5. Fixed session termination and cleanup issues.
+6. Updated DXWeb to version 2.8.70 and DXWeb Admin to 0.78.75.
 19Oct26======================================================================
-1. DXWeb: protocol WebSocket heartbeat and stale-client cleanup; quiet 
+1. DXWeb: protocol WebSocket heartbeat and stale-client cleanup; quiet
    sessions remain connected.
 2. DXWeb: corrected Console and Filters independent zoom scaling.
 3. DXWeb Admin: selectable and validated SSH port for Linux Terminal.
-4. DXWeb: Improved WebSocket session management with heartbeat, 
+4. DXWeb: Improved WebSocket session management with heartbeat,
    dead-connection detection and cleanup to prevent idle disconnections and
    stale user sessions.
-5. DXWeb: Improved automatic reconnection handling after temporary network 
+5. DXWeb: Improved automatic reconnection handling after temporary network
    interruptions.
 6. DXWeb Console and Filters: Fixed zoom behavior below 100% on desktop.
-4. DXWeb Admin SSH Terminal: Added configurable SSH port support (1–65535), 
+4. DXWeb Admin SSH Terminal: Added configurable SSH port support (1–65535),
    preserving SSH authentication and host key verification.
-7. Reworked the Debug interface with independent, floating RAW, WATCH and 
+7. Reworked the Debug interface with independent, floating RAW, WATCH and
    GREP windows. Added support for regular expressions.
    RAW displays the selected source (Debug, Log, Spots, WWV or WCY)
-   WATCH provides real-time filtering of Debug output using the existing 
+   WATCH provides real-time filtering of Debug output using the existing
    DXSpider watchdbg functionality.
-   GREP provides historical Debug searches using the existing DXSpider 
+   GREP provides historical Debug searches using the existing DXSpider
    grepdbg functionality.
 8. Updated component versions through v0.78.66.
 18Oct26======================================================================
-1. Added Network Chat panel for receiving DXSpider PC93 network messages, 
+1. Added Network Chat panel for receiving DXSpider PC93 network messages,
    with ERROR and SYSOP channel selection.
-2. Security: Hardened TCP connection handling against spoofed client 
+2. Security: Hardened TCP connection handling against spoofed client
    addresses and untrusted PROXY protocol headers. Preserved SYSOP privileges
-   for legitimate local console.pl sessions and authenticated remote 
+   for legitimate local console.pl sessions and authenticated remote
    connections. Added security regression tests.
 3. Added log entries including callsign, #WEB channel, and connection source.
-4. Added logging of rejected authentication attempts, including the reason 
+4. Added logging of rejected authentication attempts, including the reason
    for rejection.
 5. Improved Admin -> Connections and Users.
 6. Updated DXWeb Admin version to 0.78.58.

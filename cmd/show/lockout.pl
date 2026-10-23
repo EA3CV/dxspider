@@ -40,8 +40,8 @@ sub generate
 			$r = $sth->execute;
 			while ($r =$sth->fetch) {
 				my ($k, $d) =@$r;
-				if ($d =~ m{"lockout":(\d)}) {
-					my $v = $1 || '0';
+				if ($d =~ m/"lockout":1(?:,|\})/) {
+					my $v = 1;
 					push @ans, "$k($v)";
 					++$count;
 				}
@@ -49,8 +49,8 @@ sub generate
 		}
 		else {
 			for ($action = DXUser::R_FIRST, $count=0; !$DXUser::dbm->seq($key, $data, $action); $action = DXUser::R_NEXT) {
-				if ($data =~ m{"lockout":(\d)}) {
-					my $v = $1 || '0';
+				if ($data =~ m/"lockout":1(?:,|\})/) {
+					my $v = 1;
 					push @ans, "$key($v)";
 					++$count;
 				}

@@ -1678,3 +1678,128 @@ body .logWorkspace .logFloat .logFloatBar select {
 body .logWorkspace .logFloat .logFloatBar input[type="number"]{width:48px!important}
 body .logWorkspace .logFloat .logFloatBar input[type="date"]{width:132px!important}
 body .logWorkspace .logFloat .logFloatBar>input:first-child{flex:1 1 140px;min-width:110px}
+
+/* DXWeb Admin logo: left side of the node callsign topbar, not the sidebar. */
+body.v2-shell .v2Topbar{position:relative!important}
+body.v2-shell .v2Topbar .dxAdminTopLogo{position:absolute;left:20px;top:50%;transform:translateY(-50%);display:block;width:clamp(140px,15vw,220px);height:auto;max-height:56px;object-fit:contain;object-position:left center;z-index:1}
+@media(max-width:1180px){body.v2-shell .v2Topbar .dxAdminTopLogo{width:clamp(105px,13vw,165px)}}
+@media(max-width:760px){body.v2-shell .v2Topbar .dxAdminTopLogo{left:8px;width:clamp(64px,16vw,105px);max-height:38px}body.v2-shell .v2Topbar .v2NodeIdentity{margin-left:clamp(68px,17vw,110px)!important;min-width:0}}
+
+
+/* Unified DXSpider night palette v0.01 — presentation only, no layout/behaviour changes.
+   Contrast-oriented navy/slate surfaces; shared tokens across both frontends. */
+html[data-theme="dark"] {
+ --dx-night-bg:#172331;--dx-night-panel:#243447;--dx-night-raised:#2d4156;
+ --dx-night-input:#1c2b3c;--dx-night-border:#60768d;
+ --dx-night-text:#f0f5fa;--dx-night-muted:#c2d0de;
+ --dx-night-accent:#92c9ff;--dx-night-active:#285f9d;
+ --dx-night-hover:#38536e;--dx-night-focus:#ffd178;
+ color-scheme:dark;background:var(--dx-night-bg);color:var(--dx-night-text);
+ --ui-bg:var(--dx-night-bg);--ui-surface:var(--dx-night-panel);
+ --ui-surface-2:var(--dx-night-raised);--ui-surface-3:var(--dx-night-raised);
+ --ui-border:var(--dx-night-border);--ui-text:var(--dx-night-text);
+ --ui-muted:var(--dx-night-muted);--ui-accent:var(--dx-night-accent);
+ --ui-accent-soft:rgba(146,201,255,.18);
+ --v2-bg:var(--dx-night-bg);--v2-surface:var(--dx-night-panel);
+ --v2-border:var(--dx-night-border);--v2-muted:var(--dx-night-muted);
+ --v2-text:var(--dx-night-text);--v2-accent:var(--dx-night-accent);
+ --v2-accent-soft:rgba(146,201,255,.18);
+ --v2-chart-surface:var(--dx-night-panel);--v2-chart-grid:rgba(194,208,222,.23);
+}
+html[data-theme="dark"] body,
+html[data-theme="dark"] body.v2-shell,
+html[data-theme="dark"] body.v2-shell .workspace,
+html[data-theme="dark"] .workspace,
+html[data-theme="dark"] body.v2-shell #supervision .superPanel,
+html[data-theme="dark"] body.v2-shell #metrics.section.active {background:var(--dx-night-bg)!important;color:var(--dx-night-text)!important}
+html[data-theme="dark"] :is(.topbar,.v2Topbar,.v2ContextBar,footer,.panel,.superCard,.kpiCard,.metricChartCard,.chartCard,.metricsPanel,.timelinePanel,.dialogCard,.tabs,.subtabs,.tableWrap,.regTableWrap,.supervisionTableWrap,.supervisionBanner,.resultArea,.filterBuilder,.vf-left,.vf-right,.commandOutput,.feedlog,.logFloat,.logFloatHead,.logFloatBar) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] body.v2-shell :is(.v2Topbar,.v2ContextBar,.metricChartCard,.panel,.superCard,.kpiCard,.tableWrap,.supervisionTableWrap),
+html[data-theme="dark"] body.v2-shell #supervision :is(.superCard,.kpiCard,.tableWrap,.supervisionTableWrap) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(.tabs,.mainTabs,.subtabs,#operationTabs,#registrationTabs,#supervisionTabs) {background:var(--dx-night-panel)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(button,input,select,textarea,.themeToggle),
+html[data-theme="dark"] body.v2-shell #supervision :is(input:not([type="checkbox"]),select,button:not(.active)),
+html[data-theme="dark"] body.v2-shell dialog .dialogCard :is(input,textarea,select,button:not(.dangerButton)) {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(input,textarea)::placeholder {color:var(--dx-night-muted)!important;opacity:1}
+html[data-theme="dark"] :is(button,.themeToggle):hover:not(:disabled) {background:var(--dx-night-hover)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="dark"] :is(.tabs,.subtabs,.mainTabs,.segmented) button.active,
+html[data-theme="dark"] body.v2-shell .segmented button.active,
+html[data-theme="dark"] body.v2-shell #supervision button.active,
+html[data-theme="dark"] #spots .panelHead #spotPause.active {background:var(--dx-night-active)!important;color:#fff!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="dark"] :is(.panelHead h2,.panelHead h3,.dialogCard h2,.nodeCall,.brand,.cardTitle h3) {color:var(--dx-night-accent)!important}
+html[data-theme="dark"] :is(.counter,.fieldHint,.themeControl,.panelSub,.cardHint,.superNote,.metricsMeta,.kpiLabel,.kpiCard small,.chartHead span,.miniHead span,footer,footer .copyright,.brandCopyright) {color:var(--dx-night-muted)!important;opacity:1!important}
+html[data-theme="dark"] :is(th,.spotTable th,.superTable thead th,.regTable thead th),
+html[data-theme="dark"] body.v2-shell #supervision th {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(td,.spotTable td,.superTable td,.regTable td),
+html[data-theme="dark"] body.v2-shell #supervision td {border-color:var(--dx-night-border)!important;color:var(--dx-night-text)!important}
+html[data-theme="dark"] body.v2-shell #supervision td {background:var(--dx-night-panel)!important}
+html[data-theme="dark"] :is(.spotTable,.superTable,.regTable) tbody tr:hover {background:var(--dx-night-hover)!important}
+html[data-theme="dark"] :is(.commandOutput,.feedlog,.consoleOutput,.resultArea) {background:var(--dx-night-input)!important;color:var(--dx-night-text)!important}
+html[data-theme="dark"] :is(.metricRow,.metricRow dt,.metricRow dd,.metricsV2,.metricList dd,.kpiCard strong) {color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(.metricRow dt,.metricList dt) {color:var(--dx-night-muted)!important}
+html[data-theme="dark"] :is(button,input,select,textarea,a,[tabindex]):focus-visible {outline:2px solid var(--dx-night-focus)!important;outline-offset:2px!important}
+html[data-theme="dark"] :is(button,input,select,textarea):disabled {opacity:.58;cursor:not-allowed}
+
+
+@media (prefers-color-scheme:dark) {
+
+/* Unified DXSpider night palette v0.01 — presentation only, no layout/behaviour changes.
+   Contrast-oriented navy/slate surfaces; shared tokens across both frontends. */
+html[data-theme="auto"] {
+ --dx-night-bg:#172331;--dx-night-panel:#243447;--dx-night-raised:#2d4156;
+ --dx-night-input:#1c2b3c;--dx-night-border:#60768d;
+ --dx-night-text:#f0f5fa;--dx-night-muted:#c2d0de;
+ --dx-night-accent:#92c9ff;--dx-night-active:#285f9d;
+ --dx-night-hover:#38536e;--dx-night-focus:#ffd178;
+ color-scheme:dark;background:var(--dx-night-bg);color:var(--dx-night-text);
+ --ui-bg:var(--dx-night-bg);--ui-surface:var(--dx-night-panel);
+ --ui-surface-2:var(--dx-night-raised);--ui-surface-3:var(--dx-night-raised);
+ --ui-border:var(--dx-night-border);--ui-text:var(--dx-night-text);
+ --ui-muted:var(--dx-night-muted);--ui-accent:var(--dx-night-accent);
+ --ui-accent-soft:rgba(146,201,255,.18);
+ --v2-bg:var(--dx-night-bg);--v2-surface:var(--dx-night-panel);
+ --v2-border:var(--dx-night-border);--v2-muted:var(--dx-night-muted);
+ --v2-text:var(--dx-night-text);--v2-accent:var(--dx-night-accent);
+ --v2-accent-soft:rgba(146,201,255,.18);
+ --v2-chart-surface:var(--dx-night-panel);--v2-chart-grid:rgba(194,208,222,.23);
+}
+html[data-theme="auto"] body,
+html[data-theme="auto"] body.v2-shell,
+html[data-theme="auto"] body.v2-shell .workspace,
+html[data-theme="auto"] .workspace,
+html[data-theme="auto"] body.v2-shell #supervision .superPanel,
+html[data-theme="auto"] body.v2-shell #metrics.section.active {background:var(--dx-night-bg)!important;color:var(--dx-night-text)!important}
+html[data-theme="auto"] :is(.topbar,.v2Topbar,.v2ContextBar,footer,.panel,.superCard,.kpiCard,.metricChartCard,.chartCard,.metricsPanel,.timelinePanel,.dialogCard,.tabs,.subtabs,.tableWrap,.regTableWrap,.supervisionTableWrap,.supervisionBanner,.resultArea,.filterBuilder,.vf-left,.vf-right,.commandOutput,.feedlog,.logFloat,.logFloatHead,.logFloatBar) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] body.v2-shell :is(.v2Topbar,.v2ContextBar,.metricChartCard,.panel,.superCard,.kpiCard,.tableWrap,.supervisionTableWrap),
+html[data-theme="auto"] body.v2-shell #supervision :is(.superCard,.kpiCard,.tableWrap,.supervisionTableWrap) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(.tabs,.mainTabs,.subtabs,#operationTabs,#registrationTabs,#supervisionTabs) {background:var(--dx-night-panel)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(button,input,select,textarea,.themeToggle),
+html[data-theme="auto"] body.v2-shell #supervision :is(input:not([type="checkbox"]),select,button:not(.active)),
+html[data-theme="auto"] body.v2-shell dialog .dialogCard :is(input,textarea,select,button:not(.dangerButton)) {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(input,textarea)::placeholder {color:var(--dx-night-muted)!important;opacity:1}
+html[data-theme="auto"] :is(button,.themeToggle):hover:not(:disabled) {background:var(--dx-night-hover)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="auto"] :is(.tabs,.subtabs,.mainTabs,.segmented) button.active,
+html[data-theme="auto"] body.v2-shell .segmented button.active,
+html[data-theme="auto"] body.v2-shell #supervision button.active,
+html[data-theme="auto"] #spots .panelHead #spotPause.active {background:var(--dx-night-active)!important;color:#fff!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="auto"] :is(.panelHead h2,.panelHead h3,.dialogCard h2,.nodeCall,.brand,.cardTitle h3) {color:var(--dx-night-accent)!important}
+html[data-theme="auto"] :is(.counter,.fieldHint,.themeControl,.panelSub,.cardHint,.superNote,.metricsMeta,.kpiLabel,.kpiCard small,.chartHead span,.miniHead span,footer,footer .copyright,.brandCopyright) {color:var(--dx-night-muted)!important;opacity:1!important}
+html[data-theme="auto"] :is(th,.spotTable th,.superTable thead th,.regTable thead th),
+html[data-theme="auto"] body.v2-shell #supervision th {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(td,.spotTable td,.superTable td,.regTable td),
+html[data-theme="auto"] body.v2-shell #supervision td {border-color:var(--dx-night-border)!important;color:var(--dx-night-text)!important}
+html[data-theme="auto"] body.v2-shell #supervision td {background:var(--dx-night-panel)!important}
+html[data-theme="auto"] :is(.spotTable,.superTable,.regTable) tbody tr:hover {background:var(--dx-night-hover)!important}
+html[data-theme="auto"] :is(.commandOutput,.feedlog,.consoleOutput,.resultArea) {background:var(--dx-night-input)!important;color:var(--dx-night-text)!important}
+html[data-theme="auto"] :is(.metricRow,.metricRow dt,.metricRow dd,.metricsV2,.metricList dd,.kpiCard strong) {color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(.metricRow dt,.metricList dt) {color:var(--dx-night-muted)!important}
+html[data-theme="auto"] :is(button,input,select,textarea,a,[tabindex]):focus-visible {outline:2px solid var(--dx-night-focus)!important;outline-offset:2px!important}
+html[data-theme="auto"] :is(button,input,select,textarea):disabled {opacity:.58;cursor:not-allowed}
+
+}
+
+/* Sidebar wordmark v0.78.84: replace old text, remove topbar logo. */
+body.v2-shell .v2Topbar .dxAdminTopLogo{display:none!important}
+body.v2-shell .v2Logo{height:100px!important;min-height:100px!important;box-sizing:border-box!important;padding:5px 4px 12px!important;justify-content:center!important;overflow:hidden!important}
+body.v2-shell .v2Logo .dxAdminSideLogo{display:block!important;width:100%!important;max-width:190px!important;max-height:78px!important;height:auto!important;object-fit:contain!important}
+@media(min-width:761px) and (max-width:1180px){body.v2-shell .v2Logo{height:68px!important;min-height:68px!important;padding:3px!important}body.v2-shell .v2Logo .dxAdminSideLogo{width:65px!important;max-height:56px!important}}
+@media(max-width:760px){body.v2-shell .v2Logo{display:none!important}}

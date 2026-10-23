@@ -33,7 +33,10 @@ sub handle
 	
 	# Validate the complete argument list before changing any DXUser record.
 	# A malformed item must not cause partial updates.
-	my @invalid = grep { !DXUtil::is_callsign($_) } map { uc $_ } @args;
+	return (1, $self->msg('lockoutuse')) unless @args;
+	my @invalid = grep {
+		!DXUtil::is_callsign($_) || /-(?:0|00|0[1-9])$/
+	} map { uc $_ } @args;
 	if (@invalid) {
 		return (1, "Invalid callsign(s): " . join(', ', @invalid) . ". No changes made.");
 	}
@@ -46,17 +49,13 @@ sub handle
 					push @out, mod_existing($self, $ref);
 				}
 			} else {
-				# if this call exists, then lock it and go and find ssids 1 -> 99
-				# look for any ssids associated with it and lock them as well
-				# if this is a new call, just create it.
+				# Unlock the base if present; do not create missing records.
 				$ref = DXUser::get_current($call);
-				if ($ref) {
-					push @out, mod_existing($self, $ref); # lock the base call
-					foreach my $ssid (1..99) {
-						$ref = DXUser::get_current("$call-$ssid");
-						#						push @out, "try $call-$ssid" . ($ref ? " found" : "");
-						push @out, mod_existing($self, $ref)  if $ref;
-					}
+				push @out, mod_existing($self, $ref) if $ref;
+				# Always scan existing SSIDs, even if the base is absent.
+				foreach my $ssid (1..99) {
+					$ref = DXUser::get_current("$call-$ssid");
+					push @out, mod_existing($self, $ref) if $ref;
 				}
 			}
 			Log('DXCommand', $self->call . " un-locked out $call");
