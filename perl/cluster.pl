@@ -360,15 +360,15 @@ sub new_channel
 				return;
 			} 	else {
 				my @lastconns = @{$user->connlist} if $user->connlist;
-				my $n =  @lastconns;
+				my $n =  @lastconns || 0;
 
 				dbg("nextlogin $call lastconns: $n t: $t systime: $systime") if isdbg('new');
 
-				if (@lastconns && @lastconns >= $DXUser::maxconnlist) {	# meaning it's full 
+				if (@lastconns && $n >= $DXUser::maxconnlist) {	# meaning it's full 
 					# the number of seconds since the start of the first conn -> end of the last conn
 					# in the list
 					my $diff = $lastconns[$n-1]->[1] - $lastconns[0]->[0]; 
-					dbg("new_channel nextlogin $call t: $t first: $lastconns[0]->[0] last: $lastconns[-1]->[1] av: $diff tmlaverage: $tmlaverage systime: $systime") if isdbg('new');
+					dbg("new_channel nextlogin $call t: $t first: $lastconns[0]->[0] last: $lastconns[$n-1]->[1] av: $diff tmlaverage: $tmlaverage systime: $systime") if isdbg('new');
 					if ( $diff <=  $tmlaverage ) {
 						my $l = $tmladd - $diff;
 						$user->nextlogin($l + $main::systime);
@@ -455,7 +455,7 @@ sub new_channel
 		if ($conn->{sort} && $conn->{sort} =~ /^I/ && $user) {
 			my ($callcount, @calls) = Route::basecall_no($user);
 			my $m = $user->is_node ? $maxconnect_node : $maxconnect_user;
-			if ($m && $callcount >= $m+$allowmultiple) {
+			if ($m && $callcount > $m+$allowmultiple) {
 				LogDbg('chan', "$call has too many connections ($m) disconnected");
 				DXHealth::connection_too_many($call, eval { $conn->peerhost } || '', $m, $callcount);
 				already_conn($conn, $call, DXM::msg($lang, 'contomany', $call, $m, join(' ', @calls)));

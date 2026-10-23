@@ -9,6 +9,7 @@
 4. Change the mechanism to prevent more than a certain number of concurrent
    logins by a base callsign (e.g. g1tst + g1tst-1/-99) over the whole
    cluster. This number is currently 12. 
+5. Allow $maxconnect_user to have that many connections and not 1 less. 
 21Oct26======================================================================
 1. Fix the "too many connections, too quickly" mechanism. 
 2. Fix some other long standing issues that also made point 1 above worse.  
