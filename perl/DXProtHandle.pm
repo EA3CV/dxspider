@@ -1861,6 +1861,7 @@ sub _decode_pc92_call
 {
 	my $icall = shift;
 	my @part = split /:/, $icall;
+	return () unless defined $part[0] && length $part[0];
 	my ($flag, $call) = unpack "A A*", $part[0];
 	unless (defined $flag && $flag ge '0' && $flag le '7') {
 		dbg("PCPROT: $icall no flag byte (0-7) at front of call, ignored") if isdbg('chanerr') || isdbg('routelow');
@@ -2003,7 +2004,7 @@ sub _add_thingy
 				return;
 			}
 			if ($normcall ne $call) {
-				next if DXChannel::get($call);
+				return if DXChannel::get($call);
 				$user = DXUser::get($call);
 				dbg("DXProt::_add_thingy call $call normalised to $normcall, deleting spurious user $call");
 				$user->del if $user;
@@ -2048,7 +2049,7 @@ sub _add_thingy
 				$dxchan->tell_buddies('loginb', $call, $ncall) if $dxchan;
 				$r = Route::User::get($call);
 			}
-			if ($ip) {
+			if ($ip && $r) {
 				$r->ip($ip);
 				Log('DXProt', "PC92A $call -> $ip on $ncall");
 			}
@@ -2326,6 +2327,28 @@ sub handle_92
 	unless ($self->{do_pc9x}) {
 		dbg("PCPROT: PC9x come in from non-PC9x node, ignored") if isdbg('chanerr') || isdbg('routelow');
 		return;
+	}
+
+	# Reject structurally invalid A/C/D/K before check_pc9x_t(), which may
+	# create a route or advance lastid. The final field is the hop count.
+	if ($sort eq 'A' || $sort eq 'C' || $sort eq 'D') {
+		return unless @$pc >= 6;
+		my @slots = @$pc[4 .. $#$pc - 1];
+		return unless @slots;
+		for my $slot (@slots) {
+			return unless defined $slot && length $slot;
+			my @decoded = _decode_pc92_call($slot);
+			return unless @decoded;
+		}
+		if ($sort eq 'C') {
+			my @first = _decode_pc92_call($slots[0]);
+			return unless $first[1];
+			return if !$first[2] && $first[0] ne $pcall;
+		}
+	} elsif ($sort eq 'K') {
+		return unless @$pc >= 6 && defined $pc->[4];
+		my @first = _decode_pc92_call($pc->[4]);
+		return unless @first && $first[1];
 	}
 
 	# don't create routing entries for D records that don't already exist
