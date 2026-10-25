@@ -762,6 +762,10 @@ sub handle_16
 	my $origin = shift;
 	my $pc = shift;
 
+	# Accept legacy routing only on the directly connected classic-protocol link.
+	# Never ingest legacy routing forwarded by a PC9x neighbour.
+	return if $self->{do_pc9x};
+
 	# general checks
 	my $dxchan;
 	my $ncall = $pc->[1];
@@ -878,6 +882,10 @@ sub handle_17
 	my $line = shift;
 	my $origin = shift;
 	my $pc = shift;
+
+	# Accept legacy routing only on the directly connected classic-protocol link.
+	# Never ingest legacy routing forwarded by a PC9x neighbour.
+	return if $self->{do_pc9x};
 
 	my $dxchan;
 	my $ncall = $pc->[2];
@@ -1108,11 +1116,16 @@ sub handle_19
 	my $origin = shift;
 	my $pc = shift;
 
+	# Accept legacy routing only on the directly connected classic-protocol link.
+	# Never ingest legacy routing forwarded by a PC9x neighbour.
+	return if $self->{do_pc9x};
+
 	my $i;
 	my $newline = "PC19^";
 
 	# new routing list
-	my (@rout, @pc92out);
+	my @rout;
+	# PC19 remains local/legacy; never synthesize PC92 for another node.
 
 	# first get the INTERFACE node
 	my $parent = Route::Node::get($self->{call});
@@ -1210,7 +1223,6 @@ sub handle_19
 					my $ar = $parent->add($call, $ver, $flags);
 					$user->wantroutepc19(1) unless defined $user->wantroutepc19;
 					push @rout, $ar if $ar;
-					push @pc92out, $r if $h;
 				} else {
 					next;
 				}
@@ -1231,9 +1243,6 @@ sub handle_19
 	if (@rout) {
 #		$self->route_pc21($self->{call}, $line, @rout);
 		$self->route_pc19($self->{call}, $line, @rout);
-	}
-	if (@pc92out && !$pc92_slug_changes) {
-		$self->route_pc92a($main::mycall, $line, $main::routeroot, @pc92out) if $self->{state} eq 'normal';
 	}
 }
 
@@ -1268,6 +1277,10 @@ sub handle_21
 	my $line = shift;
 	my $origin = shift;
 	my $pc = shift;
+
+	# Accept legacy routing only on the directly connected classic-protocol link.
+	# Never ingest legacy routing forwarded by a PC9x neighbour.
+	return if $self->{do_pc9x};
 
 	my $call = uc $pc->[1];
 
@@ -1861,7 +1874,6 @@ sub _decode_pc92_call
 {
 	my $icall = shift;
 	my @part = split /:/, $icall;
-	return () unless defined $part[0] && length $part[0];
 	my ($flag, $call) = unpack "A A*", $part[0];
 	unless (defined $flag && $flag ge '0' && $flag le '7') {
 		dbg("PCPROT: $icall no flag byte (0-7) at front of call, ignored") if isdbg('chanerr') || isdbg('routelow');
@@ -2004,7 +2016,7 @@ sub _add_thingy
 				return;
 			}
 			if ($normcall ne $call) {
-				return if DXChannel::get($call);
+				next if DXChannel::get($call);
 				$user = DXUser::get($call);
 				dbg("DXProt::_add_thingy call $call normalised to $normcall, deleting spurious user $call");
 				$user->del if $user;
@@ -2049,7 +2061,7 @@ sub _add_thingy
 				$dxchan->tell_buddies('loginb', $call, $ncall) if $dxchan;
 				$r = Route::User::get($call);
 			}
-			if ($ip && $r) {
+			if ($ip) {
 				$r->ip($ip);
 				Log('DXProt', "PC92A $call -> $ip on $ncall");
 			}
@@ -2329,26 +2341,19 @@ sub handle_92
 		return;
 	}
 
-	# Reject structurally invalid A/C/D/K before check_pc9x_t(), which may
-	# create a route or advance lastid. The final field is the hop count.
+	# PC92 A/C/D: field 4 is a legacy optional first slot, NOT a
+	# second configuration owner. Reject legacy relay interpretation before
+	# check_pc9x_t can change either origin or unrelated node lastid.
+	# Keep a redundant origin entry and ordinary user entries compatible.
 	if ($sort eq 'A' || $sort eq 'C' || $sort eq 'D') {
-		return unless @$pc >= 6;
-		my @slots = @$pc[4 .. $#$pc - 1];
-		return unless @slots;
-		for my $slot (@slots) {
-			return unless defined $slot && length $slot;
-			my @decoded = _decode_pc92_call($slot);
-			return unless @decoded;
+		my $first = $pc->[4] // '';
+		if (length $first && $first =~ /^[0-7]/) {
+			my @first = _decode_pc92_call($first);
+			if (@first && $first[1] && $first[0] ne $pcall) {
+				dbg("PCPROT: legacy PC92 $sort relay first slot $first[0] from $pcall discarded") if isdbg('routelow');
+				return;
+			}
 		}
-		if ($sort eq 'C') {
-			my @first = _decode_pc92_call($slots[0]);
-			return unless $first[1];
-			return if !$first[2] && $first[0] ne $pcall;
-		}
-	} elsif ($sort eq 'K') {
-		return unless @$pc >= 6 && defined $pc->[4];
-		my @first = _decode_pc92_call($pc->[4]);
-		return unless @first && $first[1];
 	}
 
 	# don't create routing entries for D records that don't already exist
@@ -2495,37 +2500,12 @@ sub handle_92
 		# this is the main route section
 		# here is where all the routes are created and destroyed
 
-		# cope with missing duplicate node calls in the first slot
-		my $me = $pc->[4] || '';
-		$me ||= _encode_pc92_call($parent) unless $me ;
-
-		my @ent = map {my @a = _decode_pc92_call($_); @a ? \@a : ()} grep {$_ && /^[0-7]/} $me, @$pc[5 .. $#$pc];
-
-		# PC92A/D may omit the originating node's first slot entirely.
-		# In that wire format pc->[4] is already the first advertised user,
-		# not an empty field.  Restore the implicit parent only when the
-		# first decoded entry is a user or an ordinary advertised node;
-		# retain explicit origin and external-node first slots unchanged.
-		if (($sort eq 'A' || $sort eq 'D') && @ent &&
-			!$ent[0]->[2] && (!$ent[0]->[1] || $ent[0]->[0] ne $parent->call)) {
-			my @origin_slot = _decode_pc92_call(_encode_pc92_call($parent));
-			unshift @ent, \@origin_slot if @origin_slot;
-		}
-
-		if (@ent) {
-
-			# look at the first one which will always be a node of some sort
-			# except in the case of 'A' or 'D' in which the $pcall is used
-			# otherwise use the node call and update any information
-			# that needs to be done.
-			my $add;
-
-			($parent, $add) = $self->pc92_handle_first_slot($ent[0], $parent, $t, $hops);
-			return unless $parent; # dupe
-
-			shift @ent;
-			push @radd, $add if $add;
-		}
+		# The header origin owns every advertised connection. Field 4 may
+		# be empty, a redundant origin, or an ordinary legacy user entry.
+		# The old relay-node case was rejected before check_pc9x_t.
+		my @ent = map { my @a = _decode_pc92_call($_); @a ? \@a : () }
+		          grep { defined $_ && /^[0-7]/ } @$pc[4 .. $#$pc-1];
+		@ent = grep { $_->[0] ne $parent->call } @ent;
 
 		# do a pass through removing any references to either mycall
 		my @nent;

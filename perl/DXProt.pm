@@ -540,7 +540,7 @@ sub process
 			# records. Someone will win, it does not really matter who, because
 			# we always believe "us".
 			if ($main::systime >= $dxchan->{next_pc92_update}) {
-				if ($dxchan == $main::me || !$dxchan->{do_pc9x}) {
+				if ($dxchan == $main::me) {
 					dbg("ROUTE: pc92 broadcast candidate: $dxchan->{call}") if isdbg('obscount');
 					my $ref = Route::Node::get($dxchan->{call});
 					if ($dxchan == $main::me || ($ref && ($ref->measure_pc9x_t($main::systime-$main::systime_daystart)) >= $pc92_extnode_update_period/2)) {
@@ -993,8 +993,8 @@ sub gen_my_pc92_config
 		dbg("ROUTE: localnodes: " . join(',', map{$_->{call}} @localnodes)) if isdbg('routelow');
 		return pc92c($node, @localnodes);
 	} else {
-		my @rout = map {my $r = Route::User::get($_); $r ? ($r) : ()} $node->users;
-		return pc92c($node, @rout);
+		# Do not synthesize a PC92C for another node's configuration.
+		return;
 	}
 }
 
@@ -1016,8 +1016,10 @@ sub send_pc92_config
 
 	dbg('DXProt::send_pc92_config') if isdbg('trace');
 
-	$node->last_PC92C(gen_my_pc92_config($node));
-	$self->send($node->last_PC92C);
+	my $config = gen_my_pc92_config($node);
+	return unless defined $config && length $config;
+	$node->last_PC92C($config);
+	$self->send($config);
 }
 
 sub broadcast_pc92_update
@@ -1033,7 +1035,12 @@ sub broadcast_pc92_update
 		$self->update_pc92_next;
 		return;
 	}
-	my $l = $nref->last_PC92C(gen_my_pc92_config($nref),);
+	my $config = gen_my_pc92_config($nref);
+	unless (defined $config && length $config) {
+		$self->update_pc92_next;
+		return;
+	}
+	my $l = $nref->last_PC92C($config);
 	$nref->lastid(last_pc9x_id());
 	$main::me->broadcast_route_pc9x($main::mycall, undef, $l, 0);
 	$self->update_pc92_next;
