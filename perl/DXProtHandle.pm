@@ -972,6 +972,8 @@ sub handle_18
 	my $parent = Route::Node::get($self->{call});
 
 	my ($software, $version, $build) = (undef, 0, 0);
+	my $old_user_version = $self->user->version;
+	my $old_user_build = $self->user->build;
 
 	# record the type and version offered
 	if (($software, $version) = $pc->[1] =~ /(DXSpider|CC\s*Cluster)\s+Version: (\d+(?:\.\d+)?)/i) {
@@ -1019,6 +1021,13 @@ sub handle_18
 		$self->version($pc->[2] / 100) if $pc->[2] && $pc->[2] =~ /^\d+$/;
 		$self->user->version($self->version);
 	}
+
+	# Persist changed PC18 metadata even when the node sort stays the same.
+	# Keep existing sort-change puts untouched for compatibility.
+	my $new_user_version = $self->user->version;
+	my $new_user_build = $self->user->build;
+	$self->user->put if (defined $new_user_version ? !defined $old_user_version || "$new_user_version" ne "$old_user_version" : defined $old_user_version)
+	                || (defined $new_user_build ? !defined $old_user_build || "$new_user_build" ne "$old_user_build" : defined $old_user_build);
 
 	# for incoming CC Clusters go straight to state 'normal', otherwise bang out.
 	# In future this may well cause a disconnection
@@ -2047,9 +2056,30 @@ sub _add_thingy
 						}
 					}
 				}
-				$r->version($user->version) if $user->version;
-				$r->build($user->build) if $user->build;
-				$r->K(1) if $user->K;
+				# PC92K metadata is authoritative; missing A/C fields are not updates.
+				# Persist accepted non-K announcements only when DXUser differs.
+				if ($user->K) {
+					$r->version($user->version) if $user->version;
+					$r->build($user->build) if $user->build;
+					$r->K(1);
+				} elsif (!$r->K) {
+					my $changed = 0;
+					if ($version && is_numeric($version)) {
+						$r->version($version) if ($r->version || 0) != $version;
+						if (!defined $user->version || $user->version != $version) {
+							$user->version($version);
+							++$changed;
+						}
+					}
+					if ($build && is_numeric($build)) {
+						$r->build($build) if ($r->build || 0) != $build;
+						if (!defined $user->build || $user->build != $build) {
+							$user->build($build);
+							++$changed;
+						}
+					}
+					$user->put if $changed;
+				}
 			} else {
 				if ($dxchan) {
 					return if _pc92_invalid_extnode_user($s, $parent, $dxchan, $pc92sort);
@@ -2215,9 +2245,42 @@ sub check_pc9x_t
 		}
 	} elsif ($create) {
 		$parent = Route::Node->new($call);
+		# PC92 can recreate a transient Route::Node after its last parent
+		# disappears. Recover previously accepted K metadata from DXUser;
+		# this is not a newly received K announcement.
+		if ($pc == 92 && !DXChannel::get($call)) {
+			my $user = DXUser::get_current($call);
+			if ($user && $user->K) {
+				my $version = $user->version;
+				my $build = $user->build;
+				$parent->version($version)
+					if defined $version && is_numeric($version) && $version > 0;
+				$parent->build($build)
+					if defined $build && is_numeric($build) && $build > 0;
+				$parent->K(1);
+			}
+		}
 	} else {
 		dbg("PCPROT: $call does not exist, ignored") if isdbg('pc92dedupe');
 		return undef;
+	}
+	# A Route::Node may already exist with constructor defaults while its
+	# accepted PC92K metadata survives in DXUser. Restore only missing/default
+	# values, only for remote PC92 nodes, without changing correct live values.
+	if ($pc == 92 && $parent && !DXChannel::get($parent->call)
+	    && ($parent->version || 0) == 5401) {
+		my $user = DXUser::get_current($parent->call);
+		if ($user && $user->K) {
+			my $version = $user->version;
+			my $build = $user->build;
+			if (defined $version && is_numeric($version) && $version > 0) {
+				$parent->version($version);
+				$parent->build($build)
+					if defined $build && is_numeric($build) && $build > 0
+					&& !($parent->build || 0);
+				$parent->K(1);
+			}
+		}
 	}
 	if (isdbg('pc92dedupe')) {
 		my $exists = exists $parent->{lastid}; # naughty, naughty :-)
@@ -2282,8 +2345,9 @@ sub pc92_handle_first_slot
 		return;
 	}
 	$parent->here(Route::here($here));
-	$parent->version($version || $pc19_version) if $version;
-    $parent->build($build) if $build;
+	# The only caller is PC92K. Apply its metadata atomically in the K handler
+	# after validation; the first-slot path must not preempt that comparison.
+
 	$parent->PC92C_dxchan($self->{call}, $hops) unless $self->{call} eq $parent->call;
 	return ($parent, @radd);
 }
@@ -2452,13 +2516,23 @@ sub handle_92
 
 			dbg("PCPROT: PC92 K v: $version ov: $oldversion b: $build ob: $oldbuild pk: " . ($parent->K || '0') . " uk: " . ($user->K || 0)) if isdbg('pc92k');
 
-			if (is_numeric($version) || is_numeric($build)) {
+			{
 				my $changed = 0;
-				if (($oldversion ne $version || $build ne $oldbuild)) {
-					dbg("PCPROT: PC92 K rec, node $call updated version: $version (was $oldversion) build: $build (was $oldbuild)");
-					$user->version($parent->version($version));
-					$user->build($parent->build($build));
-					++$changed;
+				# Missing/zero fields are not announcements.  Validate each field
+				# independently, preserving the last known value of the other.
+				if (defined $version && $version =~ /^\d+(?:\.\d+)?$/ && $version > 0) {
+					$parent->version($version) if $oldversion != $version;
+					if (!defined $user->version || $user->version != $version) {
+						$user->version($version);
+						++$changed;
+					}
+				}
+				if (defined $build && $build =~ /^\d+(?:\.\d+)?$/ && $build > 0) {
+					$parent->build($build) if $oldbuild != $build;
+					if (!defined $user->build || $user->build != $build) {
+						$user->build($build);
+						++$changed;
+					}
 				}
 
 				# PC92 K already carries gitbranch/gitversion in field 8. Keep it
@@ -2492,8 +2566,6 @@ sub handle_92
 				}
 				$user->put if $changed;
 				$parent->K(1); # mark this as come in on a K
-			} else {
-				dbg("DXProt PC92 K rec, version call $call: invalid version: '$version' or build: '$version', ignored");
 			}
 			dbg("ROUTE: reset obscount on $call now " . $parent->obscount) if isdbg('obscount');
 		}
@@ -2546,6 +2618,7 @@ sub handle_92
 		} elsif ($sort eq 'C') {
 			my (@nodes, @users);
 			my %invalid_pc92_users;
+			my @accepted_pc92c_nodes;
 
 			# we reset obscounts on config records as well as K records
 			$parent->reset_obs;
@@ -2567,6 +2640,7 @@ sub handle_92
 				#			my ($call, $is_node, $is_extnode, $here, $version, $build) = _decode_pc92_call($_);
 				if ($r->[0]) {
 					if ($r->[1]) {
+						push @accepted_pc92c_nodes, $r;
 						push @nodes, $r->[0];
 					} else {
 						push @users, $r->[0];
@@ -2574,6 +2648,62 @@ sub handle_92
 				} else {
 					dbg("PCPROT: $self->{call} :  pc92 call entry '$_' not decoded, ignored") if isdbg('chanerr') || isdbg('route');
 				}
+			}
+
+			# Reconcile accepted existing children independently of whether
+			# this C carries a version (IP-only C entries have none).
+			# K metadata in DXUser is authoritative; C must not replace it.
+			my %existing_nodes = map { $_ => 1 } $parent->nodes;
+			foreach my $slot (@accepted_pc92c_nodes) {
+				my ($call, undef, undef, undef, $version, $build) = @$slot;
+				next unless $call && $existing_nodes{$call};
+				next unless is_callsign($call) && normalise_call($call) eq $call;
+				my $node = Route::Node::get($call) || next;
+				next if DXChannel::get($call); # direct node owns its metadata
+				my $user = DXUser::get_current($call);
+				if ($user && $user->K) {
+					my $saved_version = $user->version;
+					my $saved_build = $user->build;
+					if (defined $saved_version && is_numeric($saved_version) && $saved_version > 0
+					    && ($node->version || 0) != $saved_version) {
+						$node->version($saved_version);
+						dbg("PCPROT: PC92C restored K version $call -> $saved_version") if isdbg('route');
+					}
+					if (defined $saved_build && is_numeric($saved_build) && $saved_build > 0
+					    && ($node->build || 0) != $saved_build) {
+						$node->build($saved_build);
+					}
+					$node->K(1) unless $node->K;
+					next;
+				}
+				next if $node->K; # no K-backed DXUser data: do not trust C
+				# Version and build are independent optional updates.
+				my $has_version = defined $version && is_numeric($version) && $version > 0;
+				my $has_build = defined $build && is_numeric($build) && $build > 0;
+				next unless $has_version || $has_build;
+				# A Route::Node can exist without its DXUser. Create the latter
+				# only when there is accepted metadata to persist.
+				$user ||= check_add_user($call, 'S');
+				my $changed = 0;
+				if ($has_version) {
+					my $old = $node->version || 0;
+					if ($old != $version) {
+						$node->version($version);
+						dbg("PCPROT: PC92C metadata $call version $old -> $version via " . $parent->call) if isdbg('route');
+					}
+					if (!defined $user->version || $user->version != $version) {
+						$user->version($version);
+						++$changed;
+					}
+				}
+				if ($has_build) {
+					$node->build($build) if ($node->build || 0) != $build;
+					if (!defined $user->build || $user->build != $build) {
+						$user->build($build);
+						++$changed;
+					}
+				}
+				$user->put if $changed;
 			}
 
 			my ($dnodes, $dusers, $nnodes, $nusers) = $parent->calc_config_changes(\@nodes, \@users);

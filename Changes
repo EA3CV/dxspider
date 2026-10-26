@@ -6,6 +6,17 @@
 5. Improved DXHash.pm to support multiple badnode.*, baddx.*, and 
    badspotter.* files. Added duplicate detection and removal of matching 
    entries from all corresponding files.
+6. Preserve and persist PC18 node version and build metadata even when
+   the node type remains unchanged.
+7. Improve PC92A/C handling of node version and build metadata.
+   Preserve authoritative PC92K values and avoid replacing known
+   metadata with missing or zero-valued announcements.
+8. Restore persisted PC92K version and build information when a remote
+   Route::Node is recreated or already exists with default metadata.
+9. Reconcile accepted PC92C child-node metadata with DXUser, preserving
+   PC92K precedence and persisting valid non-K updates.
+10.Initialize the local routing root with the node's actual build.
+11.Fixed badword loading and management across multiple badword.* files.
 25Oct26======================================================================
 1. Correct PC92A/C/D routing updates to preserve node ownership and
    multi-parent relationships.
