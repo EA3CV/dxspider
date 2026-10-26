@@ -328,6 +328,7 @@ sub normal
 	} elsif ($self->{state} eq 'passwd2') {
 		if ($cmdline eq $self->{passwd}) {
 			$self->{user}->passwd($cmdline);
+			$self->{user}->put();
 			$self->send($self->msg('pw3'));
 		} else {
 			$self->send($self->msg('pw4'));

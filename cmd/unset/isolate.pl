@@ -18,17 +18,18 @@ my $create;
 return (1, $self->msg('e5')) if $self->priv < 5;
 
 foreach $call (@args) {
-	$call = uc $call;
-	my $chan = DXChannel::get($call);
-	if ($chan) {
-		push @out, $self->msg('nodee1', $call);
-	} else {
-		$user = DXUser::get($call);
-		return (1, $self->msg('usernf', $call)) if !$user; 
-		$user->isolate(0);
-		$user->put();
-		push @out, $self->msg('isou', $call);
-		Log('DXCommand', $self->msg('isou', $call));
-	}
+    $call = uc $call;
+    $user = DXUser::get($call);
+    unless ($user) {
+        push @out, $self->msg('usernf', $call);
+        next;
+    }
+    my $chan = DXChannel::get($call);
+    $chan->disconnect() if $chan;
+    $user = DXUser::get($call) || $user;
+    $user->isolate(0);
+    $user->put();
+    push @out, $self->msg('isou', $call);
+    Log('DXCommand', $self->msg('isou', $call));
 }
 return (1, @out);

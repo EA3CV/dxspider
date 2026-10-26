@@ -1,84 +1,33 @@
-#
-# show/isolate
-#
-# show all excluded users 
-#
-# Copyright (c) 2000 Dirk Koopman G1TLH
-#
-#
-#
-
-use DB_File;
-
+# List persisted isolation flags (DXUser is authoritative).
+# Do not depend on DB_File or on a JSON substring search.
 sub handle
 {
-	my ($self, $line) = @_;
-	return (1, $self->msg('e5')) unless $self->priv >= 1;
-
-	my @out;
-
-	if ($self->{_nospawn} || $main::is_win == 1 || DXUser::using_database()) {
-		return (1, generate($self));
-	} else {
-		return (1, $self->spawn_cmd("show/isolate $line", sub { return (generate($self)); }));
-	}
-	
+    my ($self, $line) = @_;
+    return (1, $self->msg('e5')) if $self->priv < 1;
+    return (1, generate($self, $line));
 }
 
 sub generate
 {
-	my $self = shift;
-	my $line = uc shift;
-	
-	my @out;
-	my @val;
-	my ($action, $count, $key, $data) = (0,0,0,0);
-
-	push @val, split /\s+/, $line;
-
-	if (!@val || $val[0] eq 'ALL') {
-		shift @val;
-		
-		if (DXUser::using_database()) {
-			my $sth = $DXUser::dbh->prepare(q{select * from users where data not like '%"isolate":"%'});
-			my $r;
-			$r = $sth->execute;
-			while ($r =$sth->fetch) {
-				my ($k, $d) =@$r;
-				if ($d =~ m{"isolate":}) {
-					push @val, $k; # possible candidate
-					++$count;
-				}
-			}
-		}
-		else {
-			for ($action = DXUser::R_FIRST, $count=0; !$DXUser::dbm->seq($key, $data, $action); $action = DXUser::R_NEXT) {
-				if ($data =~ m{isolate}) {
-					my $u = DXUser::get_current($key);
-					if ($u && $u->isolate) {
-						push @val, $key;
-						++$count;
-					} 
-				}
-			}
-		}
-	}
-	
-	my @l;
-	foreach my $call (@val) {
-		if (@l >= 5) {
-			push @out, sprintf "%-12s %-12s %-12s %-12s %-12s", @l;
-			@l = ();
-		}
-		push @l, $call;
-	}
-	if (@l) {
-		push @l, "" while @l < 5;
-		push @out, sprintf "%-12s %-12s %-12s %-12s %-12s", @l;
-	}
-
-	push @out, , $self->msg('rec', $count);
-	return @out;	
+    my ($self, $line) = @_;
+    $line = uc($line // '');
+    my @requested = grep { length } split /\s+/, $line;
+    my $all = !@requested || (@requested == 1 && $requested[0] eq 'ALL');
+    my @calls = $all ? DXUser::get_all_calls() : @requested;
+    my @isolated;
+    for my $call (@calls) {
+        my $user = DXUser::get_current($call);
+        push @isolated, $call if $user && $user->isolate;
+    }
+    my @out;
+    while (@isolated) {
+        my @row = splice @isolated, 0, 5;
+        push @row, '' while @row < 5;
+        push @out, sprintf '%-12s %-12s %-12s %-12s %-12s', @row;
+    }
+    my $count = $all ? scalar(grep { length } @out) : 0;
+    # Report number of calls, not number of rows.
+    my @found = grep { my $u = DXUser::get_current($_); $u && $u->isolate } @calls;
+    push @out, $self->msg('rec', scalar @found);
+    return @out;
 }
-
-

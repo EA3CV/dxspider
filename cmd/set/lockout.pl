@@ -2,73 +2,58 @@
 # lock a user out
 #
 # Copyright (c) 1998 Iain Phillips G0RDI
-#
-# Modifications  (c) 2026 Dirk Koopman G1TLH
+# Modifications (c) 2026 Dirk Koopman G1TLH
 #
 
 sub mod_existing
 {
-	my $self = shift;
-	my $ref  = shift;
+	my ($self, $ref) = @_;
 	$ref->lockout(1);
 	$ref->put();
-	return $self->msg("lockout", $ref->call);
+	return $self->msg('lockout', $ref->call);
 }
 
 sub add_new
 {
-	my $self = shift;
-	my $call = shift;
-
+	my ($self, $call) = @_;
 	my $ref = DXUser->new($call);
 	$ref->lockout(1);
 	$ref->put();
-	return $self->msg("lockoutc", $call);
+	return $self->msg('lockoutc', $call);
 }
 
 sub handle
 {
-	my $self = shift;
-	my $line = uc shift;
-	my @args = split /\s+/, $line;
-	my $call;
-	# my $priv = shift @args;
-	my @out;
-	my $user;
-	my $ref;
-
-	if ($self->priv < 9) {
-		Log('DXCommand', $self->call . " attempted to lockout @args");
-		return (1, $self->msg('e5'));
-	}
-
-	# Validate the complete argument list before changing any DXUser record.
-	# A malformed item must not cause partial updates.
+	my ($self, $line) = @_;
+	my @args = split /\s+/, uc($line // '');
+	return (1, $self->msg('e5')) if $self->priv < 9;
 	return (1, $self->msg('lockoutuse')) unless @args;
+
 	my @invalid = grep {
 		!DXUtil::is_callsign($_) || /-(?:0|00|0[1-9])$/
-	} map { uc $_ } @args;
-	if (@invalid) {
-		my $i =  join(', ', @invalid) ;
-		return (1, "Invalid callsign(s): $i No changes made.");
-	}
+	} @args;
+	return (1, 'Invalid callsign(s): ' . join(', ', @invalid) . '. No changes made.') if @invalid;
 
-	foreach $call (@args) {
-		$call = uc $call;
-		unless ($self->remotecmd || $self->inscript) {
-			$call =~ s/-0$//;	# this means just the base callsignx
-			$ref = DXUser::get_current($call);
-			if ($ref) {
-				push @out, mod_existing($self, $ref); # lock the base call
-			}
-			else {
-				push @out, add_new($self, $call);
-			}
-		}
-		else {
+	my @out;
+	for my $call (@args) {
+		if ($self->remotecmd || $self->inscript) {
 			Log('DXCommand', $self->call . " attempted to lockout $call remotely");
 			push @out, $self->msg('sorry');
+			next;
 		}
-	}	 
+
+		my $ref = DXUser::get_current($call);
+		push @out, $ref ? mod_existing($self, $ref) : add_new($self, $call);
+
+		# An explicit SSID affects that record only. A base callsign also
+		# updates all existing SSIDs; never create missing SSID records.
+		next if $call =~ /-\d+$/;
+		for my $ssid (1 .. 99) {
+			my $child = DXUser::get_current("$call-$ssid");
+			push @out, mod_existing($self, $child) if $child;
+		}
+	}
 	return (1, @out);
 }
+
+1;

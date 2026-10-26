@@ -765,7 +765,7 @@ sub handle_16
 	# Accept legacy routing only on the directly connected classic-protocol link.
 	# Never ingest legacy routing forwarded by a PC9x neighbour.
 	return if $self->{do_pc9x};
-
+	
 	# general checks
 	my $dxchan;
 	my $ncall = $pc->[1];
@@ -886,7 +886,7 @@ sub handle_17
 	# Accept legacy routing only on the directly connected classic-protocol link.
 	# Never ingest legacy routing forwarded by a PC9x neighbour.
 	return if $self->{do_pc9x};
-
+	
 	my $dxchan;
 	my $ncall = $pc->[2];
 	my $ucall = $pc->[1];
@@ -2350,8 +2350,17 @@ sub handle_92
 		if (length $first && $first =~ /^[0-7]/) {
 			my @first = _decode_pc92_call($first);
 			if (@first && $first[1] && $first[0] ne $pcall) {
-				dbg("PCPROT: legacy PC92 $sort relay first slot $first[0] from $pcall discarded") if isdbg('routelow');
-				return;
+				# Legacy direct C/A/D may put its sole advertised child
+				# node in field 4 (no reserved empty slot).  Interpret
+				# that node as belonging to the HEADER origin, never as
+				# a substitute owner.  A nonempty tail is ambiguous with
+				# legacy relay syntax; retain the protective rejection.
+				my @tail = grep { defined $_ && length $_ && /^[0-7]/ } @$pc[5 .. $#$pc-1];
+				if (@tail) {
+					dbg("PCPROT: ambiguous legacy PC92 $sort first slot $first[0] from $pcall discarded") if isdbg('routelow');
+					return;
+				}
+				dbg("PCPROT: legacy PC92 $sort sole child $first[0] accepted under header $pcall") if isdbg('routelow');
 			}
 		}
 	}
@@ -2664,7 +2673,11 @@ sub find_chat_group_users
 {
 	my $group = shift;
 	my @out;
-
+	foreach my $dxchan (DXChannel::get_all_users()) {
+		next unless $dxchan->{group} && ref($dxchan->{group}) eq 'ARRAY';
+		push @out, $dxchan if grep { defined $_ && uc($_) eq uc($group) } @{$dxchan->{group}};
+	}
+	return @out;
 }
 
 sub handle_93
@@ -2757,7 +2770,7 @@ sub handle_93
 
 	# if it is routeable then then treat it like a talk
 	my $ref = Route::get($to);
-	if ($ref) {
+	if ($ref && is_callsign($to)) {
 		my $dxchan;
 
 		# convert to PC10 or local talks where appropriate
@@ -2768,7 +2781,7 @@ sub handle_93
 		# note that both local and PC93s at the same time are possible if the
 		# user on more than one node.
 		my @routes = find_pc9x_routes($to);
-		push @routes, find_chat_users($to) unless is_callsign($to);
+		
 		my $lasthops;
 		foreach $dxchan (@routes) {
 			if (ref $dxchan && $dxchan->isa('DXChannel')) {

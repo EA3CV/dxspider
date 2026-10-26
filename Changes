@@ -1,3 +1,11 @@
+26Oct26======================================================================
+1. Improved PC92C message processing and routing consistency between nodes.
+2. Fixed set/isolate, unset/isolate, and show/isolate.
+3. Fixed set/lockout and unset/lockout.
+4. Fixed set/password to explicitly persist changes using DXUser::put().
+5. Improved DXHash.pm to support multiple badnode.*, baddx.*, and 
+   badspotter.* files. Added duplicate detection and removal of matching 
+   entries from all corresponding files.
 25Oct26======================================================================
 1. Correct PC92A/C/D routing updates to preserve node ownership and
    multi-parent relationships.
