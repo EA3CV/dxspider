@@ -64,6 +64,73 @@ El puerto 27754 no es un puerto para navegadores.
 El valor predeterminado es 127.0.0.1:27754. Una actualizacion
 conserva DXS_HOST y DXS_PORT de las unidades existentes.
 
+3.1. VARIABLES DE CONFIGURACION Y PUERTOS
+-----------------------------------------
+
+Las variables siguientes se establecen como Environment= en las
+unidades systemd. El gestor las genera segun el modo seleccionado.
+No es necesario editarlas a mano si se utiliza el instalador.
+
+  Variable              Aplicacion       Funcion
+  --------------------  ---------------  -----------------------------
+  DXS_HOST              Ambas            Host del listener IntMsg
+  DXS_PORT              Ambas            Puerto del listener IntMsg
+  HTTP_HOST             DXWeb            Direccion de escucha HTTP
+  HTTP_PORT             DXWeb            Puerto de escucha HTTP
+  DXWEB_HOST            DXWeb Admin      Direccion de escucha Admin
+  DXWEB_PORT            DXWeb Admin      Puerto de escucha Admin
+  DXWEB_CLIENT_PORT     DXWeb Admin      Puerto del backend DXWeb
+  DXWEB_CLIENT_HOST     DXWeb Admin      Host de conexion con DXWeb
+  DXWEB_CLIENT_SCHEME   DXWeb Admin      Esquema de conexion DXWeb
+  DXWEB_SCHEME          Ambas            Esquema HTTP o HTTPS
+  MOJO_REVERSE_PROXY    Ambas            Confianza en proxy HTTP
+  DXSPIDER_ROOT         Ambas            Ruta del arbol DXSpider
+  DXWEB_TLS_CERT        Ambas            Certificado TLS directo
+  DXWEB_TLS_KEY         Ambas            Clave privada TLS directa
+
+Valores habituales para una instalacion nueva:
+
+  Variable              Directo HTTP     Con Nginx
+  --------------------  ---------------  -----------------------------
+  DXS_HOST              127.0.0.1        127.0.0.1
+  DXS_PORT              27754            27754
+  HTTP_HOST             0.0.0.0          127.0.0.1
+  HTTP_PORT             7380             7480
+  DXWEB_HOST            0.0.0.0          127.0.0.1
+  DXWEB_PORT            7381             7481
+  DXWEB_CLIENT_PORT     7380             7480
+  MOJO_REVERSE_PROXY    0                1
+
+DXS_HOST y DXS_PORT identifican el servicio IntMsg de DXSpider,
+no el acceso HTTP del navegador. En una actualizacion, el gestor
+conserva sus valores si ya figuran en las unidades instaladas.
+
+HTTP_HOST y HTTP_PORT corresponden exclusivamente a DXWeb.
+DXWEB_HOST y DXWEB_PORT corresponden a DXWeb Admin. La variable
+DXWEB_CLIENT_PORT indica a Admin el puerto del backend DXWeb;
+no debe confundirse con el puerto publico del proxy.
+
+DXWEB_CLIENT_HOST y DXWEB_CLIENT_SCHEME se generan segun el modo
+y el esquema elegidos. En modo Nginx, las aplicaciones escuchan
+por HTTP en loopback, aunque el acceso publico utilice HTTPS.
+
+MOJO_REVERSE_PROXY=0 corresponde al acceso directo y el valor 1
+al acceso a traves de un proxy HTTP de confianza. Para una
+configuracion manual, consultar la seccion 7 sobre cabeceras e IP
+real del cliente. No activar esta confianza ante clientes directos.
+
+DXWEB_TLS_CERT y DXWEB_TLS_KEY solo se incorporan cuando las
+aplicaciones sirven HTTPS directamente. Con Nginx, el certificado
+y la clave se configuran en el proxy, no en los backends HTTP.
+
+Para comprobar los valores realmente instalados:
+
+  systemctl cat dxweb.service
+  systemctl cat dxweb-admin.service
+
+Los ejemplos anteriores describen instalaciones nuevas. Las
+unidades existentes pueden conservar valores locales distintos.
+
 4. COMPROBACIONES PREVIAS
 -------------------------
 
