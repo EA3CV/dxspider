@@ -7,7 +7,7 @@
    badspotter.* files. Added duplicate detection and removal of matching 
    entries from all corresponding files.
  
-   NOTE: Before restarting the node, PLEASE remove all bad*.pl files from
+   NOTE: Before restarting the node, PLEASE remove all bad* files from
    /spider/local_data. The node will refuse to start while they are there.
 
 6. Preserve and persist PC18 node version and build metadata even when
