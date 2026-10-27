@@ -23,12 +23,9 @@ my $count = 0;
 # query
 if (@in) {
 	foreach my $ip (@in) {
-		if (DXCIDR::find($ip)) {
-			push @out, "$ip DIRTY";
-			++$count;
-		} else {
-			push @out, "$ip CLEAN";
-		}
+		my $status = DXCIDR::status($ip);
+		push @out, "$ip $status";
+		++$count if $status ne 'CLEAN';
 	}
 	return (1, @out);
 } else {

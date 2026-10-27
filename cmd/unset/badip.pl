@@ -18,18 +18,16 @@ return (1, "unset/badip: need [suffix (def: local)] IP(s)") unless @in;
 
 my @removed;
 for my $ip (@in) {
-    unless (is_ipaddr($ip)) {
+    unless (DXCIDR::valid_spec($ip)) {
         push @removed, "unset/badip: '$ip' is not a valid IP, ignored";
         next;
     }
 
-    if (!DXCIDR::find($ip)) {
-        push @removed, "unset/badip: '$ip' not found in badip.$suffix";
-        next;
-    }
-
-    DXCIDR::remove($suffix, $ip);
-    push @removed, "unset/badip: '$ip' removed from badip.$suffix";
+    my $count = eval { DXCIDR::remove($suffix, $ip) };
+    return (1, "unset/badip: $ip $@") if $@;
+    push @removed, $count
+        ? "unset/badip: '$ip' removed from badip.$suffix"
+        : "unset/badip: '$ip' not found in badip.$suffix";
 }
 
 DXCIDR::reload();

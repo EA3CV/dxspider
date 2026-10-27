@@ -20,28 +20,28 @@ if ($in[0] =~ /^[_\d\w]+$/) {
 }
 return (1, "set/badip: need [suffix (def: local])] IP, IP-IP or IP/24") unless @in;
 for my $ip (@in) {
-	my $r;
-	unless (is_ipaddr($ip)) {
-		push @out, "set/badip: '$ip' is not an ip address, ignored";
-		next;
-	}
-	eval{ $r = DXCIDR::find($ip); };
-	return (1, "set/badip: $ip $@") if $@;
-	if ($r) {
-		push @out, "set/badip: $ip exists, not added";
-		next;
-	}
-	DXCIDR::add($suffix, $ip);
-	push @added, $ip;
+    unless (DXCIDR::valid_spec($ip)) {
+        push @out, "set/badip: '$ip' is not an ip address, ignored";
+        next;
+    }
+    my $covered = eval { DXCIDR::covered_suffix($suffix, $ip) };
+    return (1, "set/badip: $ip $@") if $@;
+    if ($covered) {
+        push @out, "set/badip: $ip exists, not added";
+        next;
+    }
+    if (DXCIDR::append($suffix, $ip) != 1) {
+        push @out, "set/badip: $ip could not be written to badip.$suffix";
+        next;
+    }
+    push @added, $ip;
+    # Rebuild from durable sources: the selected file and all other suffixes.
+    DXCIDR::reload();
 }
 my $count = @added;
 my $list = join ' ', @in;
-DXCIDR::clean_prep();
-#$DB::single = 1;
 if ($count) {
-	DXCIDR::append($suffix, @added);
-	push @out, "set/badip: added $count entries to badip.$suffix : '$list'";
-} else {
-	push @out, "set/badip: No valid IPs, not updating badip.$suffix with '$list'";
+    push @out, "set/badip: added $count entries to badip.$suffix : '$list'";
 }
+
 return (1, @out);

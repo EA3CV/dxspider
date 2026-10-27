@@ -1,9 +1,21 @@
 27Oct26======================================================================
-1. Don't allow callsigns like R4NDOM or starting in Q to login.
-2. On logins that have been connecting too frequently and have reached the
+1. Introduced a unified manager to install, update, and roll back DXWeb and 
+   DXWeb Admin systemd service configurations.
+2. Added a planning mode to review operations before applying them, along 
+   with transactional backups and rollback recovery.
+3. Improved service shutdown handling.
+4. Fixed rollback of initial installations.
+5. Fixed excessive shutdown delays caused by persistent WebSocket 
+   connections and background tasks.
+6. Added installer documentation covering installation, updates, rollback, 
+   and recovery procedures. Updated the Nginx documentation.
+7. Reject login attempts from callsigns starting with 'Q'.
+8. Improved badip management with IPv4/IPv6 support for individual addresses,
+   CIDR networks and ranges.
+9. Don't allow callsigns like R4NDOM or starting in Q to login.
+10.On logins that have been connecting too frequently and have reached the
    maximum delay time, let them run it down and not keep bumping it up
    to the maximum on every login.   
-3. Improve / change login too fast logic.
 26Oct26======================================================================
 1. Improved PC92C message processing and routing consistency between nodes.
 2. Fixed set/isolate, unset/isolate, and show/isolate.

@@ -15,6 +15,8 @@ BEGIN {
 	our $root = "/spider";
 	$root = $ENV{'DXSPIDER_ROOT'} if $ENV{'DXSPIDER_ROOT'};
 
+	our $local_data = "$root/local_data";
+
 	mkdir "$root/local_data", 02777 unless -d "$root/local_data";
 
 	unshift @INC, "$root/perl";	# this IS the right way round!

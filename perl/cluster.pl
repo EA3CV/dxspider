@@ -315,7 +315,7 @@ sub new_channel
 			$call = $ncall;
 		}
 		# is it a valid callsign (in format)?
-		unless (is_callsign($call)) {
+		unless ($call !~ /^Q/i && is_callsign($call)) {
        		already_conn($conn, $call, DXM::msg($lang, "illcall", $call));
 			return;
 		}
