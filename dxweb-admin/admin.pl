@@ -1531,7 +1531,30 @@ sub update_status_async($cb) {
     );
 }
 
+# A graceful IOLoop stop alone can wait indefinitely for persistent WebSockets.
+# Request existing client cleanup, then enforce a finite server shutdown.
+# The timer runs on the event loop; SIGALRM is a last-resort safety net if
+# the loop stops dispatching callbacks. Both terminate only this Admin process.
+my $admin_shutdown_requested = 0;
+sub admin_shutdown_request() {
+    return if $admin_shutdown_requested++;
+    $SIG{ALRM} = sub { POSIX::_exit(0) };
+    alarm 8;
+    Mojo::IOLoop->next_tick(sub {
+        for my $id (keys %clients) {
+            eval { release_client($id, 'server_shutdown') };
+            app->log->warn("Shutdown client cleanup: $@") if $@;
+        }
+        # Allow asynchronous child cleanup to run briefly, but do not wait
+        # indefinitely for open WebSockets or background recurring watchers.
+        Mojo::IOLoop->timer(3 => sub { exit 0 });
+        Mojo::IOLoop->stop_gracefully;
+    });
+}
+
 hook before_server_start => sub( $server, $app ) {
+    $SIG{TERM} = sub { admin_shutdown_request() };
+    $SIG{INT}  = sub { admin_shutdown_request() };
     v040_warm_caches();
     Mojo::IOLoop->next_tick( sub { connect_dxs(); $burst_snapshot->start } );
 };
