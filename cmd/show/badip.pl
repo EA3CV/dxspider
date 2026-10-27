@@ -13,7 +13,7 @@ return (1, q{Please install Net::CIDR::Lite or libnet-cidr-lite-perl to use this
 
 my @out;
 my @added;
-my @in = grep { length } split /\s+/, $line;
+my @in = split /\s+/, $line;
 my $maxlth = 0;
 my $width = $self->width // 80;
 my $count = 0;
@@ -22,12 +22,10 @@ my $count = 0;
 
 # query
 if (@in) {
-	
 	foreach my $ip (@in) {
-		my $state = eval { DXCIDR::coverage($ip) };
-		return (1, "show/badip: $@") if $@;
-		push @out, "$ip $state";
-		++$count if $state ne 'CLEAN';
+		my $status = DXCIDR::status($ip);
+		push @out, "$ip $status";
+		++$count if $status ne 'CLEAN';
 	}
 	return (1, @out);
 } else {
