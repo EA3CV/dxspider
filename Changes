@@ -1,3 +1,9 @@
+27Oct26======================================================================
+1. Don't allow callsigns like R4NDOM or starting in Q to login.
+2. On logins that have been connecting too frequently and have reached the
+   maximum delay time, let them run it down and not keep bumping it up
+   to the maximum on every login.   
+3. Improve / change login too fast logic.
 26Oct26======================================================================
 1. Improved PC92C message processing and routing consistency between nodes.
 2. Fixed set/isolate, unset/isolate, and show/isolate.

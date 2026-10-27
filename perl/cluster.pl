@@ -236,10 +236,13 @@ our $localhost_alias_ipv6;		# for things (PC92, PC61 etc) that expose IP address
 our $save_route_cache;			# save and restore route cache on restart. Probably only useful for G1TLH testing
 our $local_ipaddr;
 our $io_disconnected;
-our $tmlaverage = 10;	# if there more than 3 connection attempts within this interval then start the login delay process
-our $tmladd = 60;		    # Add this value to $user->nextlogin
-our $tmlgeometric = 0;	# Rather than add  linearly, add ($user->nextlogin + $tmladd) * 2 instead
+our $tmlinterval = 30;	        # if there are connection attempts within this interval then start the login delay process
+our $tmladd = 60;		        # Add this value to $user->nextlogin
+our $tmlgeometric = 0;	        # Rather than add  linearly, add ($user->nextlogin + $tmladd) * 2 instead
 our $tmlmaxdelay = 3600; 		# don't allow the delay to get beyond (default) 1 hour
+
+our %tmlinplay;					# this is the list of callsigns that have a $tml in play
+                                # [n, first, latest]
 
  
 use vars qw($version $subversion $build $gitversion $gitbranch);
@@ -266,7 +269,7 @@ sub new_channel
 	return unless defined $sort;
 
 	dbg("new_channel sort: $sort, call: $call, line: $line") if isdbg('new') && isdbg('chan');
-	
+
 	my ($dxchan, $user);
 	
 	if (is_webcall($call) && $conn->isa('IntMsg')) {
@@ -291,7 +294,7 @@ sub new_channel
  			$user->long($main::mylongitude);
 			$user->qra($main::mylocator);
 		}
-		$user->startt($main::systime);	
+		$user->startt($systime);	
 		$conn->conns($call);
 		$dxchan = Web->new($call, $conn, $user);
 		$dxchan->enhanced(1);
@@ -341,39 +344,59 @@ sub new_channel
 			return;
 		}
 
-		# Is this user has a nextlogin time, is it > now?
-		if ($tmlaverage && $user) {
-			my $t = $user->nextlogin || 0;
-			if ($t > 0 && $t < $systime) {
-				LogDbg('chan', sprintf("new_channel $call with nextlogin at %s cleared at %s", cldatetime($user->nextlogin), cldatetime($systime)) );
-				delete $user->{nextlogin};
-			} elsif ($t  > $main::systime) {
-				dbg("new_channel nextlogin $call t: $t systime: $systime") if isdbg('new');
-				my $l = $t - $main::systime;
-				$l = ($tmlgeometric ? $l * 2 : $l) +$tmladd +$tmlaverage;
-				$l = $tmlmaxdelay if $l > $tmlmaxdelay;
-				$user->nextlogin($l + $main::systime);
+		# If this user has a nextlogin time, is it > now?
+		if ($tmlinterval && $user) {
+			my $nextlogin = $user->{nextlogin} || 0;
+			my $atmax = $user->{nextloginatmax} || 0;
+			my $n =  @{$user->connlist} || 0;
+			my $firstconn = 0;
+			my $lastconn = $user->{lastin} || $systime;
+			if ($n >= $DXUser::maxconnlist) {
+				$firstconn = $user->connlist->[0]->[0] || 0;
+			} 
+
+			dbg(sprintf "nextlogin: next: %s atmax: %s no conns: $n start: %s last in: %s", htime($nextlogin), htime($atmax), htime($firstconn), htime($lastconn)) if isdbg('chan');
+				
+			
+			if ($user->{nextloginatmax} && $systime < $nextlogin) {
+				my $diff = $systime - $nextlogin;
+				dbg(sprintf "nextlogin max $call nextlogin %s still greater than systime %s ($diff secs), disconnect and wait", htime($nextlogin), htime($systime)) if isdbg('chan');
+				$user->close;
+				$conn->disconnect;
+				return;
+			} elsif ($nextlogin > $systime) {
+				my $l = $nextlogin - $systime;
+				$l = ($tmlgeometric ? $l * 2 : $l) +$tmladd +$tmlinterval;
+				$user->{nextlogin} = $firstconn + $l + $tmlinterval;
+				if ($l > $tmlmaxdelay) {
+					$l = $tmlmaxdelay;
+					$user->{nextlogin} = $user->{nextloginatmax} = $l + $systime;
+				}
+				dbg(sprintf "nextlogin \$nextlogin > \$systime  $call nextlogin: %s systime: %s", htime($nextlogin), htime($systime)) if isdbg('chan');
+				$tmlinplay{$call} = $user->{nextlogin};
+				$user->close;
 				eval { DXHealth::connection_rapid_throttled($call); 1 };
-				LogDbg('chan', "$call logging in too  quickly, banned for $l seconds");
-#				already_conn($conn, $call, "new_channel nextlogin $call on $host is not allowed to login for another $l secs, disconnected" );
+				LogDbg('chan', sprintf("nextlogin \$nextlogin > \$systime $call logging in too quickly, banned for $l seconds until %s CLOSING", htime($user->{nextlogin})));
+				$user->close;
+				already_conn($conn, $call, "new_channel nextlogin $call on $host is not allowed to login for another $l secs, disconnected" );
 				$conn->disconnect;
 				return;
 			} 	else {
-				my @lastconns = @{$user->connlist} if $user->connlist;
-				my $n =  @lastconns || 0;
 
-				dbg("nextlogin $call lastconns: $n t: $t systime: $systime") if isdbg('new');
+				dbg(sprintf "nextlogin $call lastconns: $n nextlogin: %s systime: %s", htime($nextlogin), htime($systime)) if isdbg('chan');
 
-				if (@lastconns && $n >= $DXUser::maxconnlist) {	# meaning it's full 
+				if ($n >= $DXUser::maxconnlist) {	# meaning it's full 
 					# the number of seconds since the start of the first conn -> end of the last conn
 					# in the list
-					my $diff = $lastconns[$n-1]->[1] - $lastconns[0]->[0]; 
-					dbg("new_channel nextlogin $call t: $t first: $lastconns[0]->[0] last: $lastconns[$n-1]->[1] av: $diff tmlaverage: $tmlaverage systime: $systime") if isdbg('new');
-					if ( $diff <=  $tmlaverage ) {
-						my $l = $tmladd - $diff;
-						$user->nextlogin($l + $main::systime);
-						LogDbg('chan', "nextlogin $call starting to exceed 3 attempts in $tmlaverage secs at $diff secs login delayed for $l secs till " . cldatetime($user->nextlogin));
-#						already_conn($conn, $call, "new_channel nextlogin starting to exceed 3 attempts in $tmlaverage secs at $diff secs login delayed for $l secs till " . cldatetime($user->nextlogin));
+					my $diff = $lastconn - $firstconn; 
+					dbg(sprintf "nextlogin check connlist $call nextlogin: %s first: %s last: %s av: $diff tmlinterval: $tmlinterval systime: %s", htime($nextlogin), htime($firstconn), htime($lastconn), htime($systime)) if isdbg('chan');
+					if ( $diff <  $tmlinterval) {
+						my $l = $diff + $tmlinterval;
+						$user->nextlogin($l + $systime);
+						LogDbg('chan', sprintf("nextlogin $call  tmlinterval: $tmlinterval secs diff: $diff secs login delayed for $l secs till %s CLOSING", htime($user->nextlogin));
+						#						already_conn($conn, $call, "new_channel nextlogin starting to exceed 3 attempts in $tmlinterval secs at $diff secs login delayed for $l secs till " . cldatetime($user->nextlogin));
+						$user->close;
+						$tmlinplay{$call} = $user->{nextlogin};
 						$conn->disconnect;
 						return;
 					}
@@ -464,7 +487,11 @@ sub new_channel
 		}
 		
 		if ($user) {
-			$user->{lang} = $main::lang if !$user->{lang}; # to autoupdate old systems
+			unless ($user->{lang}) {
+				$user->{lang} = $main::lang; # to autoupdate old systems
+				$user->put;
+			}
+			$user->get_current($call);       # make sure we have the latest one
 		} else {
 			$user = DXUser->new($call);
 		}
@@ -497,6 +524,27 @@ sub new_channel
 		$dxchan->sort('W');
 	}
 	$dxchan->rec($msg);
+}
+
+sub clear_tml_stuff
+{
+	# called by per_5sec() below
+	
+	# handle clearing out of tml stuff
+	foreach my $call (keys %tmlinplay) {
+		my $t = $tmlinplay{$call};
+		my $user = DXUser::get_current($call);
+		if ($t > 0 && $t < $systime) {
+			my $nextpossible = $systime + $tmlinterval + 1; 
+			LogDbg('chan', sprintf("clear_tml_stuff: $call with nextlogin at %s cleared at %s next possible at %s", htime($user->nextlogin), htime($systime), htime($nextpossible)) );
+			$user->{nextlogin} = 0;
+			$user->{nextloginatmax} = 0;
+			$user->close;
+			delete $tmlinplay{$call};
+		} else {
+		#	dbg(sprintf "nextlogin call: $call time: %s atmax: %s", htime($user->{nextlogin} || 0), htime($user->{nextuseratmax} || 0)) if isdbg('chan');
+		}
+	}		
 }
 
 
@@ -910,6 +958,14 @@ sub setup_start
 	#open(DB::OUT, "|tee /tmp/aa");
 }
 
+sub check_ipaddr_call
+{
+	my $conn = shift;
+	my $call = shift;
+
+	return 1;
+}
+
 sub idle_loop
 {
 	BPQMsg::process();
@@ -956,7 +1012,8 @@ sub per_sec
 
 	DXTimer::handler();
 	DXLog::flushall();
-
+	clear_tml_stuff();
+	
 }
 
 sub per_5_sec
@@ -1030,3 +1087,4 @@ sub END
 		cease();
 	}
 }
+

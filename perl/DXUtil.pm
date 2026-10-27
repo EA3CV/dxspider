@@ -84,7 +84,7 @@ sub htime
 {
 	my $t = shift;
 	$t = defined $t ? $t : time;
-	my $dst = shift;
+	my $dst = shift || 0;
 	my ($sec,$min,$hour) = $dst ? localtime($t): gmtime($t);
 	my $buf = sprintf "%02d:%02d:%02d%s", $hour, $min, $sec, ($dst) ? '' : 'Z';
 	return $buf;
@@ -434,6 +434,8 @@ sub unpad
 sub is_callsign
 {
 	return undef if $_[0] =~ /^\d+$/;
+	return undef if $_[0] =~ /^Q\w+$/i;
+	return undef if $_[0] =~ /^R[A\d]+N+D[O\d]+M+$/i;
 	return $_[0] =~ m!^
 					  (?:\d?[A-Z]{1,2}\d{0,2}/)?    # out of area prefix /  
 					  (?:\d?[A-Z]{1,2}\d{1,5})      # main prefix one (required) - lengthened for special calls 
