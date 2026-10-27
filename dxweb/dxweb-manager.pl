@@ -2,6 +2,7 @@
 use strict;
 use warnings;
 use FindBin;
+use Cwd qw(abs_path);
 use Getopt::Long qw(GetOptions);
 use File::Find;
 use File::Path qw(make_path remove_tree);
@@ -13,11 +14,47 @@ use JSON::PP;
 use Fcntl qw(:flock);
 use HTTP::Tiny;
 use POSIX qw(strftime);
+# Bounded stop: do not let a systemd stop timeout hold a transaction for 90s.
+# Never edit unit files while a stop is still pending.
+sub stop_service_bounded {
+ my ($svc,$seconds)=@_;
+ $seconds //= 15;
+ print STDERR "STOP REQUEST: $svc (limit ${seconds}s)\n";
+ system('systemctl','--no-block','stop',$svc)==0 or return 0;
+ for (1..$seconds*5) {
+  my $state=`systemctl show --property=ActiveState --value $svc 2>/dev/null`;
+  chomp $state;
+  if ($state eq 'inactive') {
+   # A stop job may still be queued; do not mutate unit files until it clears.
+   my $jobs=`systemctl list-jobs --no-legend --no-pager 2>/dev/null`;
+   return 1 unless $jobs =~ /\Q$svc\E/;
+  }
+  if ($state eq 'failed') { warn "STOP FAILED: $svc entered failed state\n"; return 0; }
+  select(undef,undef,undef,0.2);
+ }
+ warn "STOP TIMEOUT: $svc did not reach inactive within ${seconds}s\n";
+ return 0;
+}
+# Verify a stopped unit without issuing a second stop after its unit file
+# has intentionally been removed by rollback. A queued job is never success.
+sub service_stopped_or_absent {
+ my ($svc)=@_;
+ my $load=`systemctl show --property=LoadState --value $svc 2>/dev/null`;
+ my $load_rc=$?;
+ my $state=`systemctl show --property=ActiveState --value $svc 2>/dev/null`;
+ my $state_rc=$?;
+ chomp($load,$state);
+ return 0 if $load_rc || $state_rc;
+ return 0 unless ($load eq 'not-found' && $state eq 'inactive') || ($state eq 'inactive' && $load eq 'loaded');
+ my $jobs=`systemctl list-jobs --no-legend --no-pager 2>/dev/null`;
+ return 0 if $?;
+ return $jobs !~ /\Q$svc\E/;
+}
 my %o=(root=>'/spider',components=>'both',mode=>'direct',scheme=>'http',action=>'plan',backup_dir=>'/var/backups/dxweb-installer');
 GetOptions('root=s'=>\$o{root},'components=s'=>\$o{components},'mode=s'=>\$o{mode},'scheme=s'=>\$o{scheme},'action=s'=>\$o{action},'hostname=s'=>\$o{hostname},'cert=s'=>\$o{cert},'key=s'=>\$o{key},'backup-dir=s'=>\$o{backup_dir},'apply'=>\$o{apply},'user=s'=>\$o{user},'group=s'=>\$o{group},'backup=s'=>\$o{backup},'help'=>\$o{help}) or die "Invalid options\n";
 if ($o{help}) {
  print <<'HELP';
-DXWeb Installer v0.39
+DXWeb Installer v0.49
   --action plan|install|rollback|status    Default: plan
   --root /spider                    Installation root
   --components dxweb|admin|both     Default: both
@@ -61,14 +98,32 @@ if ($o{action} eq 'rollback') {
  my $m=decode_json(read_file($manifest_path));
  die "Unsupported manifest\n" unless ref($m) eq 'HASH' && ($m->{format}//'') eq 'dxweb-transaction-v1' && ref($m->{journal}) eq 'ARRAY' && ref($m->{initial_active}) eq 'HASH' && ref($m->{initial_enabled}) eq 'HASH';
  die "Empty rollback journal\n" unless @{$m->{journal}};
+ # Older transactions did not record root; they were valid only for /spider.
+ # New transactions bind every application destination to their actual root.
+ my $transaction_root=defined($m->{root}) ? $m->{root} : '/spider';
+ # Resolve legacy /spider aliases to their real installation tree.
+ # Never follow a symlink for a journal file or its intermediate children.
+ my $resolved_transaction_root=abs_path($transaction_root);
+ die "Missing transaction root\n" unless defined($resolved_transaction_root) && -d $resolved_transaction_root;
+ die "Unsafe transaction root\n" unless !ref($transaction_root) &&
+  $transaction_root =~ m{\A/[A-Za-z0-9_./-]+\z} &&
+  $transaction_root !~ m{(?:^|/)\.{1,2}(?:/|$)} &&
+  $transaction_root ne '/' && $transaction_root !~ m{/$};
+
  my (%affected,%seen);
  my $nginx_config=0;
  for my $e (@{$m->{journal}}) {
   die "Invalid journal entry\n" unless ref($e) eq 'HASH';
   my $dest=$e->{dest}//'';
-  die "Unsafe rollback destination: $dest\n" unless $dest =~ m{^/spider/(?:dxweb|dxweb-admin)/[A-Za-z0-9_./-]+$} || $dest =~ m{^/etc/systemd/system/(?:dxweb|dxweb-admin)\.service$} || $dest eq '/etc/nginx/sites-available/dxweb-installer.conf';
+  die "Unsafe rollback destination: $dest\n" unless $dest =~ m{^\Q$transaction_root\E/(?:dxweb|dxweb-admin)/[A-Za-z0-9_./-]+$} || $dest =~ m{^/etc/systemd/system/(?:dxweb|dxweb-admin)\.service$} || $dest eq '/etc/nginx/sites-available/dxweb-installer.conf';
   die "Traversal in destination\n" if $dest =~ m{(?:^|/)\.{1,2}(?:/|$)};
   die "Duplicate rollback destination\n" if $seen{$dest}++;
+  if ($dest =~ m{^\Q$transaction_root\E/(dxweb|dxweb-admin)/(.+)$}) {
+   my ($component,$relative)=($1,$2);
+   die "Unsafe symlink component\n" if -l "$resolved_transaction_root/$component";
+   $dest="$resolved_transaction_root/$component/$relative";
+   $e->{dest}=$dest;
+  }
   my $dir=dirname($dest);
   while ($dir ne '/') { die "Symlink parent: $dir\n" if -l $dir; $dir=dirname($dir); }
   die "Symlink destination\n" if -l $dest;
@@ -81,8 +136,8 @@ if ($o{action} eq 'rollback') {
    die "Unsafe backup reference\n" unless $b =~ m{^\Q$o{backup}\E/[0-9]+\.bak$} && -f $b && !-l $b;
    die "Unreadable backup\n" unless -r $b;
   } else { die "Unexpected backup reference\n" if defined $e->{backup}; }
-  $affected{dxweb}=1 if $dest =~ m{^/spider/dxweb/|/dxweb\.service$};
-  $affected{admin}=1 if $dest =~ m{^/spider/dxweb-admin/|/dxweb-admin\.service$};
+  $affected{dxweb}=1 if $dest =~ m{^\Q$transaction_root\E/dxweb/|/dxweb\.service$};
+  $affected{admin}=1 if $dest =~ m{^\Q$transaction_root\E/dxweb-admin/|/dxweb-admin\.service$};
   $nginx_config=1 if $dest eq '/etc/nginx/sites-available/dxweb-installer.conf';
  }
  for my $c (keys %affected) {
@@ -122,8 +177,13 @@ if ($o{action} eq 'rollback') {
  }
  my $link_was_present=-l $link ? readlink($link) : undef;
  write_atomic("$safety/manifest.json",JSON::PP->new->canonical->pretty->encode({format=>'dxweb-rollback-safety-v1',journal=>\@checkpoint,initial_active=>\%now_active,initial_enabled=>\%now_enabled,nginx_link_target=>$link_was_present}),0600,0,0);
+ # Preflight: no journal mutation has happened yet. On stop timeout leave the
+ # original unit and checkpoint untouched; do not enter recovery and stop again.
+ for my $c (keys %affected) {
+  my $svc=$c eq 'dxweb'?'dxweb.service':'dxweb-admin.service';
+  stop_service_bounded($svc,15) or die "ROLLBACK ABORTED: $svc did not stop cleanly; no files restored. Checkpoint: $safety\n";
+ }
  my $ok=eval {
-  for my $c (keys %affected) { my $svc=$c eq 'dxweb'?'dxweb.service':'dxweb-admin.service'; system('systemctl','stop',$svc)==0 or die "Cannot stop $svc\n"; }
   for my $e (reverse @{$m->{journal}}) {
    if ($e->{existed}) { write_atomic($e->{dest},read_file($e->{backup}),$e->{mode},$e->{uid},$e->{gid}); }
    elsif (-e $e->{dest}) { unlink $e->{dest} or die "Cannot unlink $e->{dest}: $!\n"; }
@@ -134,14 +194,14 @@ if ($o{action} eq 'rollback') {
   for my $c (keys %affected) {
    my $svc=$c eq 'dxweb'?'dxweb.service':'dxweb-admin.service';
    system('systemctl',$m->{initial_enabled}{$c}?'enable':'disable',$svc)==0 or die "Cannot restore enable state for $svc\n";
-   system('systemctl',$m->{initial_active}{$c}?'start':'stop',$svc)==0 or die "Cannot restore active state for $svc\n";
+   ($m->{initial_active}{$c} ? system('systemctl','start',$svc)==0 : service_stopped_or_absent($svc)) or die "Cannot restore active state for $svc\n";
    if ($m->{initial_active}{$c}) { system('systemctl','is-active','--quiet',$svc)==0 or die "Service not active after rollback: $svc\n"; }
   }
   1;
  };
  if (!$ok) {
   my $err=$@||'Unknown rollback failure'; warn "ROLLBACK FAILED: $err";
-  for my $c (keys %affected) { my $svc=$c eq 'dxweb'?'dxweb.service':'dxweb-admin.service'; system('systemctl','stop',$svc); }
+  for my $c (keys %affected) { my $svc=$c eq 'dxweb'?'dxweb.service':'dxweb-admin.service'; stop_service_bounded($svc,15); }
   for my $e (reverse @checkpoint) {
    eval { if ($e->{existed}) { write_atomic($e->{dest},read_file($e->{backup}),$e->{mode},$e->{uid},$e->{gid}); } elsif (-e $e->{dest}) { unlink $e->{dest} or die "unlink: $!"; } }; warn "SAFETY RESTORE FILE ERROR: $@" if $@;
   }
@@ -151,7 +211,7 @@ if ($o{action} eq 'rollback') {
   for my $c (keys %affected) {
    my $svc=$c eq 'dxweb'?'dxweb.service':'dxweb-admin.service';
    system('systemctl',$now_enabled{$c}?'enable':'disable',$svc);
-   system('systemctl',$now_active{$c}?'start':'stop',$svc);
+   if ($now_active{$c}) { system('systemctl','start',$svc); } else { service_stopped_or_absent($svc) or warn "SAFETY RESTORE STATE ERROR: $svc not inactive\n"; }
   }
   die "Rollback failed; safety restoration attempted. Inspect services. Checkpoint: $safety\n";
  }
@@ -165,11 +225,19 @@ my @components=$o{components} eq 'both' ? qw(dxweb admin):($o{components});
 my $nginx=$o{mode} eq 'nginx';
 my $backend=$nginx?'http':$o{scheme};
 my ($wp,$ap)=$nginx?(7480,7481):(7380,7381);
+# /spider is commonly a symlink to /home/sysop/spider. Resolve it once
+# and use the real path consistently in units, manifests and backups.
+my $requested_root=$o{root};
+my $resolved_root=abs_path($requested_root);
+die "Installation root does not exist\n" unless defined($resolved_root) && -d $resolved_root;
+die "Unsafe resolved root\n" unless $resolved_root =~ m{\A/[A-Za-z0-9_./-]+\z} && $resolved_root !~ m{(?:^|/)\.{1,2}(?:/|$)} && $resolved_root ne '/';
+$o{root}=$resolved_root;
 my $src=$o{root};
 # Applications are tracked by Git; never copy or rewrite them in place.
-# Keep the installation root canonical; never follow a symlink to a different tree.
-die "Symlink installation root forbidden\n" if -l $o{root};
--d "$src/dxweb" && -d "$src/dxweb-admin" or die "DXWeb directories missing in Git tree\n";
+for my $c (@components) {
+ my $folder=$c eq 'dxweb' ? 'dxweb' : 'dxweb-admin';
+ -d "$src/$folder" or die "Missing component directory: $src/$folder\n";
+}
 my $ssl=$o{scheme} eq 'https';
 if ($ssl) {
  for my $k (qw(cert key)) { die "--$k must be an existing regular file\n" unless defined($o{$k}) && $o{$k}=~m{^/} && -f $o{$k} && !-l $o{$k}; }
@@ -267,6 +335,12 @@ for my $c (@components) {
  if ($isweb && $extra_service !~ /^LimitNOFILE=/m) {
   $extra_service .= "LimitNOFILE=8192:8192\n";
  }
+ # Bound systemd's own stop job; mixed mode signals the main server first,
+ # allowing it to release its browser-owned children before escalation.
+ if (!$isweb) {
+  $extra_service .= "TimeoutStopSec=20s\n" unless $extra_service =~ /^TimeoutStopSec=/m;
+  $extra_service .= "KillMode=mixed\n" unless $extra_service =~ /^KillMode=/m;
+ }
  my $command=$isweb?'start.pl':'admin.pl';
  $unit{$c}="[Unit]\nDescription=DXSpider $folder\nAfter=network.target\n\n[Service]\nType=simple\nUser=$username\nGroup=$groupname\nWorkingDirectory=$o{root}/$folder\nEnvironment=DXS_HOST=$dxs_host\nEnvironment=DXS_PORT=$dxs_port\n$env"."ExecStart=/usr/bin/perl $o{root}/$folder/$command\nRestart=on-failure\nRestartSec=3\n$extra_service\n[Install]\nWantedBy=multi-user.target\n";
 }
@@ -288,8 +362,14 @@ for my $c (@components) {
 if (!$nginx && (-e '/etc/nginx/sites-enabled/dxweb.conf' || -e '/etc/nginx/sites-enabled/dxweb-installer.conf')) { die "Conflicting Nginx DXWeb site enabled; refusing direct installation\n"; }
 if ($nginx && (-e '/etc/nginx/sites-enabled/dxweb.conf' || -l '/etc/nginx/sites-enabled/dxweb.conf')) { die "Existing DXWeb Nginx site: manual migration required before installing managed site\n"; }
 if ($nginx && (-e '/etc/nginx/sites-enabled/dxweb-installer.conf' || -l '/etc/nginx/sites-enabled/dxweb-installer.conf') && (!-l '/etc/nginx/sites-enabled/dxweb-installer.conf' || readlink('/etc/nginx/sites-enabled/dxweb-installer.conf') ne '/etc/nginx/sites-available/dxweb-installer.conf')) { die "Managed Nginx site link points elsewhere\n"; }
-if ($nginx && $o{components} ne 'both' && -e '/etc/nginx/sites-available/dxweb-installer.conf') {
- die "Partial Nginx update would remove the other component's proxy; select both or migrate manually\n";
+# Preserve the other component's proxy during a partial deployment.
+# Only accept the exact two-block layout produced by this installer.
+if ($nginx && $o{components} ne 'both' &&
+    -e '/etc/nginx/sites-available/dxweb-installer.conf') {
+ my $existing=read_file('/etc/nginx/sites-available/dxweb-installer.conf');
+ my %old=validate_managed_nginx($existing);
+ my $other=$o{components} eq 'dxweb' ? 7381 : 7380;
+ $nginx_conf .= $old{$other} if exists $old{$other};
 }
 if ($nginx) { push @targets,[undef,'/etc/nginx/sites-available/dxweb-installer.conf',$nginx_conf,1]; }
 print "SOURCE: Git working tree at $o{root}; application files are not copied.\n";
@@ -393,11 +473,11 @@ my @journal; my $nginx_link_created=0; my $success=eval {
   push @journal,$entry;
   # Persist recovery instructions BEFORE modifying the destination.  A failed
   # write must never leave a changed file absent from the on-disk journal.
-  write_atomic("$backup/manifest.json",JSON::PP->new->canonical->pretty->encode({format=>'dxweb-transaction-v1',journal=>\@journal,initial_active=>\%active,initial_enabled=>\%enabled}),0600,0,0);
+  write_atomic("$backup/manifest.json",JSON::PP->new->canonical->pretty->encode({format=>'dxweb-transaction-v1',root=>$o{root},journal=>\@journal,initial_active=>\%active,initial_enabled=>\%enabled}),0600,0,0);
   make_path(dirname($dest));
   write_atomic($dest,$new,$entry->{mode},$entry->{uid},$entry->{gid});
  }
- write_atomic("$backup/manifest.json",JSON::PP->new->canonical->pretty->encode({format=>'dxweb-transaction-v1',journal=>\@journal,initial_active=>\%active,initial_enabled=>\%enabled}),0600,0,0);
+ write_atomic("$backup/manifest.json",JSON::PP->new->canonical->pretty->encode({format=>'dxweb-transaction-v1',root=>$o{root},journal=>\@journal,initial_active=>\%active,initial_enabled=>\%enabled}),0600,0,0);
  for my $c (@components) {
   my $script=$c eq 'dxweb'?'start.pl':'admin.pl'; my $folder=$c eq 'dxweb'?'dxweb':'dxweb-admin';
   system($^X,'-c',"$o{root}/$folder/$script")==0 or die "Perl syntax failed: $script\n";
@@ -407,7 +487,7 @@ my @journal; my $nginx_link_created=0; my $success=eval {
   die "Existing conflicting DXWeb Nginx site; manual migration required\n" if -e '/etc/nginx/sites-enabled/dxweb.conf';
   my $link='/etc/nginx/sites-enabled/dxweb-installer.conf';
   if (!-e $link && !-l $link) { symlink('/etc/nginx/sites-available/dxweb-installer.conf',$link) or die "Nginx enable failed: $!"; $nginx_link_created=1; }
-  if ($nginx_link_created) { write_atomic("$backup/manifest.json",JSON::PP->new->canonical->pretty->encode({format=>'dxweb-transaction-v1',journal=>\@journal,initial_active=>\%active,initial_enabled=>\%enabled,nginx_link_created=>JSON::PP::true}),0600,0,0); }
+  if ($nginx_link_created) { write_atomic("$backup/manifest.json",JSON::PP->new->canonical->pretty->encode({format=>'dxweb-transaction-v1',root=>$o{root},journal=>\@journal,initial_active=>\%active,initial_enabled=>\%enabled,nginx_link_created=>JSON::PP::true}),0600,0,0); }
   system('nginx','-t')==0 or die "Nginx configuration invalid\n";
   system('systemctl','reload','nginx')==0 or die "Nginx reload failed\n";
  }
@@ -443,7 +523,7 @@ if (!$success) {
  my $recovery_error=sub { my ($message)=@_; push @recovery_errors,$message; warn "RECOVERY ERROR: $message\n"; };
  for my $c (@components) {
   my $s=$c eq 'dxweb'?'dxweb.service':'dxweb-admin.service';
-  system('systemctl','stop',$s)==0 or $recovery_error->("Cannot stop $s");
+  stop_service_bounded($s,15) or $recovery_error->("Cannot stop $s");
  }
  for my $entry (reverse @journal) {
   my $restored=eval {
@@ -474,7 +554,7 @@ if (!$success) {
  system('systemctl','daemon-reload')==0 or $recovery_error->('systemd daemon-reload failed');
  for my $c (@components) {
   my $s=$c eq 'dxweb'?'dxweb.service':'dxweb-admin.service';
-  system('systemctl',$active{$c}?'start':'stop',$s)==0 or $recovery_error->("Cannot restore active state for $s");
+  ($active{$c} ? system('systemctl','start',$s)==0 : stop_service_bounded($s,15)) or $recovery_error->("Cannot restore active state for $s");
   if ($was_installed{$c}) {
    system('systemctl',$enabled{$c}?'enable':'disable',$s)==0 or $recovery_error->("Cannot restore enabled state for $s");
   } else {
@@ -506,6 +586,27 @@ if (!$success) {
  die "INSTALL FAILED; RECOVERY VERIFIED for probeable endpoints. Original failure: $err Backup: $backup\n";
 }
 print "INSTALL OK. Configuration backup: $backup\n";
+# Strictly recognize only blocks generated by this installer.  Never
+# silently preserve unexpected directives during partial updates.
+sub validate_managed_nginx {
+ my ($existing)=@_;
+ die "Unrecognized managed Nginx layout; refusing partial update\n"
+  unless defined($existing) && length($existing);
+ my @blocks=split /(?<=\n\}\n)(?=server \{\n)/, $existing;
+ my %old;
+ for my $block (@blocks) {
+  my ($port,$ssl,$hostname,$tls,$backend)=$block =~ m{\Aserver \{\nlisten (738[01])( ssl)?;\nserver_name ([a-zA-Z0-9][a-zA-Z0-9.-]*);\n((?:ssl_certificate [^\n;]+;\nssl_certificate_key [^\n;]+;\n)?)location / \{\nproxy_http_version 1\.1;\nproxy_set_header Host \$http_host;\nproxy_set_header X-Real-IP \$remote_addr;\nproxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\nproxy_set_header X-Forwarded-Proto \$scheme;\nproxy_set_header Upgrade \$http_upgrade;\nproxy_set_header Connection "upgrade";\nproxy_read_timeout 3600s;\nproxy_pass http://127\.0\.0\.1:(748[01]);\n\}\n\}\n\z};
+  die "Unrecognized managed Nginx layout; refusing partial update\n"
+   unless defined($port) && !exists($old{$port}) &&
+          $backend == $port+100 &&
+          (($ssl && length($tls)) || (!$ssl && !length($tls)));
+  $old{$port}=$block;
+ }
+ die "Unrecognized managed Nginx layout; refusing partial update\n"
+  unless join('',@blocks) eq $existing && @blocks<=2;
+ return %old;
+}
+
 sub openssl_output { my @args=@_; open my $fh,'-|','openssl',@args or die "OpenSSL launch failed: $!\n"; local $/; my $out=<$fh>; close $fh or die "OpenSSL command failed\n"; return $out; }
 sub read_file { my ($p)=@_; open my $f,'<',$p or die "Read $p: $!"; binmode $f; local $/; return <$f>; }
 sub write_atomic { my ($p,$data,$mode,$uid,$gid)=@_; make_path(dirname($p)); my ($fh,$tmp)=tempfile('.dxweb-XXXXXX',DIR=>dirname($p),UNLINK=>0); binmode $fh; print {$fh} $data or die "Write $tmp: $!"; close $fh or die "Close $tmp: $!"; chmod $mode,$tmp or die "chmod $tmp: $!"; chown $uid,$gid,$tmp or die "chown $tmp: $!"; rename $tmp,$p or die "rename $tmp: $!"; }
