@@ -404,7 +404,7 @@ sub basecall_no
 	} else {
 		push @keys, Route::User::get_all_keys();
 	} 	
-	foreach my $key (grep {m/^${$patt}(?:-\d+)?$}/} @keys ) {
+	foreach my $key (grep {m/^${$patt}(?:-\d+)?$/} @keys ) {
 		dbg("base call: $base call: $key") if isdbg('routebase');
 		my $ref = get($key);
 		push @calls, $ref->{call};
