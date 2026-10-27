@@ -1,3 +1,17 @@
+27Oct26======================================================================
+1. Introduced a unified manager to install, update, and roll back DXWeb and 
+   DXWeb Admin systemd service configurations.
+2. Added a planning mode to review operations before applying them, along 
+   with transactional backups and rollback recovery.
+3. Improved service shutdown handling.
+4. Fixed rollback of initial installations.
+5. Fixed excessive shutdown delays caused by persistent WebSocket 
+   connections and background tasks.
+6. Added installer documentation covering installation, updates, rollback, 
+   and recovery procedures. Updated the Nginx documentation.
+7. Reject login attempts from callsigns starting with 'Q'.
+8. Improved badip management with IPv4/IPv6 support for individual addresses,
+   CIDR networks and ranges.
 26Oct26======================================================================
 1. Improved PC92C message processing and routing consistency between nodes.
 2. Fixed set/isolate, unset/isolate, and show/isolate.
