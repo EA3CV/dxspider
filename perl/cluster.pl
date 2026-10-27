@@ -393,7 +393,7 @@ sub new_channel
 					if ( $diff <  $tmlinterval) {
 						my $l = $diff + $tmlinterval;
 						$user->nextlogin($l + $systime);
-						LogDbg('chan', sprintf("nextlogin $call  tmlinterval: $tmlinterval secs diff: $diff secs login delayed for $l secs till %s CLOSING", htime($user->nextlogin));
+						LogDbg('chan', sprintf("nextlogin $call  tmlinterval: $tmlinterval secs diff: $diff secs login delayed for $l secs till %s CLOSING", htime($user->nextlogin)));
 						#						already_conn($conn, $call, "new_channel nextlogin starting to exceed 3 attempts in $tmlinterval secs at $diff secs login delayed for $l secs till " . cldatetime($user->nextlogin));
 						$user->close;
 						$tmlinplay{$call} = $user->{nextlogin};
