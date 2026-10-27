@@ -20,7 +20,7 @@ ACCESS MODES
 Without Nginx:
   Browser -> DXWeb :7380 or DXWeb Admin :7381 -> DXSpider :27754
 
-With Nginx (examples in dxweb/docs/):
+With Nginx (managed by dxweb/dxweb-manager.pl):
   Browser -> Nginx :7380 -> DXWeb 127.0.0.1:7480 -> DXSpider :27754
   Browser -> Nginx :7381 -> Admin 127.0.0.1:7481 -> DXSpider :27754
 
@@ -36,11 +36,10 @@ CONFIGURATION DIAGRAMS
 
 INSTALLATION AND OPERATION
 --------------------------
-  dxweb/README, dxweb/INSTALL
-  dxweb-admin/README, dxweb-admin/INSTALL
-  dxweb/docs/README-nginx
-  dxweb/docs/dxweb-http.conf.example
-  dxweb/docs/dxweb-https.conf.example
+  INSTALL_DXWEB.es (Spanish installation manual)
+  INSTALL_DXWEB.en (British English installation manual)
+  dxweb/dxweb-manager.pl (installation and service manager)
+  dxweb/examples/ (systemd examples for manual testing)
 
 PROTOCOL
 --------
@@ -50,7 +49,3 @@ PROTOCOL
 The two applications can be installed independently. The Nginx examples
 are optional and must be adapted to the actual deployment.
 
-CONFIGURATION DIAGRAMS
-----------------------
-  dxweb/docs/DXWeb_Configuration_ES.png
-  dxweb/docs/DXWeb_Configuration_EN.png

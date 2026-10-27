@@ -1,5 +1,5 @@
 [Unit]
-Description=DXSpider Web Admin
+Description=DXSpider dxweb-admin
 After=network.target
 
 [Service]
@@ -7,14 +7,21 @@ Type=simple
 User=sysop
 Group=spider
 WorkingDirectory=/spider/dxweb-admin
+Environment=DXS_HOST=127.0.0.1
 Environment=DXS_PORT=27754
 Environment=DXWEB_HOST=127.0.0.1
 Environment=DXWEB_PORT=7481
 Environment=DXWEB_CLIENT_PORT=7480
+Environment=DXWEB_CLIENT_SCHEME=http
+Environment=DXWEB_CLIENT_HOST=127.0.0.1
+Environment=DXWEB_SCHEME=http
 Environment=MOJO_REVERSE_PROXY=1
+Environment=DXSPIDER_ROOT=/spider
 ExecStart=/usr/bin/perl /spider/dxweb-admin/admin.pl
 Restart=on-failure
 RestartSec=3
+TimeoutStopSec=20s
+KillMode=mixed
 
 [Install]
 WantedBy=multi-user.target
