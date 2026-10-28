@@ -991,3 +991,26 @@ html[data-theme="auto"] :is(button,input,select,textarea):disabled {opacity:.58;
 .loginAccessHelp summary{cursor:pointer;font-weight:600;color:#155aa8}
 .loginAccessHelp p{margin:7px 0 0}
 html[data-theme="dark"] .loginAccessHelp summary{color:#8dbfff}
+
+/* Semantic user notices: shared DXWeb / DXWeb Admin palette. */
+:root,html[data-theme="light"] {
+ --dx-notice-buddy:#006f92;--dx-notice-user:#8d3970;
+ --dx-notice-node:#946000;--dx-notice-system:#526174;
+}
+html[data-theme="dark"] {
+ --dx-notice-buddy:#49d9f2;--dx-notice-user:#f0a1ca;
+ --dx-notice-node:#f2c36b;--dx-notice-system:#aab7c8;
+}
+@media (prefers-color-scheme:dark) {
+ html[data-theme="auto"] {
+  --dx-notice-buddy:#49d9f2;--dx-notice-user:#f0a1ca;
+  --dx-notice-node:#f2c36b;--dx-notice-system:#aab7c8;
+ }
+}
+#spots .spotTable tbody td.spotUserNotice {
+ text-align:left!important;font-weight:600;
+ color:var(--dx-notice-system)!important;
+}
+#spots .spotTable tbody td.spotNotice-buddy {color:var(--dx-notice-buddy)!important}
+#spots .spotTable tbody td.spotNotice-user {color:var(--dx-notice-user)!important}
+#spots .spotTable tbody td.spotNotice-node {color:var(--dx-notice-node)!important}
