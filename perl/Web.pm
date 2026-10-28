@@ -675,7 +675,7 @@ sub publish_user_notice
         for my $message (keys %by_text) {
             my $targets = $by_text{$message};
             my $payload = _encode_protocol_object([
-                ['type','user_notice'], ['text',$message], ['targets',$targets],
+                ['type','user_notice'], ['category', $family eq 'buddy' ? 'buddy' : $key =~ /n\z/ ? 'node' : 'user'], ['text',$message], ['targets',$targets],
             ]);
             next unless defined $payload;
             unless ($channel->_web_feed_can_write(length($payload) + length($channel->{call} || '') + 4)) {
@@ -701,7 +701,7 @@ sub _web_initial_buddies
             my $message = DXM::msg($lang, $key, $buddy, $node);
             next unless defined $message && length $message;
             my $payload = _encode_protocol_object([
-                ['type','user_notice'], ['text',$message], ['targets',[$recipient]],
+                ['type','user_notice'], ['category','buddy'], ['text',$message], ['targets',[$recipient]],
             ]);
             next unless defined $payload;
             next unless $self->_web_feed_can_write(length($payload) + length($self->{call} || '') + 4);

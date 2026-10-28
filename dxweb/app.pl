@@ -221,7 +221,9 @@ sub push_feed( $kind, $raw ) {
         return unless ref($d) eq 'HASH' && ($d->{type} // '') eq 'user_notice';
         return unless ref($targets) eq 'ARRAY' && @$targets && @$targets <= 256;
         return unless defined($d->{text}) && !ref($d->{text}) && length($d->{text}) <= 4096;
-        my $o = { type => 'feed', feed => 'user_notice', payload => { text => $d->{text} } };
+        my $category = $d->{category} // 'system';
+        $category = 'system' unless $category =~ /\A(?:buddy|user|node|system)\z/;
+        my $o = { type => 'feed', feed => 'user_notice', payload => { text => $d->{text}, category => $category } };
         queue_fanout('user_notice', encode_json($o), $targets);
         return;
     }

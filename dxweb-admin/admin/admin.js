@@ -120,7 +120,7 @@ for(const panel of panelZoomNames){
 }
 panelZoomRestore();
 
-function loginState(ok,m={}){if(!ok){networkChatMessages.length=0;networkChatRender()} authenticated=ok;document.body.classList.toggle('authenticated',ok);authUser=ok?(m.call||authUser):null;authPriv=ok?Number(m.priv||0):0;document.querySelectorAll('#deleteUserOpen, #historyCompress, #historyDelete, #maintenanceUpdates button, .opCommandForm button, #consoleForm button, #filterForm button, #filters .filterBuilder button').forEach(b=>{b.disabled=ok&&authPriv<9;b.hidden=ok&&authPriv<9&&b.id==='deleteUserOpen'});document.querySelectorAll('.mainTabs [data-section]').forEach(b=>{const denied=ok&&authPriv<5&&SYSOP_SECTIONS.has(b.dataset.section);b.style.display='';b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 5':'';b.classList.toggle('sysopDenied',denied);b.style.filter=''});document.querySelectorAll('.v2NavBtn[data-v2-target]').forEach(b=>{const denied=ok&&authPriv<5&&SYSOP_SECTIONS.has(b.dataset.v2Target);b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 5':'';b.classList.toggle('sysopDenied',denied)});if(ok&&authPriv<5&&SYSOP_SECTIONS.has(activeSection))selectSection('operation');$('loginButton').textContent=ok?`Logout ${authUser}`:'Login';setLocked(!ok);spotFontForSession();consoleFontRestore();spotPresentationRestore();panelZoomRestore();}
+function loginState(ok,m={}){if(!ok){networkChatMessages.length=0;networkChatRender()} authenticated=ok;document.body.classList.toggle('authenticated',ok);authUser=ok?(m.call||authUser):null;authPriv=ok?Number(m.priv||0):0;document.querySelectorAll('#deleteUserOpen, #historyCompress, #historyDelete, #maintenanceUpdates button, .opCommandForm button, #consoleForm button, #filterForm button, #filters .filterBuilder button').forEach(b=>{b.disabled=ok&&authPriv<9;b.hidden=ok&&authPriv<9&&b.id==='deleteUserOpen'});document.querySelectorAll('.mainTabs [data-section]').forEach(b=>{const denied=ok&&authPriv<5&&SYSOP_SECTIONS.has(b.dataset.section);b.style.display='';b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 5':'';b.classList.toggle('sysopDenied',denied);b.style.filter=''});document.querySelectorAll('.v2NavBtn[data-v2-target]').forEach(b=>{const denied=ok&&authPriv<5&&SYSOP_SECTIONS.has(b.dataset.v2Target);b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 5':'';b.classList.toggle('sysopDenied',denied)});if(ok&&authPriv<5&&SYSOP_SECTIONS.has(activeSection))selectSection('operation');$('loginButton').textContent=ok?`Logout ${authUser}`:'Login';setLocked(!ok);spotFontForSession();consoleFontRestore();spotPresentationRestore();spotViewsRestore();panelZoomRestore();}
 function notice(t){$('noticeText').textContent=t;$('noticeDialog').showModal()}
 $('noticeClose').onclick=()=>$('noticeDialog').close();
 function showLogin(msg=''){if($('loginDialog').open)return;$('loginError').textContent=msg;$('loginDialog').showModal();$('loginCall').focus()}
@@ -394,11 +394,100 @@ geoInput.addEventListener('input',()=>{
 geoLoadPrefix();
 
 // Optional spot columns and bounded Comment resizing; presentation only.
-const spotCore=[['type','C/R',64],['utc','UTC',58],['freq','Freq',120],['dx','DX',120],['spotter','Spotter',120],['comment','Comment',80]];
+// Browser-only spot views. One shared bounded feed buffer; no additional subscriptions.
+const spotViewsKey='dxspider.dxweb-admin.spotViews.';
+let spotViews=[],spotActiveView='all',spotDraft=null,spotEditing=null,spotAllSort={key:'utc',dir:'desc'};
+const spotFields=['C/R','UTC','Freq','DX','Spotter','Comment','Origin'];
+function spotViewsSave(){if(authenticated&&authUser)try{localStorage.setItem(spotViewsKey+authUser.toUpperCase(),JSON.stringify(spotViews))}catch(_){}}
+function spotViewsRestore(){spotViews=[];spotActiveView='all';if(authenticated&&authUser)try{
+ const saved=JSON.parse(localStorage.getItem(spotViewsKey+authUser.toUpperCase()));
+ if(Array.isArray(saved))spotViews=saved.slice(0,10).filter(v=>v&&typeof v.id==='string'&&v.id.startsWith('view-')&&typeof v.name==='string'&&v.name.length<=40&&Array.isArray(v.rules)&&v.rules.length&&v.rules.length<=10&&v.rules.every(r=>spotFields.includes(r.field)&&['is','contains','not'].includes(r.op)&&typeof r.value==='string')).map(v=>({...v,sort: v.sort&&['utc','freq','dx','spotter','comment','origin'].includes(v.sort.key)&&['asc','desc'].includes(v.sort.dir)?v.sort:{key:'utc',dir:'desc'}}));
+ }catch(_){}spotViewsRender()}
+function spotMatches(spot,view){return view.rules.every(rule=>{
+ const value=rule.field==='C/R'?(spot.type==='human'?'C':'R'):String(spot[rule.field.toLowerCase()]??'').toUpperCase();
+ const terms=rule.value.split(',').map(v=>v.trim().toUpperCase()).filter(Boolean);
+ if(!terms.length)return false;
+ const hit=terms.some(term=>{
+  if(rule.field==='Comment')return value.includes(term);
+  if(rule.field==='Freq'){
+   const parts=term.split('-').map(x=>x.trim());const n=Number(value);
+   return parts.length===2?n>=Number(parts[0])&&n<=Number(parts[1]):n===Number(term);
+  }
+  if(rule.field==='UTC'){
+   const toMinutes=t=>{const h=Number(t.slice(0,2)),m=Number(t.slice(2));return h*60+m};
+   const parts=term.split('-').map(x=>x.trim().replace(':',''));
+   const n=toMinutes(value.padStart(4,'0'));
+   if(parts.length===2){const start=toMinutes(parts[0]),end=toMinutes(parts[1]);return start<=end?n>=start&&n<=end:n>=start||n<=end}
+   return n===toMinutes(parts[0]);
+  }
+  return rule.op==='contains'?value.includes(term):value===term;
+ });
+ return rule.op==='not'?!hit:hit;
+ })}
+function spotViewsRender(){const tabs=$('spotViewTabs');if(!tabs)return;tabs.replaceChildren();
+ const add=(name,id)=>{const b=document.createElement('button');b.type='button';b.className='spotViewTab'+(spotActiveView===id?' selected':'');b.textContent=name;b.onclick=()=>{spotActiveView=id;spotViewsRender();spotSortHeaders();renderSpots()};tabs.append(b)};
+ add('All spots','all');spotViews.forEach(v=>add(v.name,v.id));
+ $('spotViewEdit').hidden=spotActiveView==='all';const v=spotViews.find(x=>x.id===spotActiveView);
+ spotSortHeaders();
+}
+function spotOpenEditor(id){const v=spotViews.find(x=>x.id===id);spotEditing=v?v.id:null;
+ spotDraft=v?JSON.parse(JSON.stringify(v)):{id:null,name:'',rules:[{field:'DX',op:'is',value:''}],sort:{key:'utc',dir:'desc'}};
+ $('spotFilterTitle').textContent=v?'Edit Spot Filter':'New Spot Filter';$('spotFilterName').value=spotDraft.name;
+ $('spotFilterDelete').hidden=!v;$('spotFilterSave').textContent=v?'Save Changes':'Create Filter';spotRulesRender();$('spotFilterDialog').hidden=false;$('spotFilterName').focus();
+}
+function spotRulesRender(){const parent=$('spotFilterRules');parent.replaceChildren();spotDraft.rules.forEach((rule,i)=>{
+ const line=document.createElement('div');line.className='spotFilterRule';
+ const field=document.createElement('select');spotFields.forEach(f=>field.add(new Option(f,f)));field.value=rule.field;field.onchange=()=>{rule.field=field.value};
+ const op=document.createElement('select');[['is','Is any of'],['contains','Contains any'],['not','Is not any of']].forEach(([v,t])=>op.add(new Option(t,v)));op.value=rule.op;op.onchange=()=>{rule.op=op.value};
+ const value=document.createElement('input');value.type='text';value.placeholder='Values separated by commas';value.value=rule.value;value.oninput=()=>{rule.value=value.value};
+ const del=document.createElement('button');del.type='button';del.textContent='×';del.title='Remove condition';del.disabled=spotDraft.rules.length===1;del.onclick=()=>{spotDraft.rules.splice(i,1);spotRulesRender()};
+ line.append(field,op,value,del);parent.append(line);
+ })}
+function spotFilterBind(){
+ $('spotViewNew').onclick=()=>spotOpenEditor(null);
+ $('spotViewEdit').onclick=()=>spotOpenEditor(spotActiveView);
+ $('spotFilterClose').onclick=$('spotFilterCancel').onclick=()=>{$('spotFilterDialog').hidden=true};
+ $('spotFilterDialog').addEventListener('click',e=>{if(e.target===$('spotFilterDialog'))$('spotFilterDialog').hidden=true});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('spotFilterDialog').hidden)$('spotFilterDialog').hidden=true});
+ $('spotFilterAdd').onclick=()=>{if(spotDraft.rules.length>=10)return;spotDraft.rules.push({field:spotFields.find(f=>!spotDraft.rules.some(r=>r.field===f))||'DX',op:'is',value:''});spotRulesRender()};
+ $('spotFilterSave').onclick=()=>{const name=$('spotFilterName').value.trim();if(!name||name.length>40||!spotDraft.rules.length||spotDraft.rules.some(r=>!r.value.trim())){alert('Enter a name (up to 40 characters) and complete every condition.');return}
+ if(spotDraft.rules.some(r=>r.field==='C/R'&&r.value.split(',').some(t=>! /^(?:C|R)$/i.test(t.trim())))){alert('C/R accepts C, R or C,R.');return}
+ if(spotDraft.rules.some(r=>r.field==='UTC'&&r.value.split(',').some(t=>{const m=t.trim().match(/^(\d{2}):?(\d{2})(?:\s*-\s*(\d{2}):?(\d{2}))?$/);return !m||Number(m[1])>23||Number(m[2])>59||(m[3]!==undefined&&(Number(m[3])>23||Number(m[4])>59))}))){alert('UTC accepts HHMM or HH:MM, including ranges (e.g. 0830-1200).');return}
+ if(spotDraft.rules.some(r=>r.field==='Freq'&&r.value.split(',').some(t=>!/^\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?$/.test(t.trim())))){alert('Frequency must be a kHz value or range.');return}
+ if(!spotEditing&&spotViews.length>=10){alert('Maximum 10 custom filters.');return}
+ if(spotViews.some(v=>v.id!==spotEditing&&v.name.toUpperCase()===name.toUpperCase())){alert('Filter name already exists.');return}
+ spotDraft.name=name;if(spotEditing)spotViews=spotViews.map(v=>v.id===spotEditing?spotDraft:v);else{spotDraft.id='view-'+Date.now()+'-'+Math.floor(Math.random()*100000);spotViews.push(spotDraft)}
+ spotActiveView=spotDraft.id;spotViewsSave();spotViewsRender();spotSortHeaders();$('spotFilterDialog').hidden=true;renderSpots()};
+ $('spotFilterDelete').onclick=()=>{if(!spotEditing||!confirm('Delete this filter?'))return;spotViews=spotViews.filter(v=>v.id!==spotEditing);spotActiveView='all';spotViewsSave();spotViewsRender();spotSortHeaders();$('spotFilterDialog').hidden=true;renderSpots()};
+}
+// Sorting is controlled by clickable column headers; one active key per view.
+function spotSortHeaders(){
+ const v=spotViews.find(x=>x.id===spotActiveView),sort=v?.sort||spotAllSort;
+ const keys=new Set(['utc','freq','dx','spotter','comment','origin']);
+ document.querySelectorAll('#spotHeaders th[data-spot-sort]').forEach(th=>{
+  const key=th.dataset.spotSort,active=key===sort.key;
+  th.classList.toggle('spotSortActive',active);
+  th.setAttribute('aria-sort',active?(sort.dir==='asc'?'ascending':'descending'):'none');
+  const arrow=th.querySelector('.spotSortArrow');if(arrow)arrow.textContent=active?(sort.dir==='asc'?' ↑':' ↓'):'';
+ });
+}
+$('spotHeaders').addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('th[data-spot-sort]')){e.preventDefault();e.target.click()}});
+$('spotHeaders').addEventListener('click',e=>{
+ if(e.target.closest('.commentResizeHandle'))return;
+ const th=e.target.closest('th[data-spot-sort]');if(!th)return;
+ const key=th.dataset.spotSort;
+ const v=spotViews.find(x=>x.id===spotActiveView),old=v?.sort||spotAllSort;
+ const dir=old.key===key?(old.dir==='asc'?'desc':'asc'):(key==='utc'?'desc':'asc');
+ if(v){v.sort={key,dir};spotViewsSave()}
+ else{spotAllSort={key,dir};if(key==='utc'){spotNewestFirst=dir==='desc';spotOrderLabel()}spotPresentationSave()}
+ spotSortHeaders();renderSpots();
+});
+spotFilterBind();
+const spotCore=[['type','C/R',64],['utc','UTC',110],['freq','Freq',120],['dx','DX',120],['spotter','Spotter',120],['comment','Comment',80],['origin','Origin',120]];
 const spotExtras=[['loc','Locator',78],['cq','CQ Zone',65],['itu','ITU Zone',65]];
 let spotVisibleColumns=[],spotCommentPreferred=null,spotResizeActive=false,spotNewestFirst=true;
 function spotOrderLabel(){const b=$('spotOrderToggle');if(!b)return;b.textContent=spotNewestFirst?'↓ First':'↑ Last';b.title=spotNewestFirst?'Newest spots first; click to reverse':'Newest spots last; click to reverse';b.setAttribute('aria-label','Spot order: '+(spotNewestFirst?'newest first':'newest last'))}
-$('spotOrderToggle').onclick=()=>{spotNewestFirst=!spotNewestFirst;spotOrderLabel();renderSpots();spotPresentationSave()};
+$('spotOrderToggle').onclick=()=>{spotNewestFirst=!spotNewestFirst;spotAllSort={key:'utc',dir:spotNewestFirst?'desc':'asc'};spotOrderLabel();if(spotActiveView==='all')spotViewsRender();spotSortHeaders();renderSpots();spotPresentationSave()};
 
 function spotSelected(){return new Set([...document.querySelectorAll('[data-spot-group]:checked')].map(e=>e.dataset.spotGroup))}
 function updateSpotLayout(){
@@ -420,6 +509,7 @@ function updateSpotLayout(){
  const cols=visibleCore.map(([key,title,w])=>({key,title,w:key==='comment'?comment:Math.ceil(w*scale)}));
  if(geoEnabled)cols.push({key:'distance',title:'Distance',w:Math.ceil(96*scale)},{key:'bearing',title:'Bearing',w:Math.ceil(80*scale)});
  for(const g of groups)for(const [suffix,title] of g.fields)cols.push({key:g.key+suffix,title,w:Math.ceil(g.w*scale),group:g.name});
+ const originCol=cols.find(x=>x.key==='origin');if(originCol){cols.splice(cols.indexOf(originCol),1);cols.push(originCol)}
  const signature=cols.map(x=>x.key).join('|');const previous=spotVisibleColumns.map(x=>x.key).join('|');
  spotVisibleColumns=cols;
  const total=cols.reduce((s,x)=>s+x.w,0);table.style.width=total+'px';table.style.minWidth=total+'px';
@@ -427,8 +517,11 @@ function updateSpotLayout(){
  if(signature!==previous){
   const groupHeaders=groups.filter(g=>g.fields.length).map(g=>`<th colspan="${g.fields.length}">${g.name}</th>`).join('');
   const hasExtras=!!groupHeaders;
-  $('spotHeaders').innerHTML=`<tr class="spotHeadGroup">${cols.filter(x=>!x.group).map(x=>`<th ${hasExtras?'rowspan="2"':''} class="spotField-${x.key} ${x.key==='comment'?'commentHeader':(x.key==='distance'||x.key==='bearing'?'spotGeoNumeric':'')}">${x.title}${x.key==='comment'?'<span class="commentResizeHandle" role="separator" aria-label="Resize Comment column" title="Drag to resize Comment"></span>':''}</th>`).join('')}${groupHeaders}</tr>${hasExtras?`<tr class="spotHeadSub">${groups.map(g=>g.fields.map(f=>`<th>${f[1]}</th>`).join('')).join('')}</tr>`:''}`;
-  renderSpots();
+  const headerCell=x=>`<th ${['utc','freq','dx','spotter','comment','origin'].includes(x.key)?`data-spot-sort="${x.key}" tabindex="0" role="button"`:''} ${hasExtras?'rowspan="2"':''} class="spotField-${x.key} ${x.key==='comment'?'commentHeader':(x.key==='distance'||x.key==='bearing'?'spotGeoNumeric':'')}">${x.title}${['utc','freq','dx','spotter','comment','origin'].includes(x.key)?'<span class="spotSortArrow" aria-hidden="true"></span>':''}${x.key==='comment'?'<span class="commentResizeHandle" role="separator" aria-label="Resize Comment column" title="Drag to resize Comment"></span>':''}</th>`;
+  const ordinary=cols.filter(x=>!x.group&&x.key!=='origin').map(headerCell).join('');
+  const origin=cols.find(x=>x.key==='origin');
+  $('spotHeaders').innerHTML=`<tr class="spotHeadGroup">${ordinary}${groupHeaders}${origin?headerCell(origin):''}</tr>${hasExtras?`<tr class="spotHeadSub">${groups.map(g=>g.fields.map(f=>`<th>${f[1]}</th>`).join('')).join('')}</tr>`:''}`;
+  spotSortHeaders();renderSpots();
  }
 }
 for(const box of document.querySelectorAll('[data-spot-group]'))box.addEventListener('change',updateSpotLayout);
@@ -447,10 +540,32 @@ $('spotHeaders').addEventListener('pointerdown',e=>{
 });
 window.addEventListener('load',updateSpotLayout);
 updateSpotLayout();
-function renderSpots(){const human=$('showHuman').checked,rbn=$('showRbn').checked,a=spotItems.filter(x=>x.type==='notice'||(x.type==='human'&&human)||(x.type==='rbn'&&rbn));$('spotRows').innerHTML=(spotNewestFirst?a.slice(-250).reverse():a.slice(-250)).map(x=>`<tr class="${x._newUntil>Date.now()?'spotFresh':''}" style="${x._newUntil>Date.now()?'animation-delay:-'+((3000-(x._newUntil-Date.now()))/1000).toFixed(2)+'s':''}">${x.type==='notice'?`<td colspan="${spotVisibleColumns.length}" class="spotUserNotice">${esc(x.text)}</td>`:spotVisibleColumns.map(col=>`<td class="spotField-${col.key} ${col.key==='distance'||col.key==='bearing'?'spotGeoNumeric':''}" title="${col.key==='distance'||col.key==='bearing'?esc(geoCalculate(x).source):esc(x[col.key]??'')}">${col.key==='type'?(x.type==='human'?'C':'R'):col.key==='distance'||col.key==='bearing'?esc(geoRenderValue(x,col.key)):esc(x[col.key]??'')}</td>`).join('')}</tr>`).join('');const spotViewport=$('spotRows').closest('.spotResultArea');if(spotViewport)spotViewport.scrollTop=spotNewestFirst?0:spotViewport.scrollHeight;setCount('spots',(human?spotCounts.human:0)+(rbn?spotCounts.rbn:0))}
+function renderSpots(){
+ const human=$('showHuman').checked,rbn=$('showRbn').checked;
+ const view=spotViews.find(v=>v.id===spotActiveView);
+ let a=spotItems.filter(x=>x.type==='notice'?!view:(x.type==='human'&&human)||(x.type==='rbn'&&rbn));
+ if(view)a=a.filter(x=>x.type!=='notice'&&spotMatches(x,view));
+ const sort=view?.sort||spotAllSort;
+ if(sort.key==='utc'){
+  // Insertion order is authoritative: UTC HHMM alone loses date and second precision.
+  if(sort.dir==='desc')a.reverse();
+ }else{
+  a.sort((x,y)=>{
+   if(x.type==='notice')return y.type==='notice'?0:1;
+   if(y.type==='notice')return -1;
+   const v=sort.key==='freq'?Number(x.freq)-Number(y.freq):String(x[sort.key]??'').localeCompare(String(y[sort.key]??''),undefined,{numeric:true,sensitivity:'base'});
+   return v*(sort.dir==='asc'?1:-1);
+  });
+ }
+ const rows=a.slice(0,250);
+ $('spotRows').innerHTML=rows.map(x=>`<tr class="${x._newUntil>Date.now()?'spotFresh':''}" style="${x._newUntil>Date.now()?'animation-delay:-'+((3000-(x._newUntil-Date.now()))/1000).toFixed(2)+'s':''}">${x.type==='notice'?`<td colspan="${spotVisibleColumns.length}" class="spotUserNotice spotNotice-${['buddy','user','node'].includes(x.category)?x.category:'system'}">${esc(x.text)}</td>`:spotVisibleColumns.map(col=>`<td class="spotField-${col.key} ${col.key==='distance'||col.key==='bearing'?'spotGeoNumeric':''}" title="${col.key==='distance'||col.key==='bearing'?esc(geoCalculate(x).source):esc(x[col.key]??'')}">${col.key==='type'?(x.type==='human'?'C':'R'):col.key==='distance'||col.key==='bearing'?esc(geoRenderValue(x,col.key)):esc(x[col.key]??'')}</td>`).join('')}</tr>`).join('');
+ const viewport=$('spotRows').closest('.spotResultArea');if(viewport)viewport.scrollTop=sort.dir==='desc'?0:viewport.scrollHeight;
+ setCount('spots',(human?spotCounts.human:0)+(rbn?spotCounts.rbn:0));
+}
+
 function renderLog(k){const e=document.querySelector(`[data-kind="${k}"]`);if(!e)return;e.textContent=logs[k].slice(-250).join('\n');e.scrollTop=e.scrollHeight;setCount(k,logs[k].length)}
-function parseCC11(payload){if(typeof payload!=='string')return null;const f=payload.split('^');if(f[0]!=='CC11'||f.length<7)return null;return{utc:(f[4]||'').replace(/Z$/i,'').replace(/[^0-9]/g,'').slice(0,4),freq:f[1]||'',dx:f[2]||'',comment:f[5]||'',spotter:f[6]||'',cqDx:f[11]||'',ituDx:f[10]||'',cqSpotter:f[13]||'',ituSpotter:f[12]||'',locDx:f[18]||'',locSpotter:f[19]||''}}
-function acceptFeed(m){const k=(m.feed||'').toLowerCase();if(k==='user_notice'){if(typeof m.payload?.text!=='string')return;spotItems.push({type:'notice',text:m.payload.text,_newUntil:0});if(spotItems.length>1000)spotItems.shift();renderSpots();return;}if(k==='human'||k==='rbn'){const p=parseCC11(m.payload);if(!p)return;const enabled=k==='human'?$('showHuman').checked:$('showRbn').checked;
+function parseCC11(payload){if(typeof payload!=='string')return null;const f=payload.split('^');if(f[0]!=='CC11'||f.length<7)return null;return{utc:(f[4]||'').replace(/Z$/i,'').replace(/[^0-9]/g,'').slice(0,4),freq:f[1]||'',dx:f[2]||'',comment:f[5]||'',spotter:f[6]||'',origin:(f[9]||'').replace(/-#$/,''),cqDx:f[11]||'',ituDx:f[10]||'',cqSpotter:f[13]||'',ituSpotter:f[12]||'',locDx:f[18]||'',locSpotter:f[19]||''}}
+function acceptFeed(m){const k=(m.feed||'').toLowerCase();if(k==='user_notice'){if(typeof m.payload?.text!=='string')return;spotItems.push({type:'notice',text:m.payload.text,category:['buddy','user','node'].includes(m.payload.category)?m.payload.category:'system',_newUntil:0});if(spotItems.length>1000)spotItems.shift();renderSpots();return;}if(k==='human'||k==='rbn'){const p=parseCC11(m.payload);if(!p)return;const enabled=k==='human'?$('showHuman').checked:$('showRbn').checked;
    if(!enabled)return;
    spotItems.push({...p,type:k,_newUntil:Date.now()+3000});
    setTimeout(()=>{if(spotItems.some(x=>x._newUntil&&x._newUntil<=Date.now()))renderSpots()},3100);
@@ -1118,13 +1233,14 @@ function spotPresentationSave(){
  const settings={human:$('showHuman').checked,rbn:$('showRbn').checked,
   font:spotFontPercent,locator:$('userLocator').value.trim().toUpperCase(),
   groups:[...document.querySelectorAll('[data-spot-group]:checked')].map(x=>x.dataset.spotGroup),
-  commentWidth:spotCommentPreferred,newestFirst:spotNewestFirst};
+  commentWidth:spotCommentPreferred,newestFirst:spotNewestFirst,allSort:spotAllSort};
  try{localStorage.setItem(spotPresentationKeyBase+authUser.toUpperCase(),JSON.stringify(settings))}catch(_){}
 }
 function spotPresentationRestore(){
  let saved=null;
  if(authenticated&&authUser){try{saved=JSON.parse(localStorage.getItem(spotPresentationKeyBase+authUser.toUpperCase()))}catch(_){}}
  spotNewestFirst=saved&&typeof saved.newestFirst==='boolean'?saved.newestFirst:true;spotOrderLabel();
+ spotAllSort=saved&&saved.allSort&&['utc','freq','dx','spotter','comment','origin'].includes(saved.allSort.key)&&['asc','desc'].includes(saved.allSort.dir)?saved.allSort:{key:'utc',dir:spotNewestFirst?'desc':'asc'};spotViewsRender();
  const groups=new Set(saved&&Array.isArray(saved.groups)?saved.groups:[]);
  for(const box of document.querySelectorAll('[data-spot-group]'))box.checked=groups.has(box.dataset.spotGroup);
  const loc=saved&&typeof saved.locator==='string'?saved.locator:'';

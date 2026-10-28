@@ -472,7 +472,9 @@ sub push_feed( $kind, $raw ) {
         return unless ref($d) eq 'HASH' && ($d->{type} // '') eq 'user_notice';
         return unless ref($targets) eq 'ARRAY' && @$targets && @$targets <= 256;
         return unless defined($d->{text}) && !ref($d->{text}) && length($d->{text}) <= 4096;
-        my $o = { type => 'feed', feed => 'user_notice', payload => { text => $d->{text} } };
+        my $category = $d->{category} // 'system';
+        $category = 'system' unless $category =~ /\A(?:buddy|user|node|system)\z/;
+        my $o = { type => 'feed', feed => 'user_notice', payload => { text => $d->{text}, category => $category } };
         queue_fanout(encode_json($o), $targets);
         return;
     }
@@ -2041,19 +2043,24 @@ sub terminal_start($id,$m) {
             open(STDERR,'>&',$slave) or die "PTY stderr: $!";
             close $slave;
             close $pty;
-            # Drop privileges only after the controlling terminal is established.
-            # A non-root service may start SSH as its own Unix identity.
-            # Only request an identity change when one is actually needed.
-            if ($> != $uid || $) != $gid) {
-                my $gid_rc = POSIX::setgid($gid);
-                defined($gid_rc) && $gid_rc == 0
-                    or die "Cannot switch to Unix group $gid (service eGID=" . (0+$)) . "): $!";
-                my $uid_rc = POSIX::setuid($uid);
-                defined($uid_rc) && $uid_rc == 0
-                    or die "Cannot switch to Unix user $user (UID $uid, service eUID $>): $!";
+            # The SSH target account (-l) is independent of the local SSH
+            # client identity. An unprivileged service must not attempt to
+            # switch to the target UID/GID or borrow its HOME/known_hosts.
+            # Preserve the established root-service behavior when possible.
+            if ($> == 0 && ($uid != 0 || $gid != 0)) {
+                POSIX::setgid($gid) == 0
+                    or die "Cannot switch to Unix group $gid: $!";
+                POSIX::setuid($uid) == 0
+                    or die "Cannot switch to Unix user $user (UID $uid): $!";
             }
-            $ENV{HOME}=$home; $ENV{USER}=$user; $ENV{LOGNAME}=$user;
-            chdir($home) or die "chdir: $!";
+            my @client_pw = getpwuid($>);
+            my $client_home = $client_pw[7];
+            die "SSH client identity has no valid home directory"
+                unless defined($client_home) && length($client_home) && -d $client_home;
+            $ENV{HOME} = $client_home;
+            $ENV{USER} = $client_pw[0];
+            $ENV{LOGNAME} = $client_pw[0];
+            chdir($client_home) or die "chdir SSH client home: $!";
             $ENV{TERM}='xterm-256color';
             delete @ENV{qw(SSH_ASKPASS SSH_ASKPASS_REQUIRE DISPLAY)};
             exec('/usr/bin/ssh','-tt','-o','BatchMode=no','-o','StrictHostKeyChecking=ask',
