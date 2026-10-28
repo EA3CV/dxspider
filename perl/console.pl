@@ -219,7 +219,7 @@ sub show_screen
 			$top->move($i, 0);
 			dbg("C: s:$spos y:$i sh:" . scalar @sh . " l:" . length($line) . " '$line'") if isdbg('console');
 			setattr($line);
-			$top->addstr($line);
+			$top->addstr(substr($line, 0, $cols - 1));
 			$top->attrset(COLOR_PAIR(0)) if $has_colors;
 			$i += $lines;
 		}
@@ -243,7 +243,7 @@ sub show_screen
 			$top->refresh;
 			setattr($line);
 			$line =~ s/\n//s;
-			$top->addstr($line);
+			$top->addstr(substr($line, 0, $cols - 1));
 			$top->attrset(COLOR_PAIR(0)) if $has_colors;
 			++$spos;
 		}
@@ -257,14 +257,13 @@ sub show_screen
 	my $add = "-$spos-$shl";
     my $time = ztime(time);
 	my $c = "$call\@$node";
-	my $str =  "-" . $time . '-' . ($inscroll ? 'S':'-') . '-' x ($cols - (length($size) + length($c) + length($add) + length($time) + 3));
-	$scr->addstr($lines-4, 0, $str);
-	
-	$scr->addstr($size);
-	$scr->attrset($mycallcolor) if $has_colors;
-	$scr->addstr($c);
-	$scr->attrset(COLOR_PAIR(0)) if $has_colors;
-    $scr->addstr($add);
+	my $pad = $cols - (length($size) + length($c) + length($add) + length($time) + 3);
+	$pad = 0 if $pad < 0;
+	my $str = "-" . $time . '-' . ($inscroll ? 'S':'-') . '-' x $pad;
+	my $status = $str . $size . $c . $add;
+	$scr->move($lines-4, 0);
+	$scr->clrtoeol();
+	$scr->addstr(substr($status, 0, $cols - 1));
 	$scr->refresh();
 #	$top->refresh();
 }
@@ -440,9 +439,14 @@ sub rec_stdin
 
 		$bot->move(1, 0);
 		$bot->clrtobot();
-		$bot->addstr($inbuf);
 	} 
-	$bot->move(1, $pos);
+	# Keep the cursor and the visible input inside the bottom window.
+	my $visible = $cols > 1 ? $cols - 1 : 1;
+	my $offset = $pos >= $visible ? $pos - $visible + 1 : 0;
+	$bot->move(1, 0);
+	$bot->clrtoeol();
+	$bot->addstr(substr($inbuf, $offset, $visible));
+	$bot->move(1, $pos - $offset);
 	$bot->refresh();
 }
 
@@ -457,11 +461,15 @@ sub addtotop
 		if ($l > $cols) {
 			$inbuf =~ s/\s+/ /g;
 			if (length $inbuf > $cols) {
-				$Text::Wrap::columns = $cols;
 				my $token;
 				($token) = $inbuf =~ m!^(.* de [-\w\d/\#]+:?\s+|\w{9}\@\d\d:\d\d:\d\d )!;
 				$token ||= ' ' x 19;
-				push @sh, split /\n/, wrap('', ' ' x length($token), $inbuf);
+				my $width = $cols > 2 ? $cols - 1 : 1;
+				my $indent = length($token);
+				$indent = $width > 2 ? $width - 2 : 0 if $indent >= $width - 1;
+				local $Text::Wrap::columns = $width;
+				local $Text::Wrap::huge = 'wrap';
+				push @sh, split /\n/, wrap('', ' ' x $indent, $inbuf);
 			} else {
 				push @sh, $inbuf;
 			}

@@ -1,6 +1,10 @@
 28Oct26======================================================================
 1. Added customizable spot view filters and column sorting in DXWeb Admin.
    Added Origin Node column to the Spots view.
+2. Update Terminal Linux DXWeb-admin
+3. Fixed Text::Wrap warnings and text overflow in console.pl on narrow term.
+   Improved Curses screen handling to keep the command input area visible.
+4. DXWeb Admin: Added Pause/Resume and Save TXT controls for Spots.
 27Oct26======================================================================
 1. Introduced a unified manager to install, update, and roll back DXWeb and 
    DXWeb Admin systemd service configurations.

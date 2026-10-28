@@ -320,7 +320,7 @@ vfRender();
 document.querySelectorAll('.opCommandForm').forEach(f=>f.addEventListener('submit',e=>{e.preventDefault();const i=f.querySelector('input');const v=i.value;i.value='';command(v,f.dataset.commandTarget||'console')}));
 $('consoleCommand').addEventListener('keydown',e=>{if(e.key==='ArrowUp'){e.preventDefault();if(historyPos>0)historyPos--;$('consoleCommand').value=cmdHistory[historyPos]||''}if(e.key==='ArrowDown'){e.preventDefault();if(historyPos<cmdHistory.length)historyPos++;$('consoleCommand').value=cmdHistory[historyPos]||''}});
 document.querySelectorAll('.runBtn').forEach(b=>b.onclick=()=>command(b.dataset.command,b.closest('.panel').id));
-document.querySelectorAll('.clearBtn').forEach(b=>b.onclick=()=>{const k=b.dataset.clear;if(k==='contest'){const out=document.querySelector('#contest .commandOutput');if(out)out.textContent='';return}if(k==='spots'){spotItems=[];spotCounts={human:0,rbn:0};renderSpots();return}if(logs[k]){logs[k]=[];renderLog(k);return}const out=document.querySelector(`#${k} .commandOutput`);if(out)out.textContent='' });
+document.querySelectorAll('.clearBtn').forEach(b=>b.onclick=()=>{const k=b.dataset.clear;if(k==='contest'){const out=document.querySelector('#contest .commandOutput');if(out)out.textContent='';return}if(k==='spots'){spotItems=[];spotCounts={human:0,rbn:0};spotViewUnread.clear();spotViewsUnreadRender();renderSpots();return}if(logs[k]){logs[k]=[];renderLog(k);return}const out=document.querySelector(`#${k} .commandOutput`);if(out)out.textContent='' });
 function spotFilterChanged(k){
  spotCounts[k]=0;
  spotItems=spotItems.filter(x=>x.type!==k);
@@ -397,9 +397,30 @@ geoLoadPrefix();
 // Browser-only spot views. One shared bounded feed buffer; no additional subscriptions.
 const spotViewsKey='dxspider.dxweb-admin.spotViews.';
 let spotViews=[],spotActiveView='all',spotDraft=null,spotEditing=null,spotAllSort={key:'utc',dir:'desc'};
+const spotViewUnread=new Set();
+const spotBufferLimit={human:1000,rbn:1000,notice:100};
+function spotBufferAdd(item){
+ spotItems.push(item);
+ const type=item.type,limit=spotBufferLimit[type];
+ if(!limit)return;
+ let count=0;for(let i=spotItems.length-1;i>=0;i--)if(spotItems[i].type===type&&++count>limit){spotItems.splice(i,1);break}
+}
+function spotViewNotify(spot){
+ let changed=false;for(const view of spotViews){
+  if(view.id!==spotActiveView&&!spotViewUnread.has(view.id)&&spotMatches(spot,view)){spotViewUnread.add(view.id);changed=true}
+ }
+ if(changed)spotViewsUnreadRender();
+}
+function spotViewsUnreadRender(){
+ const tabs=$('spotViewTabs');if(!tabs)return;
+ for(const tab of tabs.querySelectorAll('.spotViewTab[data-view-id]')){
+  const unread=spotViewUnread.has(tab.dataset.viewId);tab.classList.toggle('hasMatch',unread);
+  tab.title=unread?'New matching spots since last visit':'';
+ }
+}
 const spotFields=['C/R','UTC','Freq','DX','Spotter','Comment','Origin'];
 function spotViewsSave(){if(authenticated&&authUser)try{localStorage.setItem(spotViewsKey+authUser.toUpperCase(),JSON.stringify(spotViews))}catch(_){}}
-function spotViewsRestore(){spotViews=[];spotActiveView='all';if(authenticated&&authUser)try{
+function spotViewsRestore(){spotViews=[];spotActiveView='all';spotViewUnread.clear();if(authenticated&&authUser)try{
  const saved=JSON.parse(localStorage.getItem(spotViewsKey+authUser.toUpperCase()));
  if(Array.isArray(saved))spotViews=saved.slice(0,10).filter(v=>v&&typeof v.id==='string'&&v.id.startsWith('view-')&&typeof v.name==='string'&&v.name.length<=40&&Array.isArray(v.rules)&&v.rules.length&&v.rules.length<=10&&v.rules.every(r=>spotFields.includes(r.field)&&['is','contains','not'].includes(r.op)&&typeof r.value==='string')).map(v=>({...v,sort: v.sort&&['utc','freq','dx','spotter','comment','origin'].includes(v.sort.key)&&['asc','desc'].includes(v.sort.dir)?v.sort:{key:'utc',dir:'desc'}}));
  }catch(_){}spotViewsRender()}
@@ -425,8 +446,8 @@ function spotMatches(spot,view){return view.rules.every(rule=>{
  return rule.op==='not'?!hit:hit;
  })}
 function spotViewsRender(){const tabs=$('spotViewTabs');if(!tabs)return;tabs.replaceChildren();
- const add=(name,id)=>{const b=document.createElement('button');b.type='button';b.className='spotViewTab'+(spotActiveView===id?' selected':'');b.textContent=name;b.onclick=()=>{spotActiveView=id;spotViewsRender();spotSortHeaders();renderSpots()};tabs.append(b)};
- add('All spots','all');spotViews.forEach(v=>add(v.name,v.id));
+ const add=(name,id)=>{const b=document.createElement('button');b.type='button';b.className='spotViewTab'+(spotActiveView===id?' selected':'');b.textContent=name;b.dataset.viewId=id;b.onclick=()=>{spotPauseSet(false);spotActiveView=id;spotViewUnread.delete(id);spotViewsRender();spotSortHeaders();renderSpots()};tabs.append(b)};
+ add('All spots','all');spotViews.forEach(v=>add(v.name,v.id));spotViewsUnreadRender();
  $('spotViewEdit').hidden=spotActiveView==='all';const v=spotViews.find(x=>x.id===spotActiveView);
  spotSortHeaders();
 }
@@ -457,8 +478,8 @@ function spotFilterBind(){
  if(!spotEditing&&spotViews.length>=10){alert('Maximum 10 custom filters.');return}
  if(spotViews.some(v=>v.id!==spotEditing&&v.name.toUpperCase()===name.toUpperCase())){alert('Filter name already exists.');return}
  spotDraft.name=name;if(spotEditing)spotViews=spotViews.map(v=>v.id===spotEditing?spotDraft:v);else{spotDraft.id='view-'+Date.now()+'-'+Math.floor(Math.random()*100000);spotViews.push(spotDraft)}
- spotActiveView=spotDraft.id;spotViewsSave();spotViewsRender();spotSortHeaders();$('spotFilterDialog').hidden=true;renderSpots()};
- $('spotFilterDelete').onclick=()=>{if(!spotEditing||!confirm('Delete this filter?'))return;spotViews=spotViews.filter(v=>v.id!==spotEditing);spotActiveView='all';spotViewsSave();spotViewsRender();spotSortHeaders();$('spotFilterDialog').hidden=true;renderSpots()};
+ spotActiveView=spotDraft.id;spotViewUnread.delete(spotActiveView);spotViewsSave();spotViewsRender();spotSortHeaders();$('spotFilterDialog').hidden=true;renderSpots()};
+ $('spotFilterDelete').onclick=()=>{if(!spotEditing||!confirm('Delete this filter?'))return;spotViews=spotViews.filter(v=>v.id!==spotEditing);spotViewUnread.delete(spotEditing);spotActiveView='all';spotViewsSave();spotViewsRender();spotSortHeaders();$('spotFilterDialog').hidden=true;renderSpots()};
 }
 // Sorting is controlled by clickable column headers; one active key per view.
 function spotSortHeaders(){
@@ -540,7 +561,50 @@ $('spotHeaders').addEventListener('pointerdown',e=>{
 });
 window.addEventListener('load',updateSpotLayout);
 updateSpotLayout();
+// Pause only freezes the visible table; inbound bounded buffers continue.
+var spotDisplayPaused = false;
+function spotPauseSet(paused) {
+ spotDisplayPaused = Boolean(paused);
+ const button = document.getElementById('spotPauseButton');
+ if (button) { button.textContent = spotDisplayPaused ? 'Resume' : 'Pause'; button.setAttribute('aria-pressed', String(spotDisplayPaused)); }
+ if (!spotDisplayPaused) renderSpots();
+}
+function spotDownloadVisibleTxt() {
+ const body=document.getElementById('spotRows');
+ if (!body) return;
+ // Use the exact visible column model, including optional DX/Spotter pairs.
+ const cols=spotVisibleColumns.slice();
+ const headings=cols.map(c=>c.group ? `${c.group} ${c.title}` : c.title);
+ const records=[headings];
+ for(const tr of body.querySelectorAll('tr')) {
+  const cells=[...tr.querySelectorAll('td')];
+  if(cells.length!==cols.length) continue; // Notices are not spot rows.
+  records.push(cells.map(td=>td.textContent.replace(/[\r\n\t]+/g,' ').trim()));
+ }
+ const widths=headings.map((h,i)=>Math.max(h.length,...records.slice(1).map(r=>(r[i]||'').length)));
+ const lines=records.map(r=>r.map((v,i)=>v.padEnd(widths[i])).join('  ').trimEnd());
+ const view=spotViews.find(v=>v.id===spotActiveView);
+ const name=(view?.name||'All-spots').normalize('NFKD').replace(/[^a-zA-Z0-9._-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,48)||'Spots';
+ const d=new Date(), pad=n=>String(n).padStart(2,'0');
+ const stamp=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+ const blob=new Blob(['\uFEFF'+lines.join('\r\n')+'\r\n'],{type:'text/plain;charset=utf-8'});
+ const url=URL.createObjectURL(blob), link=document.createElement('a');
+ link.href=url;link.download=`Spots-${name}_${stamp}.txt`;
+ document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function spotControlsInit() {
+ const bar=document.querySelector('#spots .spotViewBar');
+ if(!bar || document.getElementById('spotPauseButton')) return;
+ const pause=document.createElement('button');pause.type='button';pause.id='spotPauseButton';pause.textContent='Pause';pause.style.marginLeft='auto';pause.onclick=()=>spotPauseSet(!spotDisplayPaused);
+ const save=document.createElement('button');save.type='button';save.id='spotSaveTxtButton';save.textContent='Save TXT';save.onclick=spotDownloadVisibleTxt;
+ // Same bar, font and button styling as All Spots and the other view tabs.
+ const edit=document.getElementById('spotViewEdit');
+ if(edit)edit.after(pause,save);else bar.append(pause,save);
+}
+if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',spotControlsInit,{once:true});
+else spotControlsInit();
 function renderSpots(){
+ if (spotDisplayPaused) return;
  const human=$('showHuman').checked,rbn=$('showRbn').checked;
  const view=spotViews.find(v=>v.id===spotActiveView);
  let a=spotItems.filter(x=>x.type==='notice'?!view:(x.type==='human'&&human)||(x.type==='rbn'&&rbn));
@@ -565,11 +629,11 @@ function renderSpots(){
 
 function renderLog(k){const e=document.querySelector(`[data-kind="${k}"]`);if(!e)return;e.textContent=logs[k].slice(-250).join('\n');e.scrollTop=e.scrollHeight;setCount(k,logs[k].length)}
 function parseCC11(payload){if(typeof payload!=='string')return null;const f=payload.split('^');if(f[0]!=='CC11'||f.length<7)return null;return{utc:(f[4]||'').replace(/Z$/i,'').replace(/[^0-9]/g,'').slice(0,4),freq:f[1]||'',dx:f[2]||'',comment:f[5]||'',spotter:f[6]||'',origin:(f[9]||'').replace(/-#$/,''),cqDx:f[11]||'',ituDx:f[10]||'',cqSpotter:f[13]||'',ituSpotter:f[12]||'',locDx:f[18]||'',locSpotter:f[19]||''}}
-function acceptFeed(m){const k=(m.feed||'').toLowerCase();if(k==='user_notice'){if(typeof m.payload?.text!=='string')return;spotItems.push({type:'notice',text:m.payload.text,category:['buddy','user','node'].includes(m.payload.category)?m.payload.category:'system',_newUntil:0});if(spotItems.length>1000)spotItems.shift();renderSpots();return;}if(k==='human'||k==='rbn'){const p=parseCC11(m.payload);if(!p)return;const enabled=k==='human'?$('showHuman').checked:$('showRbn').checked;
+function acceptFeed(m){const k=(m.feed||'').toLowerCase();if(k==='user_notice'){if(typeof m.payload?.text!=='string')return;spotBufferAdd({type:'notice',text:m.payload.text,category:['buddy','user','node'].includes(m.payload.category)?m.payload.category:'system',_newUntil:0});renderSpots();return;}if(k==='human'||k==='rbn'){const p=parseCC11(m.payload);if(!p)return;const enabled=k==='human'?$('showHuman').checked:$('showRbn').checked;
    if(!enabled)return;
-   spotItems.push({...p,type:k,_newUntil:Date.now()+3000});
+   const spot={...p,type:k,_newUntil:Date.now()+3000};spotBufferAdd(spot);spotViewNotify(spot);
    setTimeout(()=>{if(spotItems.some(x=>x._newUntil&&x._newUntil<=Date.now()))renderSpots()},3100);
-   spotCounts[k]=(spotCounts[k]||0)+1;if(spotItems.length>1000)spotItems.shift();renderSpots();return}if(logs[k]){logs[k].push(typeof m.payload==='string'?m.payload:JSON.stringify(m.payload));if(logs[k].length>500)logs[k].shift();renderLog(k)}}
+   spotCounts[k]=(spotCounts[k]||0)+1;renderSpots();return}if(logs[k]){logs[k].push(typeof m.payload==='string'?m.payload:JSON.stringify(m.payload));if(logs[k].length>500)logs[k].shift();renderLog(k)}}
 function networkChatRender(){
  const channel=document.getElementById('networkChatChannel')?.value||'ERROR';
  const output=document.getElementById('networkChatOutput');if(!output)return;
@@ -1250,7 +1314,7 @@ function spotPresentationRestore(){
   $('showHuman').checked=saved.human;$('showRbn').checked=saved.rbn;
  }else{$('showHuman').checked=true;$('showRbn').checked=false}
  spotFontApply(saved&&Number.isFinite(saved.font)?saved.font:100,false);
- spotItems=[];spotCounts={human:0,rbn:0};
+ spotItems=[];spotCounts={human:0,rbn:0};spotViewUnread.clear();spotViewsUnreadRender();
  updateSpotLayout();renderSpots();
 }
 function spotPresentationBind(){
