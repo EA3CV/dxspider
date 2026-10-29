@@ -1,3 +1,5 @@
+29Oct26======================================================================
+1. Fixed DXWeb Admin compatibility with Perl 5.34.
 28Oct26======================================================================
 1. Added customizable spot view filters and column sorting in DXWeb Admin.
    Added Origin Node column to the Spots view.

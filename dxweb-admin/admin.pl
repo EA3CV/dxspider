@@ -2115,7 +2115,7 @@ sub terminal_resize($id,$m) {
     my ($cols,$rows)=($m->{cols}//0,$m->{rows}//0);
     return unless $cols =~ /\A\d+\z/ && $rows =~ /\A\d+\z/ && $cols>=20 && $cols<=300 && $rows>=5 && $rows<=120;
     my $winsize=pack('SSSS',$rows,$cols,0,0);
-    eval {require 'sys/ioctl.ph'; no warnings 'experimental::args_array_with_signatures'; ioctl($s->{pty},&TIOCSWINSZ,$winsize)};
+    eval {require 'sys/ioctl.ph'; no warnings 'experimental'; ioctl($s->{pty},&TIOCSWINSZ,$winsize)};
     kill 'WINCH', -$s->{pid};
 }
 
