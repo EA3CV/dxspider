@@ -1047,7 +1047,10 @@ sub export
 			eval {$ref = decode($val); };
 			
 			if ($ref) {
-				if (!is_callsign($key) || $key =~ /^\d+$/) {
+				# #WEB-n are internal web channels, not amateur callsigns.
+				# Q-prefix calls are invalid regardless of stored administrative fields.
+				my $internal_web = $key =~ /^#WEB-[0-9]+$/;
+				if ($key =~ /^(?:Q|0)/i || (!$internal_web && (!is_callsign($key) || $key =~ /^\d+$/))) {
 					my $eval = $val;
 					my $ekey = $key;
 					$eval =~ s/([\%\x00-\x1f\x7f-\xff])/sprintf("%%%02X", ord($1))/eg; 
@@ -1088,77 +1091,93 @@ sub export
 				}
 				dbg(sprintf ("EXPORT:  call=$ref->{call} time=$t  flag: $flag diff=%d", $main::systime-$t) ) if isdbg('export');
 				
-				if ($ref->is_user && $ref->{call} ne $main::myalias) {
-					if ($main::systime > $t + $veryold) {
-						LogDbg('dxuser', sprintf("$ref->{call} deleted, POSITIVELY ANCIENT at %s", difft($t, ' ')));
-						++$del;
-						++$ancient;
-						$delete_reason{$key} = "ancient";
-						$del{$key} = $ref;
-						next;
-					}
+				if ($internal_web) {
+					# Preserve special internal web channels, including their export row.
+				} elsif ($ref->is_user && $ref->{call} ne $main::myalias) {
+					# Protect administrative/authentication records from age-based pruning.
+					# Do not use 'next': protected records must still reach the export writer.
+					my $protected = $ref->{registered} || $ref->{priv}
+					    || (defined($ref->{homenode}) && length($ref->{homenode})
+					        && defined($main::mycall) && length($main::mycall)
+					        && $ref->{homenode} eq $main::mycall)
+					    || $ref->{lockout}
+					    || (defined($ref->{passwd}) && length($ref->{passwd}))
+					    || (defined($ref->{passphrase}) && length($ref->{passphrase}));
 
-					next if $ref->{registered};
-					next if $ref->{priv};
-					next if defined($ref->{homenode}) && length($ref->{homenode})
-					     && defined($main::mycall) && length($main::mycall)
-					     && $ref->{homenode} eq $main::mycall;
-					next if $ref->{lockout};
-
-					if ($main::systime > $t + $tooold) {
-						unless ($ref->{homenode} || $ref->{name} || $ref->{qra} || $ref->{qth} || exists $ref->{lat} || exists $ref->{long}) {
-							LogDbg('dxuser', sprintf("Stale $ref->{call} deleted at %s", difft($t, ' ')));
+					# A missing activity timestamp is not evidence of inactivity.
+					# Preserve the original behavior of skipping normalization for
+					# protected records; neither case skips writing the export row.
+					unless ($protected || $t <= 0) {
+						if ($t > 0 && $main::systime > $t + $veryold) {
+							LogDbg('dxuser', sprintf("$ref->{call} deleted, POSITIVELY ANCIENT at %s", difft($t, ' ')));
 							++$del;
-							++$old;
-						$delete_reason{$key} = "old";
+							++$ancient;
+							$delete_reason{$key} = "ancient";
 							$del{$key} = $ref;
 							next;
 						}
-					}
 
-					# ephmerals
-					if ($main::systime > $t + $ephold) {
-						unless ($ref->{homenode} || $ref->{name} || $ref->{qra} || $ref->{qth} || exists $ref->{lat} || exists $ref->{long}) {
-							LogDbg('dxuser', sprintf("Ephmeral $ref->{call} deleted at %s", difft($t, ' ')));
-							++$del;
-							++$eph;
-						$delete_reason{$key} = "eph";
-							$del{$key} = $ref;
-							next;
-						}
-						
-					}
-
-#					if (exists $ref->{lockout} && $ref->{lockout} == 1 && exists $ref->{priv} && $ref->{priv} == 1) {
-#						LogDbg('dxuser', "$ref->{call} depriv'd and unlocked");
-#						$ref->{lockout} = $ref->{priv} = 0;
-#						$ref->put;
-#						++$unlocked;
-#					}
-					
-					my $normcall = normalise_call($key);
-					if (!defined($normcall) || !is_callsign($normcall) || $normcall =~ /^\d+$/) {
-						LogDbg('dxuser', "Export: invalid normalised call for '$key', keeping original record");
-					} elsif ($normcall ne $key) {
-						if ($dbh && $main::userdsn =~ /:sqlite:/i) {
-							# Defer changes until the read cursor is closed. Compare
-							# against the exact source value read during this export.
-							$rename{$key} = [$normcall, $ref];
-						} else {
-							my $nref = DXUser::get_current($normcall);
-							unless ($nref) {
-								$ref->{call} = $normcall;
-								$ref->put(preserve_lastseen => 1);
-								++$renamed;
+						if ($t > 0 && $main::systime > $t + $tooold) {
+							unless ($ref->{homenode} || $ref->{name} || $ref->{qra} || $ref->{qth} || exists $ref->{lat} || exists $ref->{long}) {
+								LogDbg('dxuser', sprintf("Stale $ref->{call} deleted at %s", difft($t, ' ')));
+								++$del;
+								++$old;
+							$delete_reason{$key} = "old";
+								$del{$key} = $ref;
+								next;
 							}
-							$del{$key} = $ref;
-							++$spurious;
-							++$del;
 						}
-						next;
-					}
+
+						# ephmerals
+						if ($t > 0 && $main::systime > $t + $ephold) {
+							unless ($ref->{homenode} || $ref->{name} || $ref->{qra} || $ref->{qth} || exists $ref->{lat} || exists $ref->{long}) {
+								LogDbg('dxuser', sprintf("Ephmeral $ref->{call} deleted at %s", difft($t, ' ')));
+								++$del;
+								++$eph;
+							$delete_reason{$key} = "eph";
+								$del{$key} = $ref;
+								next;
+							}
+						
+						}
+
+	#					if (exists $ref->{lockout} && $ref->{lockout} == 1 && exists $ref->{priv} && $ref->{priv} == 1) {
+	#						LogDbg('dxuser', "$ref->{call} depriv'd and unlocked");
+	#						$ref->{lockout} = $ref->{priv} = 0;
+	#						$ref->put;
+	#						++$unlocked;
+	#					}
+					
+						my $normcall = normalise_call($key);
+						if (!defined($normcall) || !is_callsign($normcall) || $normcall =~ /^\d+$/) {
+							LogDbg('dxuser', "Export: invalid normalised call for '$key', keeping original record");
+						} elsif ($normcall ne $key) {
+							if ($dbh && $main::userdsn =~ /:sqlite:/i) {
+								# Defer changes until the read cursor is closed. Compare
+								# against the exact source value read during this export.
+								$rename{$key} = [$normcall, $ref];
+							} else {
+								my $nref = DXUser::get_current($normcall);
+								unless ($nref) {
+									$ref->{call} = $normcall;
+									$ref->put(preserve_lastseen => 1);
+									++$renamed;
+								}
+								$del{$key} = $ref;
+								++$spurious;
+								++$del;
+							}
+							next;
+						}
+					} # end cleanup for unprotected users with valid activity time
 				} elsif ($ref->is_node && $ref->{call} ne $main::mycall) {
-					if ($main::systime > $t + $veryold) {
+					# Node administrative state and unknown activity dates must survive.
+					my $protected_node = $ref->{registered} || $ref->{priv} || $ref->{lockout}
+					    || (defined($ref->{homenode}) && length($ref->{homenode})
+					        && defined($main::mycall) && $ref->{homenode} eq $main::mycall)
+					    || (defined($ref->{passwd}) && length($ref->{passwd}))
+					    || (defined($ref->{passphrase}) && length($ref->{passphrase}));
+					if (!$protected_node && $t > 0 && $main::systime > $t + $veryold) {
 						LogDbg('dxuser', sprintf("NODE $ref->{call} deleted (%s) POSITIVELY ANCIENT at %s", difft($t, ' ')));
 						++$del;
 						++$nodes;
@@ -1267,6 +1286,23 @@ sub export
 					LogDbg('dxuser', "Export: preserved concurrently modified key $key");
 				}
 			}
+			# Build the published export from the exact post-cleanup SQLite state.
+			# Keep the writer lock until the complete file is written; the earlier
+			# scan is only for deciding which records to delete or rename.
+			open my $finalfh, '>:raw', $tmpfn or die "Export final open $tmpfn: $!";
+			print {$finalfh} export_preamble() or die "Export preamble write: $!";
+			my $final = $dbh->prepare('SELECT call, data FROM users ORDER BY call');
+			$final->execute;
+			my $final_count = 0;
+			while (my $row = $final->fetchrow_arrayref) {
+				my ($call, $data) = @$row;
+				print {$finalfh} "$call\t" . Encode::encode('UTF-8', $data) . "\n"
+					or die "Export final row write: $!";
+				++$final_count;
+			}
+			$final->finish;
+			close($finalfh) or die "Export final close: $!";
+			$count = $final_count;
 			defined($dbh->do('COMMIT')) or die 'COMMIT failed';
 			1;
 		} or do {
@@ -1373,12 +1409,13 @@ my $count = 0;
 my $err = 0;
 
 DXUser::sync();
+binmode(DATA, q{:encoding(UTF-8)}) or die q{Cannot enable UTF-8 on DATA};
 while (<DATA>) {
 	chomp;
 	my @f = split /\t/;
 	my $ref = decode($f[1]);
 	if ($ref) {
-		$ref->put();
+		$ref->put(preserve_lastseen => 1);
 		$count++;
         if ($count % 500 == 0) {
             print "\rCount: $count";
