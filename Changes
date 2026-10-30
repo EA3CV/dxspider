@@ -1,3 +1,6 @@
+30Oct26======================================================================
+1. DXWeb Admin: Reorganized the filter field selector.
+2. Fix show/isolate
 29Oct26======================================================================
 1. Fixed DXWeb Admin compatibility with Perl 5.34.
 2. Fix DXUser::export():

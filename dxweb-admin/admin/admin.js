@@ -419,22 +419,35 @@ function spotViewsUnreadRender(){
  }
 }
 const spotFields=['C/R','UTC','Freq','DX','Spotter','Comment','Origin'];
+// Each explicit condition belongs to one feed. Legacy unqualified conditions
+// remain valid, preserving the previous meaning for saved views.
+const spotFeedFields=[
+ ['C - UTC','human:UTC'],['C - Freq','human:Freq'],['C - DX','human:DX'],
+ ['C - Spotter','human:Spotter'],['C - Comment','human:Comment'],['C - Origin','human:Origin'],
+ ['R - UTC','rbn:UTC'],['R - Freq','rbn:Freq'],['R - DX','rbn:DX'],
+ ['R - Spotter','rbn:Spotter'],['R - Comment','rbn:Comment']
+];
+const spotAllowedFields=[...spotFields,...spotFeedFields.map(x=>x[1])];
+const spotRuleField=f=>f.includes(':')?f.split(':',2)[1]:f;
+const spotRuleFeed=f=>f.startsWith('human:')?'human':f.startsWith('rbn:')?'rbn':null;
 function spotViewsSave(){if(authenticated&&authUser)try{localStorage.setItem(spotViewsKey+authUser.toUpperCase(),JSON.stringify(spotViews))}catch(_){}}
 function spotViewsRestore(){spotViews=[];spotActiveView='all';spotViewUnread.clear();if(authenticated&&authUser)try{
  const saved=JSON.parse(localStorage.getItem(spotViewsKey+authUser.toUpperCase()));
- if(Array.isArray(saved))spotViews=saved.slice(0,10).filter(v=>v&&typeof v.id==='string'&&v.id.startsWith('view-')&&typeof v.name==='string'&&v.name.length<=40&&Array.isArray(v.rules)&&v.rules.length&&v.rules.length<=10&&v.rules.every(r=>spotFields.includes(r.field)&&['is','contains','not'].includes(r.op)&&typeof r.value==='string')).map(v=>({...v,sort: v.sort&&['utc','freq','dx','spotter','comment','origin'].includes(v.sort.key)&&['asc','desc'].includes(v.sort.dir)?v.sort:{key:'utc',dir:'desc'}}));
+ if(Array.isArray(saved))spotViews=saved.slice(0,10).filter(v=>v&&typeof v.id==='string'&&v.id.startsWith('view-')&&typeof v.name==='string'&&v.name.length<=40&&Array.isArray(v.rules)&&v.rules.length&&v.rules.length<=10&&v.rules.every(r=>spotAllowedFields.includes(r.field)&&['is','contains','not'].includes(r.op)&&typeof r.value==='string')).map(v=>({...v,sort: v.sort&&['utc','freq','dx','spotter','comment','origin'].includes(v.sort.key)&&['asc','desc'].includes(v.sort.dir)?v.sort:{key:'utc',dir:'desc'}}));
  }catch(_){}spotViewsRender()}
-function spotMatches(spot,view){return view.rules.every(rule=>{
- const value=rule.field==='C/R'?(spot.type==='human'?'C':'R'):String(spot[rule.field.toLowerCase()]??'').toUpperCase();
+function spotRuleMatches(spot,rule){
+ const field=spotRuleField(rule.field);
+ if(spotRuleFeed(rule.field)&&spotRuleFeed(rule.field)!==spot.type)return false;
+ const value=field==='C/R'?(spot.type==='human'?'C':'R'):String(spot[field.toLowerCase()]??'').toUpperCase();
  const terms=rule.value.split(',').map(v=>v.trim().toUpperCase()).filter(Boolean);
  if(!terms.length)return false;
  const hit=terms.some(term=>{
-  if(rule.field==='Comment')return value.includes(term);
-  if(rule.field==='Freq'){
+  if(field==='Comment')return value.includes(term);
+  if(field==='Freq'){
    const parts=term.split('-').map(x=>x.trim());const n=Number(value);
    return parts.length===2?n>=Number(parts[0])&&n<=Number(parts[1]):n===Number(term);
   }
-  if(rule.field==='UTC'){
+  if(field==='UTC'){
    const toMinutes=t=>{const h=Number(t.slice(0,2)),m=Number(t.slice(2));return h*60+m};
    const parts=term.split('-').map(x=>x.trim().replace(':',''));
    const n=toMinutes(value.padStart(4,'0'));
@@ -444,7 +457,17 @@ function spotMatches(spot,view){return view.rules.every(rule=>{
   return rule.op==='contains'?value.includes(term):value===term;
  });
  return rule.op==='not'?!hit:hit;
- })}
+ }
+// OR across feeds, AND among conditions targeting the same feed.
+// Legacy unqualified rules retain their former all-feeds AND semantics.
+function spotMatches(spot,view){
+ const explicit=view.rules.filter(r=>spotRuleFeed(r.field));
+ const legacy=view.rules.filter(r=>!spotRuleFeed(r.field));
+ if(!legacy.every(r=>spotRuleMatches(spot,r)))return false;
+ if(!explicit.length)return true;
+ const sameFeed=explicit.filter(r=>spotRuleFeed(r.field)===spot.type);
+ return sameFeed.length>0&&sameFeed.every(r=>spotRuleMatches(spot,r));
+}
 function spotViewsRender(){const tabs=$('spotViewTabs');if(!tabs)return;tabs.replaceChildren();
  const add=(name,id)=>{const b=document.createElement('button');b.type='button';b.className='spotViewTab'+(spotActiveView===id?' selected':'');b.textContent=name;b.dataset.viewId=id;b.onclick=()=>{spotPauseSet(false);spotActiveView=id;spotViewUnread.delete(id);spotViewsRender();spotSortHeaders();renderSpots()};tabs.append(b)};
  add('All spots','all');spotViews.forEach(v=>add(v.name,v.id));spotViewsUnreadRender();
@@ -452,13 +475,21 @@ function spotViewsRender(){const tabs=$('spotViewTabs');if(!tabs)return;tabs.rep
  spotSortHeaders();
 }
 function spotOpenEditor(id){const v=spotViews.find(x=>x.id===id);spotEditing=v?v.id:null;
- spotDraft=v?JSON.parse(JSON.stringify(v)):{id:null,name:'',rules:[{field:'DX',op:'is',value:''}],sort:{key:'utc',dir:'desc'}};
+ spotDraft=v?JSON.parse(JSON.stringify(v)):{id:null,name:'',rules:[{field:'human:DX',op:'is',value:''}],sort:{key:'utc',dir:'desc'}};
  $('spotFilterTitle').textContent=v?'Edit Spot Filter':'New Spot Filter';$('spotFilterName').value=spotDraft.name;
  $('spotFilterDelete').hidden=!v;$('spotFilterSave').textContent=v?'Save Changes':'Create Filter';spotRulesRender();$('spotFilterDialog').hidden=false;$('spotFilterName').focus();
 }
 function spotRulesRender(){const parent=$('spotFilterRules');parent.replaceChildren();spotDraft.rules.forEach((rule,i)=>{
  const line=document.createElement('div');line.className='spotFilterRule';
- const field=document.createElement('select');spotFields.forEach(f=>field.add(new Option(f,f)));field.value=rule.field;field.onchange=()=>{rule.field=field.value};
+ const field=document.createElement('select');spotFeedFields.forEach(([label,key])=>field.add(new Option(label,key)));
+ // Existing saved unqualified fields stay editable without exposing obsolete choices to new filters.
+ if(!spotFeedFields.some(([,key])=>key===rule.field)){
+  const opt=new Option(rule.field==='C/R'?'C/R (saved filter)':rule.field+' (saved filter)',rule.field);
+  field.add(opt,0);
+ }
+ field.value=rule.field;field.onchange=()=>{rule.field=field.value};
+ // Native select interaction must not bubble into backdrop/global click handlers.
+ ['pointerdown','mousedown','click'].forEach(type=>field.addEventListener(type,e=>e.stopPropagation()));
  const op=document.createElement('select');[['is','Is any of'],['contains','Contains any'],['not','Is not any of']].forEach(([v,t])=>op.add(new Option(t,v)));op.value=rule.op;op.onchange=()=>{rule.op=op.value};
  const value=document.createElement('input');value.type='text';value.placeholder='Values separated by commas';value.value=rule.value;value.oninput=()=>{rule.value=value.value};
  const del=document.createElement('button');del.type='button';del.textContent='×';del.title='Remove condition';del.disabled=spotDraft.rules.length===1;del.onclick=()=>{spotDraft.rules.splice(i,1);spotRulesRender()};
@@ -468,13 +499,13 @@ function spotFilterBind(){
  $('spotViewNew').onclick=()=>spotOpenEditor(null);
  $('spotViewEdit').onclick=()=>spotOpenEditor(spotActiveView);
  $('spotFilterClose').onclick=$('spotFilterCancel').onclick=()=>{$('spotFilterDialog').hidden=true};
- $('spotFilterDialog').addEventListener('click',e=>{if(e.target===$('spotFilterDialog'))$('spotFilterDialog').hidden=true});
+ $('spotFilterDialog').addEventListener('click',e=>{if(e.target===$('spotFilterDialog')&&!e.composedPath().some(n=>n?.classList?.contains('spotFilterRule')))$('spotFilterDialog').hidden=true});
  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('spotFilterDialog').hidden)$('spotFilterDialog').hidden=true});
- $('spotFilterAdd').onclick=()=>{if(spotDraft.rules.length>=10)return;spotDraft.rules.push({field:spotFields.find(f=>!spotDraft.rules.some(r=>r.field===f))||'DX',op:'is',value:''});spotRulesRender()};
+ $('spotFilterAdd').onclick=()=>{if(spotDraft.rules.length>=10)return;spotDraft.rules.push({field:spotFeedFields.map(x=>x[1]).find(f=>!spotDraft.rules.some(r=>r.field===f))||'human:DX',op:'is',value:''});spotRulesRender()};
  $('spotFilterSave').onclick=()=>{const name=$('spotFilterName').value.trim();if(!name||name.length>40||!spotDraft.rules.length||spotDraft.rules.some(r=>!r.value.trim())){alert('Enter a name (up to 40 characters) and complete every condition.');return}
  if(spotDraft.rules.some(r=>r.field==='C/R'&&r.value.split(',').some(t=>! /^(?:C|R)$/i.test(t.trim())))){alert('C/R accepts C, R or C,R.');return}
- if(spotDraft.rules.some(r=>r.field==='UTC'&&r.value.split(',').some(t=>{const m=t.trim().match(/^(\d{2}):?(\d{2})(?:\s*-\s*(\d{2}):?(\d{2}))?$/);return !m||Number(m[1])>23||Number(m[2])>59||(m[3]!==undefined&&(Number(m[3])>23||Number(m[4])>59))}))){alert('UTC accepts HHMM or HH:MM, including ranges (e.g. 0830-1200).');return}
- if(spotDraft.rules.some(r=>r.field==='Freq'&&r.value.split(',').some(t=>!/^\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?$/.test(t.trim())))){alert('Frequency must be a kHz value or range.');return}
+ if(spotDraft.rules.some(r=>spotRuleField(r.field)==='UTC'&&r.value.split(',').some(t=>{const m=t.trim().match(/^(\d{2}):?(\d{2})(?:\s*-\s*(\d{2}):?(\d{2}))?$/);return !m||Number(m[1])>23||Number(m[2])>59||(m[3]!==undefined&&(Number(m[3])>23||Number(m[4])>59))}))){alert('UTC accepts HHMM or HH:MM, including ranges (e.g. 0830-1200).');return}
+ if(spotDraft.rules.some(r=>spotRuleField(r.field)==='Freq'&&r.value.split(',').some(t=>!/^\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?$/.test(t.trim())))){alert('Frequency must be a kHz value or range.');return}
  if(!spotEditing&&spotViews.length>=10){alert('Maximum 10 custom filters.');return}
  if(spotViews.some(v=>v.id!==spotEditing&&v.name.toUpperCase()===name.toUpperCase())){alert('Filter name already exists.');return}
  spotDraft.name=name;if(spotEditing)spotViews=spotViews.map(v=>v.id===spotEditing?spotDraft:v);else{spotDraft.id='view-'+Date.now()+'-'+Math.floor(Math.random()*100000);spotViews.push(spotDraft)}

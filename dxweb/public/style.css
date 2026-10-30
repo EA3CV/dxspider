@@ -1014,3 +1014,12 @@ html[data-theme="dark"] {
 #spots .spotTable tbody td.spotNotice-buddy {color:var(--dx-notice-buddy)!important}
 #spots .spotTable tbody td.spotNotice-user {color:var(--dx-notice-user)!important}
 #spots .spotTable tbody td.spotNotice-node {color:var(--dx-notice-node)!important}
+
+@media(min-width:701px){.topbar .nodeIdentity{grid-column:2;grid-row:1}.topbar .nodeIdentity .nodeCall{grid-column:auto;grid-row:auto}}
+@media(min-width:481px) and (max-width:700px){.topbar .nodeIdentity{grid-column:1;grid-row:2;justify-self:start}.topbar .nodeIdentity .nodeCall{grid-column:auto;grid-row:auto}}
+
+/* Temporary BETA indicator: decoration only; does not affect topbar layout. */
+.topbar{position:relative}
+.topbar::before{content:"BETA";position:absolute;left:clamp(170px,25vw,305px);top:50%;transform:translateY(-50%);font-family:Arial,Helvetica,sans-serif;font-size:28px;font-weight:800;line-height:1;color:#d97706;pointer-events:none;z-index:1}
+@media(max-width:767px){.topbar::before{left:clamp(110px,29vw,190px);font-size:clamp(13px,3.8vw,21px)}}
+@media(max-width:480px){.topbar::before{left:clamp(85px,23vw,118px);font-size:clamp(10px,3vw,14px);top:16px}}
