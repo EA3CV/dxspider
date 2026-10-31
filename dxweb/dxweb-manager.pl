@@ -54,7 +54,7 @@ my %o=(root=>'/spider',components=>'both',mode=>'direct',scheme=>'http',action=>
 GetOptions('root=s'=>\$o{root},'components=s'=>\$o{components},'mode=s'=>\$o{mode},'scheme=s'=>\$o{scheme},'action=s'=>\$o{action},'hostname=s'=>\$o{hostname},'cert=s'=>\$o{cert},'key=s'=>\$o{key},'backup-dir=s'=>\$o{backup_dir},'apply'=>\$o{apply},'user=s'=>\$o{user},'group=s'=>\$o{group},'backup=s'=>\$o{backup},'help'=>\$o{help}) or die "Invalid options\n";
 if ($o{help}) {
  print <<'HELP';
-DXWeb Installer v0.49
+DXWeb Installer v0.51
   --action plan|install|rollback|status    Default: plan
   --root /spider                    Installation root
   --components dxweb|admin|both     Default: both
@@ -505,8 +505,41 @@ my @journal; my $nginx_link_created=0; my $success=eval {
   my $checkhost=$backend eq 'https' ? $o{hostname} : '127.0.0.1';
   my $url="$backend://$checkhost:$p$path";
   my $ok=0;
-  for (1..8) { sleep 1; my $r=HTTP::Tiny->new(timeout=>3,verify_SSL=>1)->get($url); if ($r->{success} && eval { my $j=decode_json($r->{content}); ref($j) eq 'HASH' && ($c eq 'dxweb' ? exists($j->{running}) : exists($j->{admin}) && exists($j->{dxweb})) }) {$ok=1;last} }
-  die "Health check failed: $url\n" unless $ok;
+  # An Admin response with dxweb.running=null is NOT healthy while DXWeb
+  # is active. In nginx mode this catches accidental HTTP requests to the
+  # public HTTPS listener instead of the internal DXWeb backend.
+  # Probe the CURRENT DXWeb state after the service restart/start phase.
+  # %active records the pre-install state for rollback only; it must not
+  # determine whether Admin is required to report a live DXWeb version.
+  # This also works when only Admin is being installed.
+  my $dxweb_active = $c eq 'admin' &&
+    system('systemctl','is-active','--quiet','dxweb.service') == 0;
+  for (1..8) {
+   sleep 1;
+   my $r=HTTP::Tiny->new(timeout=>3,verify_SSL=>1)->get($url);
+   next unless $r->{success};
+   my $valid=eval {
+    my $j=decode_json($r->{content});
+    die "Invalid JSON structure" unless ref($j) eq 'HASH';
+    if ($c eq 'dxweb') {
+     defined($j->{running}) && !ref($j->{running}) &&
+      $j->{running} =~ /\A\d+(?:\.\d+)+\z/;
+    } else {
+     ref($j->{admin}) eq 'HASH' &&
+      defined($j->{admin}{running}) && !ref($j->{admin}{running}) &&
+      $j->{admin}{running} =~ /\A\d+(?:\.\d+)+\z/ &&
+      ref($j->{dxweb}) eq 'HASH' &&
+      (!$dxweb_active ||
+       (defined($j->{dxweb}{running}) && !ref($j->{dxweb}{running}) &&
+        $j->{dxweb}{running} =~ /\A\d+(?:\.\d+)+\z/));
+    }
+   };
+   if ($valid) { $ok=1; last; }
+  }
+  die "Health check failed: $url" .
+      ($c eq 'admin' && $dxweb_active ?
+       " (DXWeb running version unavailable; verify DXWEB_CLIENT_SCHEME/HOST/PORT point to the internal DXWeb listener)" : "") . "\n"
+   unless $ok;
  }
  # New services must survive reboot. Never change the enabled state of an
  # existing service, including a deliberately disabled one.
