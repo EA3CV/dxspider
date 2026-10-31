@@ -1,3 +1,12 @@
+31Oct26======================================================================
+1. Fixed UTF-8 double encoding in DXWeb and DXWeb Admin WebSocket
+   responses, preserving Unicode characters in console output.
+2. Fixed UTF-8 handling of historical spot comments in Spot::search().
+3. Updated DXWeb to version 3.0.7 and DXWeb Admin to version 1.0.22.
+4. Fixed startup connections by deferring them until the Mojo event loop is 
+   running.
+5. DXWeb Installer v0.51: improved post-installation health checks to detect 
+   missing or invalid running versions.
 30Oct26======================================================================
 1. DXWeb Admin: Reorganized the filter field selector.
 2. Fix show/isolate

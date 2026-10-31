@@ -25,6 +25,7 @@ use Mojo::UserAgent;
 use Socket qw(AF_INET AF_INET6 inet_pton);
 use Mojo::IOLoop::Subprocess;
 use Mojo::JSON  qw(encode_json decode_json);
+use Encode ();
 use JSON::PP (); # ASCII-safe JSON on the DXSpider line transport
 use Time::HiRes qw(time);
 use FindBin;
@@ -338,7 +339,12 @@ sub ws_send_guarded( $id, $json ) {
         drop_slow_client($id);
         return 0;
     }
-    my $ok = eval { $tx->send($json); 1 };
+    # Mojo::JSON::encode_json returns UTF-8 octets, while Mojo's
+    # WebSocket text send expects decoded Perl characters.
+    # Keep $json as octets for byte-based limits and retry queues.
+    my $ws_text = Encode::decode('UTF-8', $json,
+        Encode::FB_CROAK() | Encode::LEAVE_SRC());
+    my $ok = eval { $tx->send($ws_text); 1 };
     if ( !$ok ) { release_client( $id, 'send_failed' ); return 0 }
     $counters{ws_sent}++;
     1;
@@ -373,7 +379,12 @@ sub ws_send_response( $id, $json, $tries = 0 ) {
             sub { ws_send_response( $id, $json, $tries + 1 ) } );
         return 1;
     }
-    my $ok = eval { $tx->send($json); 1 };
+    # Mojo::JSON::encode_json returns UTF-8 octets, while Mojo's
+    # WebSocket text send expects decoded Perl characters.
+    # Keep $json as octets for byte-based limits and retry queues.
+    my $ws_text = Encode::decode('UTF-8', $json,
+        Encode::FB_CROAK() | Encode::LEAVE_SRC());
+    my $ok = eval { $tx->send($ws_text); 1 };
     unless ($ok) { release_client( $id, 'send_failed' ); return 0 }
     $counters{ws_sent}++;
     return 1;

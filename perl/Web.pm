@@ -69,7 +69,7 @@ sub new
 		conn        => Web::ActorConn->new($ip),
 		lang        => $user->lang || $main::lang || 'en',
 		priv        => defined $priv ? $priv : 0,
-		width       => 80,
+		width       => 148,
 		registered  => defined $registered ? $registered : ($user->registered ? 1 : 0),
 		remotecmd   => 0,
 		inscript    => 0,
