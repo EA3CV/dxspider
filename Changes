@@ -3,6 +3,8 @@
    responses, preserving Unicode characters in console output.
 2. Fixed UTF-8 handling of historical spot comments in Spot::search().
 3. Updated DXWeb to version 3.0.7 and DXWeb Admin to version 1.0.22.
+4. Fixed startup connections by deferring them until the Mojo event loop is 
+   running.
 30Oct26======================================================================
 1. DXWeb Admin: Reorganized the filter field selector.
 2. Fix show/isolate
