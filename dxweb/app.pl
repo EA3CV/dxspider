@@ -133,7 +133,12 @@ sub ws_send_guarded( $id, $json ) {
         drop_slow_client($id);
         return 0;
     }
-    my $ok = eval { $tx->send($json); 1 };
+        # Mojo WebSocket text frames expect characters. Mojo::JSON::encode_json
+    # returns UTF-8 octets; decode at this transport boundary exactly once.
+    require Encode;
+    my $ws_text = Encode::decode('UTF-8', $json,
+        Encode::FB_CROAK() | Encode::LEAVE_SRC());
+    my $ok = eval { $tx->send($ws_text); 1 };
     if ( !$ok ) {
         $cl->{close_reason} = 'send_failure';
         eval { $tx->finish( 1011 => 'send failure' ) };
