@@ -770,7 +770,8 @@ sub handle_response($msg) {
                     {
                         type   => 'auth',
                         status => 'error',
-                        error  => $msg->{error} // 'authentication_failed'
+                        error  => $msg->{error} // 'authentication_failed',
+                        takeover_token => $msg->{takeover_token}
                     }
                 )
             );
@@ -974,6 +975,21 @@ sub handle_line($line) {
                 );
             }
             else { set_state( 'hello_error', $m->{error} // 'hello failed' ); }
+            return;
+        }
+        if ( ( $m->{type} // '' ) eq 'session_evicted' ) {
+            for my $cid (keys %clients) {
+                my $cl = $clients{$cid} or next;
+                next unless $cl->{authenticated};
+                next unless ($cl->{call} // '') eq ($m->{call} // '');
+                next unless defined($cl->{generation}) && defined($m->{generation});
+                next unless "$cl->{generation}" eq "$m->{generation}";
+                $cl->{authenticated} = 0;
+                delete @{$cl}{qw(call generation registered password_used priv)};
+                ws_send_guarded($cid, encode_json({
+                    type => 'session_evicted', reason => 'replaced'
+                }));
+            }
             return;
         }
         if ( ( $m->{type} // '' ) eq 'response' ) {
@@ -2209,6 +2225,7 @@ websocket '/ws' => sub($c) {
                         type     => 'auth',
                         call     => $call,
                         password => $pass,
+                        takeover_token => $m->{takeover_token},
                         ip       => $clients{$id}{ip}
                     }
                 );

@@ -27,7 +27,7 @@ foreach $dxchan ( sort {$a->call cmp $b->call} DXChannel::get_all ) {
 		$sort = "CCCL" if $dxchan->is_ccluster;
 	} else {
 		$sort = "LOCL" if $dxchan->conn->isa('IntMsg');
-		$sort = "WEB " if $dxchan->is_web;
+		$sort = "WEB " if $dxchan->is_web || ($dxchan->isa("Web::UserChannel") && !$dxchan->{web_released});
 		$sort = "EXT " if $dxchan->conn->isa('ExtMsg');
 		$type = "RBN " if $dxchan->is_rbn;              # Yes, this is NOT a typo
 	}
@@ -44,10 +44,13 @@ foreach $dxchan ( sort {$a->call cmp $b->call} DXChannel::get_all ) {
 }
 
 # Use the same authoritative snapshot as show/health web.
+# Web user channels are already listed by DXChannel::get_all().
+my %listed = map { uc($_->call) => 1 } DXChannel::get_all();
 my $web = DXSupervisor::web();
 for my $channel (@{$web->{channels} || []}) {
     for my $user (@{$channel->{users} || []}) {
         my $call = $user->{call} || next;
+        next if $listed{uc($call)};
         my $started = cldatetime($user->{startt} || $main::systime);
         my $link = ($channel->{call} || '') . ' ' . ($user->{ip} || '');
         push @out, sprintf "%10s USER WEB  %-8.8s %s %-10.10s %5s %s",

@@ -55,7 +55,7 @@ sub _dxspider_version {
 sub _kind {
     my ($c) = @_;
     return 'rbn'  if eval { $c->is_rbn };
-    return 'web'  if eval { $c->is_web };
+    return 'web'  if eval { $c->is_web || ($c->isa('Web::UserChannel') && !$c->{web_released}) };
     return 'node' if eval { $c->is_node };
     return 'user' if eval { $c->is_user };
     return 'other';
@@ -82,6 +82,7 @@ sub status {
     }
     my $o = _base();
     $o->{node} = $main::mycall || '';
+    $o->{sysop_alias} = defined $main::myalias ? "$main::myalias" : '';
     $o->{version} = defined $main::version ? "$main::version" : '';
     $o->{build} = defined $main::build ? "$main::build" : '';
     $o->{git_branch} = defined $main::gitbranch ? "$main::gitbranch" : '';
@@ -111,56 +112,106 @@ sub status {
     $o->{input_queue_total} = $qtotal; $o->{input_queue_max} = $qmax; $o->{input_queue_nonempty} = $qnonempty;
     return $o;
 }
+# Read-only inventory of connect scripts.  Only regular files with callsign
+# names are included; never execute or modify a connect script.
+sub _configured_peers {
+    my %peers;
+    my $dir = "$main::root/connect";
+    $dir = '/spider/connect' unless defined $main::root && length $main::root;
+    return \%peers unless opendir(my $dh, $dir);
+    my @names = readdir($dh);
+    closedir($dh);
+    for my $name (@names) {
+        next unless $name =~ /\A[A-Za-z0-9]{1,12}(?:-[0-9]{1,2})?\z/;
+        my $path = "$dir/$name";
+        next unless -f $path && !-l $path && -r $path;
+        my $call = uc($name);
+        my $login;
+        if (open my $fh, '<', $path) {
+            my $lines = 0;
+            while (my $line = <$fh>) {
+                last if ++$lines > 256;
+                # RBN connect chat scripts use quoted tokens: 'call:' 'EA4URE'.
+                if ($line =~ /^\s*['"]?call:['"]?\s+['"]?([A-Za-z0-9]+(?:-[0-9]{1,2})?)(?=['"\s]|$)/i) {
+                    $login = uc($1);
+                    last;
+                }
+            }
+            close $fh;
+        }
+        $peers{$call} = { configured => 1, configured_login => $login };
+    }
+    return \%peers;
+}
+
 sub connections {
     my @all_full = DXChannel::get_all();
     my %live = map { (uc($_->{call} || '') => $_) } grep { defined $_->{call} && length $_->{call} } @all_full;
     my $hist = DXHealth::connection_snapshot({ map { $_ => 1 } keys %live });
     my $hrows = $hist->{rows} || {};
 
-    my %calls = map { $_ => 1 } (keys %live, keys %$hrows);
+    my $configured = _configured_peers();
+    my %calls = map { $_ => 1 } (keys %live, keys %$hrows, keys %$configured);
     # Live channels must never be displaced by retained history.
     my @active = sort keys %live;
+    # Logical Web history supersedes the generic channel history for
+    # the same offline CALL; retain a single row with Web semantics.
+    my $logical_offline = DXHealth::logical_web_snapshot();
+    my %logical_history = map { uc($_->{call} || '') => 1 } @$logical_offline;
     my @offline = sort {
         ($hrows->{$b}{last_event} || 0) <=> ($hrows->{$a}{last_event} || 0)
             || $a cmp $b
-    } grep { !exists $live{$_} } keys %$hrows;
+    } grep { !exists $live{$_} && !$logical_history{$_} && !exists $configured->{$_} } keys %$hrows;
     my $slots = $MAX_CONNECTIONS - scalar(@active);
     $slots = 0 if $slots < 0;
     my $truncated = @offline > $slots ? 1 : 0;
     splice(@offline, $slots) if @offline > $slots;
-    my @calls = (@active, @offline);
+    my @configured_offline = sort grep { !exists $live{$_} && !$logical_history{$_} } keys %$configured;
+    my @calls = (@active, @configured_offline, @offline);
     my @rows;
     for my $call (@calls) {
         my $c = $live{$call};
         my $h = $hrows->{$call} || {};
         my $conn = $c ? $c->{conn} : undef;
         my $user = $c ? $c->{user} : undef;
+        my $local_dxu = eval { DXUser::get($call) };
         my $rnode = $c ? eval { Route::Node::get($c->{call}) } : undef;
-        my $kind = $c ? _kind($c) : ($h->{last_kind} || 'other');
+        my $kind = $c ? _kind($c) : ($h->{last_kind} || ($configured->{$call} ? 'node' : 'other'));
         push @rows, {
-            call => $call, kind => $kind, online => $c ? 1 : 0,
-            sort => $c ? ($c->{sort} || '') : '', state => $c ? ($c->{state} || '') : 'offline',
+            call => $call, kind => $kind, configured => $configured->{$call} ? 1 : 0, online => $c ? 1 : 0,
+            sort => $c ? ($c->{sort} || '') : ($local_dxu ? ($local_dxu->{sort} || '') : ''), state => $c ? ($c->{state} || '') : 'offline',
             connected_since => $c ? _num($c->{startt}) : 0,
-            outbound => $c ? _bool($c->{outbound}) : ($h->{last_direction} eq 'out' ? 1 : $h->{last_direction} eq 'in' ? 0 : undef),
+            outbound => $c ? (defined $c->{outbound} ? _bool($c->{outbound}) : ($conn && defined $conn->{outgoing} ? _bool($conn->{outgoing}) : undef)) : ($h->{last_direction} eq 'out' ? 1 : $h->{last_direction} eq 'in' ? 0 : undef),
             errors => $c ? _num($c->{errors}) : 0,
             ip => $c ? ($c->{hostname} || ($conn ? ($conn->{peerhost} || '') : '')) : ($h->{last_host} || ''),
             connect_count => _num($h->{connect_count}), disconnect_count => _num($h->{disconnect_count}),
             last_connect => _num($h->{last_connect}), last_disconnect => _num($h->{last_disconnect}), last_event => _num($h->{last_event}),
             too_many_count => _num($h->{too_many_count}), last_too_many => _num($h->{last_too_many}),
-            registered => $c && defined $c->{registered} ? _bool($c->{registered}) : undef,
-            password_configured => $user ? ((eval { $user->passwd }) ? 1 : 0) : undef,
+            registered => $local_dxu ? _bool($local_dxu->{registered}) : undef,
+            password_configured => $local_dxu ? ((eval { $local_dxu->passwd }) ? 1 : 0) : undef,
             password_used => $conn ? _maybe_bool($conn->{usedpasswd}) : undef,
             cnum => ($conn && defined $conn->{cnum}) ? _num($conn->{cnum}) : undef,
             queue_depth => $c ? _qlen($c->{inqueue}) : 0, lastping => $c ? _num($c->{lastping}) : 0,
             nopings => $c ? _num($c->{nopings}) : 0, pingave => $c ? _num($c->{pingave}) : 0,
             bytes_in => $conn ? _num($conn->{datain}) : 0, bytes_out => $conn ? _num($conn->{dataout}) : 0,
             lines_in => $conn ? _num($conn->{linesin}) : 0, lines_out => $conn ? _num($conn->{linesout}) : 0,
-            protocol_version_raw => $c ? ((defined $c->{version} && $c->{version} ne '') ? $c->{version} : ($rnode ? $rnode->version : undef)) : undef,
+            # Login means the identity presented over this link.
+            # Outbound: our callsign actually sent by the connect chat.
+            # Inbound: remote callsign observed at the login prompt.
+            peer_login => ($kind eq 'rbn' || ($local_dxu && ($local_dxu->{sort} || '') eq 'N')) && $configured->{$call} && $configured->{$call}{configured_login}
+                ? $configured->{$call}{configured_login}
+                : $c && $conn
+                ? (($conn->{outgoing} || $c->{outbound})
+                    ? $conn->{observed_peer_login}
+                    : $conn->{observed_peer_login})
+                : undef,
+            protocol_version_raw => undef,
             dxspider_version => $c ? _dxspider_version($c, (defined $c->{version} && $c->{version} ne '') ? $c->{version} : ($rnode ? $rnode->version : undef)) : undef,
             build => $c ? (defined $c->{build} && $c->{build} ne '' ? $c->{build} : ($rnode ? $rnode->build : undef)) : undef,
             git_branch => $rnode ? $rnode->gitbranch : undef, git_version => $rnode ? $rnode->gitversion : undef,
             do_pc9x => $c ? ($rnode ? _maybe_bool($rnode->do_pc9x) : (defined $c->{do_pc9x} ? _maybe_bool($c->{do_pc9x}) : undef)) : undef,
             via_pc92 => $rnode ? _maybe_bool($rnode->via_pc92) : undef,
+            do_pc91 => $c ? (defined $c->{do_pc91} ? _maybe_bool($c->{do_pc91}) : undef) : undef,
             is_self => $c && (($c->{call} || '') eq ($main::mycall || '')) ? 1 : 0,
         };
     }
@@ -171,14 +222,17 @@ sub connections {
         next unless eval { $ch->is_web };
         $web_live{uc($_)} = 1 for keys %{ $ch->{web_users} || {} };
     }
-    my $logical_offline = DXHealth::logical_web_snapshot();
+    # Reuse the logical snapshot collected before generic history selection.
     for my $e (sort { ($b->{last_event} || 0) <=> ($a->{last_event} || 0) } @$logical_offline) {
         next if $web_live{$e->{call}} || $live{$e->{call}};
         if (@rows >= $MAX_CONNECTIONS && @active <= $MAX_CONNECTIONS) {
             $truncated = 1;
             last;
         }
+        my $web_dxu = eval { DXUser::get($e->{call}) };
         push @rows, {
+            registered => $web_dxu ? _bool($web_dxu->{registered}) : undef,
+            password_configured => $web_dxu ? ((eval { $web_dxu->passwd }) ? 1 : 0) : undef,
             call => $e->{call}, kind => 'web', online => 0, logical_web => 1,
             state => 'offline', outbound => undef, ip => $e->{ip} || '',
             connected_since => 0, cnum => undef, queue_depth => undef,

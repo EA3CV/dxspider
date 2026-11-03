@@ -52,7 +52,7 @@ sub handle
 
 	dbg("sh/contest: url=$url") if isdbg("contest");
 
-	my $r = AsyncMsg->get($self->isa('Web::Actor') ? $self : $self->call, $host, $url, prefix=>'ctst> ');
+	my $r = AsyncMsg->get(($self->isa('Web::Actor') || $self->isa('Web::UserChannel')) ? $self : $self->call, $host, $url, prefix=>'ctst> ');
 	if ($r) {
 		push @out, $self->msg('m21', "show/contest");
 	}

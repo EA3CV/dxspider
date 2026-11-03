@@ -21,7 +21,7 @@ function applyLinuxTerminalAvailability(enabled){
  if(!enabled){terminalLocalClose();if(activeSection==='terminalSection')selectSection('operation')}
 }
 const networkChatMessages=[];
-let spotItems=[],spotCounts={human:0,rbn:0},logs={ann:[],wwv:[],wcy:[],wx:[]},cmdHistory=[],historyPos=0,pendingCommandTargets=[],pendingCommandNames=[];
+let spotItems=[],spotCounts={human:0,rbn:0},logs={ann:[],wwv:[],wcy:[],wx:[]},cmdHistory=[],historyPos=0,pendingCommandTargets=[],pendingCommandNames=[],queuedPanelCommands=[];
 let pc92Previous=null;
 const supervisorInflight=new Set();
 const send=o=>{if(!(ws&&ws.readyState===WebSocket.OPEN))return false;ws.send(JSON.stringify(o).replace(/[\u007f-\uffff]/g,c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0')));return true};
@@ -33,7 +33,7 @@ function clearSessionContent(){liveDebugStop();logWindowsCloseAll();terminalDisc
   const e=$(id);if(e)e.innerHTML='';
  }
  for(const k of Object.keys(logs||{})){logs[k]=[]}
- pendingCommandTargets.length=0;pendingCommandNames.length=0;vfRules=[];vfCurrent=null;vfReadLines=[];vfReadActive=false;
+ pendingCommandTargets.length=0;pendingCommandNames.length=0;queuedPanelCommands.length=0;vfRules=[];vfCurrent=null;vfReadLines=[];vfReadActive=false;
  if($('regSearch'))$('regSearch').value='';
  if($('regActionResult'))$('regActionResult').textContent='';
 }
@@ -120,13 +120,41 @@ for(const panel of panelZoomNames){
 }
 panelZoomRestore();
 
+// SSH connection preferences are scoped to this tab AND the authenticated SYSOP.
+// No password, SSH key, or authentication token is stored.
+const terminalSshPrefKey='dxweb-admin.terminal.ssh.v1';
+let terminalSshIdentity=null;
+function terminalSshClear(){
+ try{sessionStorage.removeItem(terminalSshPrefKey)}catch(_){}
+ terminalSshIdentity=null;
+ if($('terminalUser'))$('terminalUser').value='';
+ if($('terminalPort'))$('terminalPort').value='22';
+}
+function terminalSshForIdentity(call){
+ const identity=String(call||'').trim().toUpperCase();
+ if(!identity){terminalSshClear();return}
+ let saved=null;
+ try{saved=JSON.parse(sessionStorage.getItem(terminalSshPrefKey)||'null')}catch(_){}
+ if(saved&&saved.call!==identity){terminalSshClear();saved=null}
+ terminalSshIdentity=identity;
+ const user=$('terminalUser'),port=$('terminalPort');
+ if(user)user.value=saved&&typeof saved.user==='string'&&/^[a-zA-Z0-9_.-]{1,64}$/.test(saved.user)?saved.user:'';
+ if(port)port.value=saved&&Number.isInteger(saved.port)&&saved.port>=1&&saved.port<=65535?String(saved.port):'22';
+}
+function terminalSshSave(){
+ if(!authenticated||authPriv<9||!authUser||terminalSshIdentity!==String(authUser).toUpperCase())return;
+ const user=$('terminalUser')?.value.trim()||'',port=Number($('terminalPort')?.value);
+ if(!/^[a-zA-Z0-9_.-]{1,64}$/.test(user)||!Number.isInteger(port)||port<1||port>65535)return;
+ try{sessionStorage.setItem(terminalSshPrefKey,JSON.stringify({call:terminalSshIdentity,user,port}))}catch(_){}
+}
+let takeoverLogin=null;
 function loginState(ok,m={}){if(!ok){networkChatMessages.length=0;networkChatRender()} authenticated=ok;document.body.classList.toggle('authenticated',ok);authUser=ok?(m.call||authUser):null;authPriv=ok?Number(m.priv||0):0;document.querySelectorAll('#deleteUserOpen, #historyCompress, #historyDelete, #maintenanceUpdates button, .opCommandForm button, #consoleForm button, #filterForm button, #filters .filterBuilder button').forEach(b=>{b.disabled=ok&&authPriv<9;b.hidden=ok&&authPriv<9&&b.id==='deleteUserOpen'});document.querySelectorAll('.mainTabs [data-section]').forEach(b=>{const denied=ok&&authPriv<5&&SYSOP_SECTIONS.has(b.dataset.section);b.style.display='';b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 5':'';b.classList.toggle('sysopDenied',denied);b.style.filter=''});document.querySelectorAll('.v2NavBtn[data-v2-target]').forEach(b=>{const denied=ok&&authPriv<5&&SYSOP_SECTIONS.has(b.dataset.v2Target);b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 5':'';b.classList.toggle('sysopDenied',denied)});if(ok&&authPriv<5&&SYSOP_SECTIONS.has(activeSection))selectSection('operation');$('loginButton').textContent=ok?`Logout ${authUser}`:'Login';setLocked(!ok);spotFontForSession();consoleFontRestore();spotPresentationRestore();spotViewsRestore();panelZoomRestore();}
 function notice(t){$('noticeText').textContent=t;$('noticeDialog').showModal()}
 $('noticeClose').onclick=()=>$('noticeDialog').close();
 function showLogin(msg=''){if($('loginDialog').open)return;$('loginError').textContent=msg;$('loginDialog').showModal();$('loginCall').focus()}
-function connect(){const proto=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${proto}://${location.host}${new URL("./ws",location.href).pathname}`);ws.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error('admin message error',err,e.data)}};ws.onclose=()=>{terminalLocalClose();supervisorInflight.clear();authenticated=false;logoutPending=false;loginState(false);$('status').textContent='disconnected';setTimeout(connect,2000)}}
-$('loginButton').onclick=()=>{if(authenticated){liveDebugStop();if(logoutPending)return;logoutPending=true;send({type:'logout'});$('loginButton').textContent='Logging out…'}else showLogin()};
-$('loginForm').addEventListener('submit',e=>{e.preventDefault();const call=$('loginCall').value.trim().toUpperCase(),password=$('loginPass').value;if(!call||!password){$('loginError').textContent='Callsign and password are required.';return}$('loginSubmit').disabled=true;if(!send({type:'auth',call,password})){$('loginSubmit').disabled=false;$('loginError').textContent='DXSpider connection is not ready';return}$('loginPass').value=''});
+function connect(){const proto=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${proto}://${location.host}${new URL("./ws",location.href).pathname}`);ws.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error('admin message error',err,e.data)}};ws.onclose=()=>{pendingCommandTargets.length=0;pendingCommandNames.length=0;queuedPanelCommands.length=0;terminalLocalClose();supervisorInflight.clear();authenticated=false;logoutPending=false;loginState(false);$('status').textContent='disconnected';setTimeout(connect,2000)}}
+$('loginButton').onclick=()=>{if(authenticated){liveDebugStop();if(logoutPending)return;terminalSshClear();logoutPending=true;send({type:'logout'});$('loginButton').textContent='Logging out…'}else showLogin()};
+$('loginForm').addEventListener('submit',e=>{e.preventDefault();const call=$('loginCall').value.trim().toUpperCase(),password=$('loginPass').value;if(!call||!password){$('loginError').textContent='Callsign and password are required.';return}$('loginSubmit').disabled=true;takeoverLogin={call,password};if(!send({type:'auth',call,password})){$('loginSubmit').disabled=false;$('loginError').textContent='DXSpider connection is not ready';return}$('loginPass').value=''});
 function selectSection(id){if(id==='terminalSection'&&!linuxTerminalEnabled)return;if(authenticated&&(id==='liveDebugSection'||id==='terminalSection'||id==='networkChatSection')&&authPriv<9)return;if(authenticated&&authPriv<5&&SYSOP_SECTIONS.has(id))return;activeSection=id;document.querySelectorAll('.mainTabs button').forEach(b=>b.classList.toggle('active',b.dataset.section===id));document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.id===id));if(authenticated&&id==='registration')loadPending();if(authenticated&&id==='supervision')selectSupervision(activeSupervisionPanel);if(authenticated&&id==='metrics')requestMetrics();if(authenticated&&id==='timeline')requestTimeline();if(id!=='liveDebugSection'&&liveDebugFollowing)liveDebugStop();if(id==='terminalSection')setTimeout(terminalFit,30);if(id==='consoleSection')requestAnimationFrame(()=>{$('consoleCommand')?.focus({preventScroll:true})})}
 document.querySelectorAll('.mainTabs button[data-section]').forEach(b=>b.onclick=()=>{if(b.disabled||b.getAttribute('aria-disabled')==='true')return;selectSection(b.dataset.section)});
 $('quickConsole').onclick=()=>{selectSection('consoleSection');$('consoleCommand').focus()};
@@ -134,7 +162,18 @@ function selectPanel(id){activePanel=id;document.querySelectorAll('#operationTab
 document.querySelectorAll('#operationTabs button').forEach(b=>b.onclick=()=>selectPanel(b.dataset.panel));
 function selectReg(id){document.querySelectorAll('#registrationTabs button').forEach(b=>b.classList.toggle('active',b.dataset.regpanel===id));document.querySelectorAll('.regPanel').forEach(p=>p.classList.toggle('active',p.id===id));if(authenticated&&id==='pending')loadPending();if(authenticated&&id==='history')loadHistory()}
 document.querySelectorAll('#registrationTabs button').forEach(b=>b.onclick=()=>selectReg(b.dataset.regpanel));
-function command(cmd,target='console'){if(!authenticated||authPriv<9)return;cmd=cmd.trim();if(!cmd)return;if(!cmdHistory.length||cmdHistory.at(-1)!==cmd)cmdHistory.push(cmd);historyPos=cmdHistory.length;if(target==='console'){const l=document.createElement('div');l.className='consoleCommandLine';l.textContent=`> ${cmd}`;$('consoleOutput').appendChild(l)}if(send({type:'command',command:cmd})){pendingCommandTargets.push(target);pendingCommandNames.push(cmd)}}
+
+// Only one DXSpider command may be in flight on a WebChannel user.
+// Preserve the issuing panel across asynchronous/chunked responses.
+function dispatchNextPanelCommand(){
+ if(pendingCommandTargets.length||!queuedPanelCommands.length)return;
+ const next=queuedPanelCommands[0];
+ if(!send({type:'command',command:next.cmd}))return;
+ queuedPanelCommands.shift();
+ pendingCommandTargets.push(next.target);pendingCommandNames.push(next.cmd);
+}
+
+function command(cmd,target='console'){if(!authenticated||authPriv<9)return;cmd=cmd.trim();if(!cmd)return;if(!cmdHistory.length||cmdHistory.at(-1)!==cmd)cmdHistory.push(cmd);historyPos=cmdHistory.length;if(target==='console'){const l=document.createElement('div');l.className='consoleCommandLine';l.textContent=`> ${cmd}`;$('consoleOutput').appendChild(l)}queuedPanelCommands.push({cmd,target});dispatchNextPanelCommand();}
 $('consoleForm').addEventListener('submit',e=>{e.preventDefault();const v=$('consoleCommand').value;$('consoleCommand').value='';command(v,'console')});
 $('filterForm').addEventListener('submit',e=>{e.preventDefault();const v=$('filterCommand').value;$('filterCommand').value='';command(v,'filters')});
 const filterBandCatalog={"bands":{"73khz":["band"],"136khz":["band"],"500khz":["band"],"160m":["band","cw","data","ft8","rtty","ssb"],"80m":["band","cw","data","ft4","ft8","rtty","ssb","sstv"],"60m":["band","cw","data","ssb"],"40m":["band","cw","data","ft4","ft8","rtty","ssb"],"30m":["band","cw","data","ft4","ft8","rtty"],"20m":["band","beacon","cw","data","ft4","ft8","rtty","ssb","sstv"],"17m":["band","beacon","cw","data","ft4","ft8","rtty","ssb"],"15m":["band","beacon","cw","data","ft4","ft8","rtty","ssb"],"12m":["band","beacon","cw","data","ft4","ft8","rtty","ssb"],"10m":["band","beacon","cw","data","ft4","ft8","rtty","space","ssb"],"8m":["band"],"6m":["band","beacon","cw","data","ft4","ft8","ssb"],"5m":["band"],"4m":["band","beacon","cw","ssb"],"2m":["band","beacon","cw","ssb"],"220":["band"],"70cm":["band"],"902":["band"],"23cm":["band"],"13cm":["band"],"9cm":["band","beacon","sat"],"6cm":["band","beacon","data","sat"],"3cm":["band"],"12mm":["band"],"6mm":["band","beacon"],"4mm":["band","beacon"],"122g":["band"],"134g":["band","beacon"],"241g":["band","beacon"],"band1":["band"],"band2":["band"],"band3":["band"],"band4":["band"],"band5":["band"],"military":["band"],"aircraft":["band"],"pmrlow":["band"],"pmrmid":["band"],"pmrhigh":["band"],"pmruhf":["band"],"hf":["band"],"vhf":["band"],"lband":["band"],"sband":["band"],"cband":["band"],"xband":["band"],"kuband":["band"],"kband":["band"],"kaband":["band"],"vband":["band"],"wband":["band"],"gband":["band"],"630m":["band"],"24g":["band"],"47g":["band","beacon"],"76g":["band","beacon"]},"regions":{"vlf":["73khz","136khz","630m"],"hf":["160m","80m","60m","40m","30m","20m","17m","15m","12m","10m"],"contesthf":["160m","80m","40m","20m","15m","10m"],"vhf":["8m","6m","5m","4m","2m","220"],"vhfradio":["band1","band2"],"vhftv":["band1","band3"],"uhf":["70cm","902","23cm","13cm"],"uhftv":["band4","band5"],"shf":["9cm","6cm","3cm","24g"],"ehf":["47g","76g","134g","241g"],"pmr":["pmrlow","pmrmid","pmrhigh","pmruhf"],"spe":["10m","8m","6m","5m","4m","2m"],"warc":["60m","30m","17m","12m"],"dsn":["23cm","9cm","6cm","3cm","24g","47g","76g","134g","241g"],"all":["73khz","136khz","630m","160m","80m","60m","40m","30m","20m","17m","15m","12m","10m","8m","6m","5m","4m","2m","220","70cm","902","23cm","9cm","6cm","3cm","24g","47g","76g","134g","241g"]},"aliases":{"630m":"500khz","24g":"12mm","47g":"6mm","76g":"4mm"}};
@@ -660,7 +699,22 @@ function renderSpots(){
 
 function renderLog(k){const e=document.querySelector(`[data-kind="${k}"]`);if(!e)return;e.textContent=logs[k].slice(-250).join('\n');e.scrollTop=e.scrollHeight;setCount(k,logs[k].length)}
 function parseCC11(payload){if(typeof payload!=='string')return null;const f=payload.split('^');if(f[0]!=='CC11'||f.length<7)return null;return{utc:(f[4]||'').replace(/Z$/i,'').replace(/[^0-9]/g,'').slice(0,4),freq:f[1]||'',dx:f[2]||'',comment:f[5]||'',spotter:f[6]||'',origin:(f[9]||'').replace(/-#$/,''),cqDx:f[11]||'',ituDx:f[10]||'',cqSpotter:f[13]||'',ituSpotter:f[12]||'',locDx:f[18]||'',locSpotter:f[19]||''}}
-function acceptFeed(m){const k=(m.feed||'').toLowerCase();if(k==='user_notice'){if(typeof m.payload?.text!=='string')return;spotBufferAdd({type:'notice',text:m.payload.text,category:['buddy','user','node'].includes(m.payload.category)?m.payload.category:'system',_newUntil:0});renderSpots();return;}if(k==='human'||k==='rbn'){const p=parseCC11(m.payload);if(!p)return;const enabled=k==='human'?$('showHuman').checked:$('showRbn').checked;
+// Text notices have no request ID. While a command is pending, associate them
+// with its queued origin; spontaneous notices default to Console.
+function routeCommandNotice(target,message){
+ if(logs[target]){
+  logs[target].push(...String(message).split('\n'));
+  if(logs[target].length>500)logs[target]=logs[target].slice(-500);
+  renderLog(target);return;
+ }
+ const out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);
+ if(!out)return;
+ if(target==='console'){
+  const line=document.createElement('div');line.className='consoleResponse';line.textContent=message;out.appendChild(line);
+ }else out.textContent+=message+'\n';
+ out.scrollTop=out.scrollHeight;
+}
+function acceptFeed(m){const k=(m.feed||'').toLowerCase();if(k==='user_notice'){if(typeof m.payload?.text!=='string')return;/* Native DXSpider DX text duplicates the structured CC11 spot feed. */if(/^DX de\s+\S+:\s+\d+(?:\.\d+)?\s+\S+\s+/i.test(m.payload.text.trim()))return;/* Preserve the issuing panel for asynchronous command notices. */routeCommandNotice('console',m.payload.text);return;}if(k==='human'||k==='rbn'){const p=parseCC11(m.payload);if(!p)return;const enabled=k==='human'?$('showHuman').checked:$('showRbn').checked;
    if(!enabled)return;
    const spot={...p,type:k,_newUntil:Date.now()+3000};spotBufferAdd(spot);spotViewNotify(spot);
    setTimeout(()=>{if(spotItems.some(x=>x._newUntil&&x._newUntil<=Date.now()))renderSpots()},3100);
@@ -757,13 +811,30 @@ function finishCommandTarget(target){
  }
  out.scrollTop=out.scrollHeight;
 }
-function handle(m){if(m.type==='status'){if(typeof m.enable_linux_terminal==='boolean')applyLinuxTerminalAvailability(m.enable_linux_terminal);$('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===false){logoutPending=false;if(authenticated)clearSessionContent();loginState(false);setLocked(true);if(m.state==='ready'&&!$('loginDialog').open)showLogin()}return}if(m.type==='auth'||m.type==='auth_result'){$('loginSubmit').disabled=false;if(m.status==='ok'){clearSessionContent();loginState(true,m);$('loginDialog').close();$('loginError').textContent='';if(authPriv>=5)loadPending();setTimeout(()=>{if(authenticated)requestMetrics()},250);setTimeout(()=>{if(authenticated&&authPriv>=9)requestMaintenance([])},2500)}else{loginState(false);$('loginError').textContent=m.error==='admin_privilege_required'?'DXSpider privilege 5 is required for login (privilege 9 for administrative actions).':m.error==='password_required'?'A valid DXSpider password is required.':(m.error||'Authentication failed');showLogin($('loginError').textContent)}return}if(m.type==='logout_result'){logoutPending=false;loginState(false);showLogin();return}if(!authenticated)return;if(m.type==='terminal_status'||m.type==='terminal_data'){terminalReceive(m);return}if(m.type==='log_window_status'||m.type==='log_window_data'){logWindowReceive(m);return}if(m.type==='live_debug_result'||m.type==='live_debug_data'){liveDebugReceive(m);return}if(m.type==='reg_pending_result'){if(m.status==='ok')renderPending(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_history_result'){if(m.status==='ok')renderHistory(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_search_result'){if(m.status==='ok')renderHistory(m.result||[],'searchRows');else notice(responseText(m));return}if(m.type==='reg_accept_result'||m.type==='reg_reject_result'){const expected=decisionAction?`reg_${decisionAction}_result`:null;if(expected&&m.type!==expected){$('regActionResult').textContent=`Unexpected registration response: ${m.type}`;return}if(m.status==='ok'){const accepted=m.type==='reg_accept_result';const pw=accepted&&m.result&&m.result.password?` Password: ${m.result.password}`:'';$('regActionResult').textContent=(accepted?'Accepted.':'Rejected.')+pw;setTimeout(()=>{$('regActionDialog').close();decisionId=null;decisionAction=null;loadPending();loadHistory()},900)}else{$('regAccept').disabled=false;$('regReject').disabled=false;$('regActionResult').textContent=responseText(m)}return}if(m.type==='reg_delete_user_result'){$('deleteUserConfirm').disabled=false;if(m.status==='ok'){const calls=(m.result&&m.result.affected_calls)||[];$('deleteUserResult').textContent=`Deleted ${calls.length} DXUser record(s): ${calls.join(', ')}`;loadHistory();setTimeout(()=>$('deleteUserDialog').close(),1200)}else{$('deleteUserResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Delete failed'))}return}
+function handle(m){
+ if(m.type==='session_evicted'){
+   clearSessionContent();loginState(false);setLocked(true);showLogin('Session replaced by another authenticated connection.');return;
+ }
+ if(m.type==='auth'&&m.error==='takeover_required'&&takeoverLogin&&m.takeover_token){
+   $('loginSubmit').disabled=false;
+   const saved=takeoverLogin;
+   if(window.confirm(`An existing session for ${saved.call} is connected. Replace it?`)){
+     $('loginSubmit').disabled=true;
+     if(!send({type:'auth',call:saved.call,password:saved.password,takeover_token:m.takeover_token})){
+       $('loginSubmit').disabled=false;takeoverLogin=null;
+       showLogin('DXSpider connection is not ready');
+     }
+   }else{takeoverLogin=null;showLogin('Existing session preserved.');}
+   return;
+ }
+ if(m.type==='auth'||m.type==='auth_result')takeoverLogin=null;
+ if(m.type==='status'){if(typeof m.enable_linux_terminal==='boolean')applyLinuxTerminalAvailability(m.enable_linux_terminal);$('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===false){logoutPending=false;if(authenticated){terminalSshClear();clearSessionContent()}loginState(false);setLocked(true);if(m.state==='ready'&&!$('loginDialog').open)showLogin()}return}if(m.type==='auth'||m.type==='auth_result'){$('loginSubmit').disabled=false;if(m.status==='ok'){clearSessionContent();loginState(true,m);terminalSshForIdentity(authUser);$('loginDialog').close();$('loginError').textContent='';if(authPriv>=5)loadPending();setTimeout(()=>{if(authenticated)requestMetrics()},250);setTimeout(()=>{if(authenticated&&authPriv>=9)requestMaintenance([])},2500)}else{loginState(false);$('loginError').textContent=m.error==='admin_privilege_required'?'DXSpider privilege 5 is required for login (privilege 9 for administrative actions).':m.error==='password_required'?'A valid DXSpider password is required.':(m.error||'Authentication failed');showLogin($('loginError').textContent)}return}if(m.type==='logout_result'){terminalSshClear();logoutPending=false;loginState(false);showLogin();return}if(!authenticated)return;if(m.type==='terminal_status'||m.type==='terminal_data'){terminalReceive(m);return}if(m.type==='log_window_status'||m.type==='log_window_data'){logWindowReceive(m);return}if(m.type==='live_debug_result'||m.type==='live_debug_data'){liveDebugReceive(m);return}if(m.type==='reg_pending_result'){if(m.status==='ok')renderPending(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_history_result'){if(m.status==='ok')renderHistory(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_search_result'){if(m.status==='ok')renderHistory(m.result||[],'searchRows');else notice(responseText(m));return}if(m.type==='reg_accept_result'||m.type==='reg_reject_result'){const expected=decisionAction?`reg_${decisionAction}_result`:null;if(expected&&m.type!==expected){$('regActionResult').textContent=`Unexpected registration response: ${m.type}`;return}if(m.status==='ok'){const accepted=m.type==='reg_accept_result';const pw=accepted&&m.result&&m.result.password?` Password: ${m.result.password}`:'';$('regActionResult').textContent=(accepted?'Accepted.':'Rejected.')+pw;setTimeout(()=>{$('regActionDialog').close();decisionId=null;decisionAction=null;loadPending();loadHistory()},900)}else{$('regAccept').disabled=false;$('regReject').disabled=false;$('regActionResult').textContent=responseText(m)}return}if(m.type==='reg_delete_user_result'){$('deleteUserConfirm').disabled=false;if(m.status==='ok'){const calls=(m.result&&m.result.affected_calls)||[];$('deleteUserResult').textContent=`Deleted ${calls.length} DXUser record(s): ${calls.join(', ')}`;loadHistory();setTimeout(()=>$('deleteUserDialog').close(),1200)}else{$('deleteUserResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Delete failed'))}return}
  if(m.type==='spot_result'){if(!$('spotDialog').open)return;$('spotSubmit').disabled=false;$('spotResult').textContent=responseText(m)||(m.status==='ok'?'Spot accepted by DXSpider':'Spot rejected');if(m.status==='ok')setTimeout(()=>$('spotDialog').close(),500);return}if(m.type==='feed'){if(m.feed==='network_chat'){networkChatAccept(m.payload);return}acceptFeed(m);return}if(m.type==='command_result'){const target=pendingCommandTargets[0]||activePanel,t=responseText(m),out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);if(logs[target]){if(t){logs[target].push(...t.split('\n'));renderLog(target)}}else if(out&&t){if(target==='console'){const b=document.createElement('div');b.className='consoleResponse';b.textContent=t;out.appendChild(b)}else out.textContent+=t+'\n';out.scrollTop=out.scrollHeight}const issued=pendingCommandNames[0]||'';
  const isFilterRead=target==='filters'&&/^show\/filter(?:\s|$)/i.test(issued);
  if(isFilterRead){if(!vfReadActive){vfReadActive=true;vfReadLines=[]}if(t)vfReadLines.push(...t.split('\n'))}
  if(m.final!==false){
   if(isFilterRead){vfPopulateExisting(vfReadLines);vfReadActive=false;vfReadLines=[]}
-  finishCommandTarget(target);pendingCommandTargets.shift();pendingCommandNames.shift();
+  finishCommandTarget(target);pendingCommandTargets.shift();pendingCommandNames.shift();dispatchNextPanelCommand();
   if(target==='filters'&&/^(?:(?:accept|reject)\/(?:spots|rbn)\s|clear\/(?:spots|rbn)\s)/i.test(issued)){
    const family=issued.match(/^(?:accept|reject|clear)\/(spots|rbn)\s/i)?.[1];
    if(family)command(`show/filter ${family}`,'filters');
@@ -868,9 +939,9 @@ function updateSupervisorBanner(r){
  if(supervisorLastCollectedAt){const age=Math.max(0,Date.now()/1000-supervisorLastCollectedAt);$('supervisionAge').textContent=`data age ${age<10?age.toFixed(1)+'s':Math.floor(age)+'s'}`}
 }
 function fmtDuration(v){let s=Math.max(0,Math.floor(Number(v)||0));const d=Math.floor(s/86400);s%=86400;const h=Math.floor(s/3600);s%=3600;const m=Math.floor(s/60);return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m}m`}
-function supervisorKindsFor(panel){return panel==='overview'?['overview']:panel==='diagnostics'?['self_health']:panel==='system'?['system']:panel==='nodes'?['connections','web']:panel==='connections'?['connections','web']:panel==='users'?['connections','web']:panel==='peers'?['connections','traffic']:[panel]}
+function supervisorKindsFor(panel){return panel==='neighbours'?['connections','status']:panel==='overview'?['overview']:panel==='diagnostics'?['self_health']:panel==='system'?['system']:panel==='nodes'?['connections','web']:panel==='connections'?['connections','web']:panel==='users'?['connections','web']:panel==='peers'?['connections','traffic']:[panel]}
 function supervisorRequest(panel=activeSupervisionPanel){if(!authenticated||!ws||ws.readyState!==WebSocket.OPEN)return;if(panel==='maintenance'){requestMaintenance();return}const todo=supervisorKindsFor(panel).filter(what=>!supervisorInflight.has(what));if(!todo.length)return;$('supervisionState').textContent='';for(const what of todo){supervisorInflight.add(what);if(!send({type:`supervisor_${what}`}))supervisorInflight.delete(what)}}
-function selectSupervision(id){activeSupervisionPanel=id||'overview';if(activeSupervisionPanel==='overview')refreshSoftwareVersions();document.querySelectorAll('#supervisionTabs button[data-superpanel]').forEach(b=>b.classList.toggle('active',b.dataset.superpanel===activeSupervisionPanel));document.querySelectorAll('#supervision .superPanel').forEach(p=>p.classList.toggle('active',p.id===activeSupervisionPanel));if(authenticated){supervisorRequest(activeSupervisionPanel);if(activeSupervisionPanel==='diagnostics')requestMetrics()}}
+function selectSupervision(id){activeSupervisionPanel=id||'overview';if(activeSupervisionPanel==='neighbours')neighboursRender();if(activeSupervisionPanel==='overview')refreshSoftwareVersions();document.querySelectorAll('#supervisionTabs button[data-superpanel]').forEach(b=>b.classList.toggle('active',b.dataset.superpanel===activeSupervisionPanel));document.querySelectorAll('#supervision .superPanel').forEach(p=>p.classList.toggle('active',p.id===activeSupervisionPanel));if(authenticated){supervisorRequest(activeSupervisionPanel);if(activeSupervisionPanel==='diagnostics')requestMetrics()}}
 document.querySelectorAll('#supervisionTabs button[data-superpanel]').forEach(b=>b.onclick=()=>selectSupervision(b.dataset.superpanel));
 if($('supervisionRefresh'))$('supervisionRefresh').onclick=()=>supervisorRequest(activeSupervisionPanel);
 function fmtBytes(n){n=Number(n)||0;for(const u of ['B','KiB','MiB','GiB','TiB']){if(Math.abs(n)<1024||u==='TiB')return `${n.toFixed(u==='B'?0:1)} ${u}`;n/=1024}}
@@ -1101,7 +1172,7 @@ function renderSupervisor(kind,r){
  $('supervisionState').textContent='';
  if(r.generation_ms!=null)setText('supervisionSnapshotCost',`snapshot ${Number(r.generation_ms||0).toFixed(3)} ms`);
  if(kind==='status'){
-  updateSupervisorBanner(r);
+  updateSupervisorBanner(r);neighboursRender();
   $('supervisorStatus').innerHTML=metricRows([['Node',r.node||'-'],['Branch',dash(r.git_branch),`updateBranchField${updateStatusCache?.comparisons?.branch?.comparable===true&&updateStatusCache.comparisons.branch.match===false?' updateMismatch':''}`],['Version',dash(r.version??r.dxspider_version),`updateVersionField${updateStatusCache?.comparisons?.version?.comparable===true&&updateStatusCache.comparisons.version.match===false?' updateMismatch':''}`],['Build',dash(r.build),`updateBuildField${updateStatusCache?.comparisons?.build?.comparable===true&&updateStatusCache.comparisons.build.match===false?' updateMismatch':''}`],['Git commit',dash(r.git_version),`updateCommitField${updateStatusCache?.comparisons?.commit?.comparable===true&&updateStatusCache.comparisons.commit.match===false?' updateMismatch':''}`],['Uptime',fmtDuration(r.uptime_seconds||0)]]);
   setText('ovChannels',r.channels||0);setText('ovChannelMix',`${r.users||0} users · ${r.nodes||0} nodes · ${r.rbn||0} RBN · ${r.web||0} Web`);
   setText('ovQueues',r.input_queue_max||0);setText('ovQueueDetail',`${r.input_queue_total||0} total · ${r.pending_connects||0} pending connects`);
@@ -1212,7 +1283,7 @@ function renderSupervisor(kind,r){
   setText('ovRbn',`${rows.length} feeds`);setText('ovRbnDetail',`${q} queued · ${rows.reduce((a,x)=>a+(Number(x.minute?.raw)||0),0).toLocaleString()} raw/min`);
  }
  if(kind==='connections'){
-  supervisorConnectionsCache=r.connections||[];
+  supervisorConnectionsCache=r.connections||[]; neighboursSnapshotAt=Number(r.collected_at)||0;neighboursRender();
   const totals=r.connection_totals||{};
   const connected=allConnectionRows().filter(x=>x.online).length, disconnected=supervisorConnectionsCache.filter(x=>!x.online).length, repeated=supervisorConnectionsCache.filter(x=>Number(x.connect_count)>1).length, tooMany=supervisorConnectionsCache.filter(x=>Number(x.too_many_count)>0).length;
   setText('connAllCount',supervisorConnectionsCache.length);setText('connConnectedCount',connected);setText('connDisconnectedCount',disconnected);setText('connRepeatedCount',repeated);setText('connTooManyCount',tooMany);
@@ -1462,5 +1533,50 @@ function terminalReceive(m){
  if((!terminalActive&&!terminalStarting)||!terminalTerm||!m.data)return;
  try{const raw=atob(m.data);const bytes=Uint8Array.from(raw,c=>c.charCodeAt(0));terminalTerm.write(bytes)}catch(_){}
 }
-$('terminalConnect').onclick=()=>{if(!linuxTerminalEnabled||!authenticated||authPriv<9||!terminalInit())return;terminalTerm.clear();terminalStarting=true;$('terminalState').textContent='Starting SSH…';send({type:'terminal_connect',user:$('terminalUser').value.trim(),port:Number($('terminalPort').value)})};
+$('terminalConnect').onclick=()=>{if(!linuxTerminalEnabled||!authenticated||authPriv<9||!terminalInit())return;terminalSshSave();terminalTerm.clear();terminalStarting=true;$('terminalState').textContent='Starting SSH…';send({type:'terminal_connect',user:$('terminalUser').value.trim(),port:Number($('terminalPort').value)})};
 $('terminalDisconnect').onclick=terminalDisconnect;
+
+/* DXWeb Neighbours: native supervision view; no independent network polling. */
+let neighboursZoom=1,neighboursSnapshotAt=0;
+function neighboursRender(){
+ const svg=document.getElementById('neighboursSvg'),detail=document.getElementById('neighboursDetail'),note=document.getElementById('neighboursNote');
+ if(!svg||!detail)return;
+ const self=String(supervisorStatusCache?.node||document.getElementById('supervisionNode')?.textContent||'').trim().toUpperCase();
+ const age=neighboursSnapshotAt?Date.now()/1000-neighboursSnapshotAt:Infinity;
+ const fresh=age>=0&&age<=120;
+ const rows=supervisorConnectionsCache.filter(x=>x&&x.call&&String(x.call).toUpperCase()!==self&&!x.logical_web&&(x.configured===true||x.configured===1||['node','rbn','peer'].includes(x.kind)||['S','A','C','R','L','X','N'].includes(String(x.sort||'').toUpperCase())));
+ const unique=[...new Map(rows.map(x=>[String(x.call).toUpperCase(),x])).values()].sort((a,b)=>String(a.call).localeCompare(String(b.call)));
+ note.textContent=`${unique.length} configured and observed peers · ${fresh?'Snapshot '+Math.round(age)+'s old':'Snapshot stale or unavailable — link states unknown'} · Direct connections only`;
+ const NS='http://www.w3.org/2000/svg',el=(tag,attrs={},content)=>{const n=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,String(v));if(content!==undefined)n.textContent=String(content);return n};
+ svg.replaceChildren();svg.setAttribute('viewBox','0 0 900 680');
+ const defs=el('defs');for(const [id,color] of [['blue','#3989e6'],['red','#ef6464']]){const m=el('marker',{id:'neigh-'+id,markerWidth:9,markerHeight:9,refX:8,refY:4,orient:'auto-start-reverse',markerUnits:'strokeWidth'});m.append(el('path',{d:'M0 0 L8 4 L0 8 Z',fill:color}));defs.append(m)}svg.append(defs);
+ const scene=el('g',{transform:`translate(450 340) scale(${neighboursZoom}) translate(-450 -340)`});svg.append(scene);
+ const cx=450,cy=340,rad=260;
+ const center=el('g');center.append(el('circle',{cx,cy,r:76,fill:'#193954',stroke:'#64a7d7','stroke-width':3}));center.append(el('text',{x:cx,y:cy+7,'text-anchor':'middle',fill:'#fff','font-size':20,'font-weight':700},self||'LOCAL NODE'));scene.append(center);
+ if(!unique.length){detail.textContent='No observed physical peers in the current supervisor snapshot.';return}
+ unique.forEach((r,i)=>{
+  const a=-Math.PI/2+2*Math.PI*i/unique.length,x=cx+rad*Math.cos(a),y=cy+rad*Math.sin(a);
+  const live=fresh&&(r.online===true||r.online===1);
+  const offline=fresh&&(r.online===false||r.online===0);
+  const color=live?'#3989e6':offline?'#ef6464':'#8493a5';
+  const ux=Math.cos(a),uy=Math.sin(a);const line=el('line',{x1:cx+ux*79,y1:cy+uy*79,x2:x-ux*56,y2:y-uy*56,stroke:color,'stroke-width':3});
+  // A missing outbound property is not proof of inbound direction.
+  const outbound=r.outbound===true||r.outbound===1||((r.kind==='rbn'||String(r.sort||'').toUpperCase()==='N')&&live);
+  const inbound=!outbound&&(r.outbound===false||r.outbound===0);
+  if(live&&outbound)line.setAttribute('marker-end','url(#neigh-blue)');
+  // Inbound arrow only when the supervisor explicitly reports it.
+  if(live&&inbound)line.setAttribute('marker-start','url(#neigh-blue)');
+  scene.insertBefore(line,center);
+  const group=el('g',{tabindex:0,role:'button','aria-label':String(r.call)});
+  group.append(el('circle',{cx:x,cy:y,r:52,fill:'#172e46',stroke:color,'stroke-width':3}));
+  group.append(el('text',{x,y:y+5,'text-anchor':'middle',fill:'#f2f6ff','font-size':14,'font-weight':700},r.call));
+  const info=()=>{const values=[['Node',r.call],['Type',neighboursType(r)],['State',live?'Connected':offline?'Disconnected':'Unknown'],['Direction',live&&outbound?'Outbound':live&&inbound?'Inbound':'Unknown'],['Login',r.peer_login],['Version',r.dxspider_version],['Build',r.build],['PC9x',r.do_pc9x],['PC9x negotiated',r.do_pc9x],['PC91',r.do_pc91],['Last connection',r.last_connect?new Date(Number(r.last_connect)*1000).toLocaleString():null],['Registered (local DXUser)',r.registered],['Password (local DXUser)',r.password_configured]];detail.replaceChildren();for(const [key,val] of values){const div=document.createElement('div');div.className='neighField';const k=document.createElement('span'),v=document.createElement('strong');k.textContent=key;v.textContent=val===true||val===1?'Yes':val===false||val===0?'No':val??'Unknown';if(key==='Login'&&val&&live&&!(r.kind==='rbn'||String(r.sort||'').toUpperCase()==='N')){const expected=outbound?self:String(r.call).toUpperCase();if(expected&&String(val).toUpperCase()!==expected){v.style.color='#ef6464';v.title=outbound?'Outgoing login differs from our local node callsign':'Incoming login differs from remote node callsign';}}div.append(k,v);detail.append(div)}};
+  group.addEventListener('click',info);group.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();info()}});group.addEventListener('mouseenter',info);scene.append(group);
+ });
+}
+function neighboursZoomSet(delta){neighboursZoom=Math.max(.5,Math.min(2.5,Math.round((neighboursZoom+delta)*10)/10));document.getElementById('neighboursZoomValue').textContent=Math.round(neighboursZoom*100)+'%';neighboursRender()}
+document.getElementById('neighboursMinus')?.addEventListener('click',()=>neighboursZoomSet(-.1));
+document.getElementById('neighboursPlus')?.addEventListener('click',()=>neighboursZoomSet(.1));
+document.getElementById('neighboursReset')?.addEventListener('click',()=>{neighboursZoom=1;neighboursZoomSet(0)});
+
+function neighboursType(r){const sort=String(r.sort||'').toUpperCase();const map={S:'Spider',A:'AK1A',C:'CLX',R:'AR Cluster',L:'CC Cluster',X:'DXNet',N:'RBN',B:'BBS'};return map[sort]||({rbn:'RBN',node:'Node',peer:'Node'}[r.kind]||'Unknown')}

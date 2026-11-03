@@ -17,6 +17,7 @@ package ExtMsg;
 use strict;
 use Msg;
 use DXVars;
+use DXChannel;
 use DXUtil;
 use DXDebug;
 use DXTimer;
@@ -209,7 +210,7 @@ sub dequeue
 							$conn->{echo} = 0;
 							$conn->send_raw('password: ');
 						} else {
-							$conn->to_connected($msg, 'A', $sort);
+							$conn->_session_admission($msg, $sort);
 						}
 					} else {
 						$conn->send_now("Sorry $msg is an invalid callsign");
@@ -228,9 +229,23 @@ sub dequeue
 					delete $conn->{decho};
 					$sort = 'local' if _direct_local($conn);
 					$conn->{usedpasswd} = 1;
-					$conn->to_connected($conn->{call}, 'A', $sort);
+					$conn->_session_admission($conn->{call}, $sort);
 				} else {
 					$conn->send_now("Sorry");
+					$conn->disconnect;
+				}
+			} elsif ($conn->{state} eq 'WD') {
+				$msg =~ s/^\s+|\s+$//g;
+				my $old = delete $conn->{session_pending_target};
+				my $call = delete $conn->{session_pending_call};
+				my $sort = delete $conn->{session_pending_sort};
+				if (defined $call && $msg =~ /^(?:Y|YES)$/i && $old &&
+				    DXChannel::get($call) && DXChannel::get($call) == $old) {
+					$conn->{session_takeover_verified} = 1;
+					$conn->{session_takeover_target} = $old;
+					$conn->to_connected($call, 'A', $sort);
+				} else {
+					$conn->send_now('Existing session preserved. Connection cancelled.');
 					$conn->disconnect;
 				}
 			} elsif ($conn->{state} eq 'WC') {
@@ -243,6 +258,29 @@ sub dequeue
 			}
 		}
 	}
+}
+
+# Negotiate duplicate interactive logins before constructing a DXChannel.
+# Only verified passwords (or the existing trusted local-console path)
+# can reach this point. The transport remains in a pre-channel state.
+sub _session_admission
+{
+    my ($conn, $call, $sort) = @_;
+    # The incoming callsign has already passed the normal login/password
+    # path. Preserve the actual identity supplied by the remote endpoint.
+    $conn->{observed_peer_login} = $call unless $conn->{outgoing};
+    my $old = DXChannel::get($call);
+    if ($old && $old->is_user &&
+        ($conn->{usedpasswd} || _direct_local($conn))) {
+        $conn->{state} = 'WD';
+        $conn->{session_pending_target} = $old;
+        $conn->{session_pending_call} = $call;
+        $conn->{session_pending_sort} = $sort;
+        $conn->send_raw("Another session for $call is already connected.\r\nDisconnect the existing session and continue? (Y/N): ");
+        $conn->_dotimeout(60);
+        return;
+    }
+    $conn->to_connected($call, 'A', $sort);
 }
 
 sub to_connected
@@ -402,6 +440,12 @@ sub _dochat
 			if ($line =~ /\Q$expect/i) {
 				if (length $send) {
 					dbg("connect $conn->{cnum}: got: \"$expect\" sending: \"$send\"") if isdbg('connect');
+                    # Record the exact identity transmitted by the outbound
+                    # connect script, only at the moment it is actually sent.
+                    # This is not the remote node name and is never inferred.
+                    if ($expect =~ /\blogin\s*:/i && $send =~ /^([A-Z0-9]+(?:-[0-9]{1,2})?)$/i) {
+                        $conn->{observed_peer_login} = uc($1);
+                    }
 					$conn->send_later("D$conn->{call}|$send");
 				}
 				delete $conn->{msg}; # get rid any input if a match

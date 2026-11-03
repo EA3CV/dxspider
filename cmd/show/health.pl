@@ -541,6 +541,7 @@ sub generate_connections
 	foreach my $x (@$rows) {
 
 		next unless ref($x) eq 'HASH';
+		next unless $x->{online};
 
 		++$count;
 
@@ -556,10 +557,12 @@ sub generate_connections
 
 		my $age = '-';
 
-		if (exists $x->{state_age}) {
+		# WebChannel state-age v0.27: offline has no running state age.
+		# connected_since == 0 is an absent timestamp, not the Unix epoch.
+		if ($x->{online} && exists $x->{state_age} && defined $x->{state_age}) {
 			$age = format_age($x->{state_age});
 
-		} elsif (exists $x->{connected_since}) {
+		} elsif ($x->{online} && defined $x->{connected_since} && $x->{connected_since} > 0) {
 			$age = format_since($x->{connected_since});
 		}
 

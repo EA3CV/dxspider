@@ -1,3 +1,19 @@
+03Nov26======================================================================
+1. Updated DXWeb to version 4.0.0 and DXWeb Admin to version 2.0.0.
+2. Redesigned the DXWeb/DXSpider integration to provide an independent
+   Web::UserChannel logical channel for each web user.
+3. Updated stat/user, who and show/health to support the new web user
+   session architecture.
+4. Implemented interactive session takeover between Telnet, console.pl
+   and DXWeb, allowing authenticated users to replace existing sessions
+   after confirmation.
+5. Improved DXWeb session management with takeover notifications,
+   authenticated session cleanup and protection against delayed
+   disconnects affecting replacement sessions.
+6. Improved command processing and asynchronous result delivery in DXWeb.
+7. DXWeb Admin: Added session-scoped persistence of the SSH username
+   and port in Linux Terminal, without storing SSH credentials.
+8. DXWeb Admin: Introduced the Peers tab.
 31Oct26======================================================================
 1. Fixed UTF-8 double encoding in DXWeb and DXWeb Admin WebSocket
    responses, preserving Unicode characters in console output.

@@ -32,7 +32,7 @@ sub new
 	my $pkg = shift;
 	my $call = shift;
 	my $handler = shift;
-	my $actor = ref($call) && $call->isa('Web::Actor') ? $call : undef;
+	my $actor = ref($call) && ($call->isa('Web::Actor') || $call->isa('Web::UserChannel')) ? $call : undef;
 	
 	my $conn = $pkg->SUPER::new($handler);
 	$conn->{caller} = ref $call ? $call->call : $call;

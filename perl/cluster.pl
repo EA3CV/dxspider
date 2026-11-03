@@ -271,7 +271,54 @@ sub new_channel
 	dbg("new_channel sort: $sort, call: $call, line: $line") if isdbg('new') && isdbg('chan');
 
 	my ($dxchan, $user);
-	
+
+    # Console (IntMsg) duplicate admission. Unlike ExtMsg, console.pl
+    # sends an A frame directly and has no telnet password state machine.
+    # Only the already-trusted local internal connection can negotiate.
+    if ($conn->isa('IntMsg') && $conn->{session_console_pending}) {
+        my $pending = $conn->{session_console_pending};
+        if ($sort eq 'I' && $call eq $pending->{call}) {
+            # console.pl sends setup commands immediately after its A frame;
+            # they are not responses to the takeover question.
+            return if $line =~ m{^set/(?:page|nobeep)\b}i;
+            my $yes = $line =~ /^\s*(?:Y|YES)\s*$/i;
+            delete $conn->{session_console_pending};
+            Mojo::IOLoop->remove($pending->{timer}) if defined $pending->{timer};
+            if ($yes && DXChannel::get($call) &&
+                DXChannel::get($call) == $pending->{old}) {
+                $conn->{session_takeover_verified} = 1;
+                $conn->{session_takeover_target} = $pending->{old};
+                LogDbg('chan', "$call console takeover confirmed");
+                return new_channel($conn, $pending->{admission});
+            }
+            already_conn($conn, $call,
+                         "Existing session preserved. Console connection cancelled.");
+            return;
+        }
+        return; # no other commands are accepted while negotiating
+    }
+
+    if ($conn->isa('IntMsg') && $sort eq 'A' && !is_webcall($call) && !$conn->{session_takeover_verified}) {
+        my $ncall = normalise_call($call);
+        my $old = DXChannel::get($ncall);
+        my $peer = $conn->peerhost || '';
+        if ($old && $old->is_user &&
+            ($peer eq '127.0.0.1' || $peer eq '::1')) {
+            $conn->{session_console_pending} = {
+                call => $ncall, old => $old, admission => $msg
+            };
+            my $pending = $conn->{session_console_pending};
+            $conn->send_now("I$ncall|Another session for $ncall is already connected. Disconnect the existing session and continue? (Y/N):");
+            $pending->{timer} = Mojo::IOLoop->timer(60 => sub {
+                return unless $conn->{session_console_pending} &&
+                              $conn->{session_console_pending} == $pending;
+                delete $conn->{session_console_pending};
+                already_conn($conn, $ncall, 'Session takeover timed out. Existing session preserved.');
+            });
+            return;
+        }
+    }
+
 	if (is_webcall($call) && $conn->isa('IntMsg')) {
 		my $newcall = find_next_webcall();
 		unless ($newcall) {
@@ -457,14 +504,22 @@ sub new_channel
 
 			# handle "normal" (non-multiple) connections in the existing way
 			if ($call eq $newcall) {
-				if ($bumpexisting) {
-					my $ip = $dxchan->hostname;
-					$dxchan->send_now('D', DXM::msg($lang, 'conbump', $call, $ip));
-					LogDbg('chan', "$call bumped off by $ip, disconnected");
-					$dxchan->sleep(5);
+				# Session admission v0.01: never evict an existing human
+				# channel from an unauthenticated incoming connection.
+				# DXCommandmode authentication happens only after new().
+				# Until a verified takeover handshake is implemented,
+				# preserve the original channel regardless of bumpexisting.
+				if ($conn->{session_takeover_verified} &&
+				    $conn->{session_takeover_target} &&
+				    $conn->{session_takeover_target} == $dxchan) {
+					delete $conn->{session_takeover_verified};
+					delete $conn->{session_takeover_target};
+					LogDbg('chan', "$call authenticated session takeover accepted");
+					$dxchan->send_now('D', "Another authenticated session for $call has replaced this connection.");
 					$dxchan->disconnect;
 				} else {
-					already_conn($conn, $call, DXM::msg($lang, 'conother', $call, $main::mycall));
+					LogDbg('chan', "$call duplicate login rejected; existing channel preserved");
+					already_conn($conn, $call, "Another session for $call is already connected. Existing session preserved.");
 					return;
 				}
 			}

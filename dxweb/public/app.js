@@ -9,9 +9,11 @@
 // Date: 2026-09-16
 'use strict';
 const $=id=>document.getElementById(id);
+let sysopDisconnected=false;
+let takeoverLogin=null;
 let ws=null, authenticated=false, logoutPending=false, authUser=null, authRegistered=false, passwordUsed=false, activeTab='spots';
 let spotItems=[], spotCounts={human:0,rbn:0}, spotPaused=false, logs={ann:[],wwv:[],wcy:[],wx:[]};
-let cmdHistory=[], historyPos=0, pendingCommandTargets=[], pendingCommandNames=[];
+let cmdHistory=[], historyPos=0, pendingCommandTargets=[], pendingCommandNames=[], queuedPanelCommands=[];
 
 // Same one-button theme control as DXWeb Admin: Auto -> Dark -> Light.
 const themePreferenceKey='dxspider.dxweb.theme';
@@ -151,6 +153,25 @@ function updateRegistrationAccess(){
  const badge=$('anonymousBadge');if(badge)badge.hidden=loggedIn;
 }
 
+function sysopDisconnect(reason='SYSOP'){
+ if(sysopDisconnected)return;
+ sysopDisconnected=true;
+ logoutPending=false;
+ clearSessionData();
+ loginState(false);
+ $('loginDialog').close();
+ $('status').textContent=reason==='SYSOP'?'disconnected by SYSOP':'session replaced';
+ $('sysopDisconnectDialog').querySelector('p').textContent=reason==='SYSOP'?'Disconnected by SYSOP':'Session replaced by another authenticated connection';
+ $('sysopDisconnectDialog').showModal();
+}
+$('sysopDisconnectDialog').addEventListener('cancel',e=>e.preventDefault());
+$('sysopDisconnectClose').onclick=()=>{
+ $('sysopDisconnectDialog').close();
+ sysopDisconnected=false;
+ clearSessionData();
+ selectTab('spots');
+ $('loginDialog').showModal();
+};
 function notice(text){$('noticeText').textContent=text;$('noticeDialog').showModal()}
 $('noticeClose').onclick=()=>$('noticeDialog').close();
 $('registerButton').onclick=()=>{
@@ -190,7 +211,7 @@ $('registerForm').addEventListener('submit',e=>{
 });
 
 function clearSessionData(){
- spotItems=[];spotCounts={human:0,rbn:0};logs={ann:[],wwv:[],wcy:[],wx:[]};cmdHistory=[];historyPos=0;pendingCommandTargets=[];pendingCommandNames=[];
+ spotItems=[];spotCounts={human:0,rbn:0};logs={ann:[],wwv:[],wcy:[],wx:[]};cmdHistory=[];historyPos=0;pendingCommandTargets=[];pendingCommandNames=[];queuedPanelCommands=[];
  const set=(id,v='')=>{const e=$(id);if(e)e.value!==undefined?e.value=v:e.textContent=v};
  set('consoleOutput');set('consoleCommand');set('filterCommand');set('annText');set('annResult');set('spotResult');
  set('spotFreq');set('spotDx');set('spotComment');
@@ -219,7 +240,8 @@ $('loginForm').addEventListener('submit',e=>{
  e.preventDefault();if(authenticated)return;
  const call=$('loginCall').value.trim().toUpperCase();if(!call)return;
  $('loginSubmit').disabled=true;
- if(!send({type:'auth',call,password:$('loginPass').value})){$('loginSubmit').disabled=false;$('loginError').textContent='DXSpider connection is not ready';return}
+ takeoverLogin={call,password:$('loginPass').value};
+ if(!send({type:'auth',call,password:takeoverLogin.password})){$('loginSubmit').disabled=false;$('loginError').textContent='DXSpider connection is not ready';return}
  $('loginPass').value='';
 });
 function spotCancelPending(){const d=$('spotDialog');d.close();$('spotResult').textContent='';$('spotForm').reset()}
@@ -236,14 +258,25 @@ $('annForm').addEventListener('submit',e=>{
  e.preventDefault();if(!(authenticated&&authRegistered)){notice('You must be registered on this node to use this function. Use the Register option.');return}
  $('annResult').textContent='Sending...';send({type:'ann',scope:$('annScope').value,text:$('annText').value.trim()});
 });
+
+// Only one DXSpider command may be in flight on a WebChannel user.
+// Preserve the issuing panel across asynchronous/chunked responses.
+function dispatchNextPanelCommand(){
+ if(pendingCommandTargets.length||!queuedPanelCommands.length)return;
+ const next=queuedPanelCommands[0];
+ if(!send({type:'command',command:next.cmd}))return;
+ queuedPanelCommands.shift();
+ pendingCommandTargets.push(next.target);pendingCommandNames.push(next.cmd);
+}
+
 function command(cmd,target='console'){
  if(!authenticated)return;
  cmd=cmd.trim();if(!cmd)return;
  if(!cmdHistory.length||cmdHistory[cmdHistory.length-1]!==cmd)cmdHistory.push(cmd);
  historyPos=cmdHistory.length;
  if(target==='console'){const line=document.createElement('div');line.className='consoleCommandLine';line.textContent=`> ${cmd}`;$('consoleOutput').appendChild(line);$('consoleOutput').scrollTop=$('consoleOutput').scrollHeight}
- if(!send({type:'command',command:cmd}))return;
- pendingCommandTargets.push(target);pendingCommandNames.push(cmd);
+ queuedPanelCommands.push({cmd,target});
+ dispatchNextPanelCommand();
 }
 $('consoleForm').addEventListener('submit',e=>{e.preventDefault();const v=$('consoleCommand').value; $('consoleCommand').value='';command(v,'console')});
 $('filterForm').addEventListener('submit',e=>{e.preventDefault();const v=$('filterCommand').value;$('filterCommand').value='';command(v,'filters')});
@@ -580,8 +613,34 @@ function parseCC11(payload){
          cqDx:f[11]||'',ituDx:f[10]||'',cqSpotter:f[13]||'',ituSpotter:f[12]||'',
          locDx:f[18]||'',locSpotter:f[19]||''};
 }
+// Text notices have no request ID. While a command is pending, associate them
+// with its queued origin; spontaneous notices default to Console.
+function routeCommandNotice(target,message){
+ if(logs[target]){
+  logs[target].push(...String(message).split('\n'));
+  if(logs[target].length>500)logs[target]=logs[target].slice(-500);
+  renderLog(target);return;
+ }
+ const out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);
+ if(!out)return;
+ if(target==='console'){
+  const line=document.createElement('div');line.className='consoleResponse';line.textContent=message;out.appendChild(line);
+ }else out.textContent+=message+'\n';
+ out.scrollTop=out.scrollHeight;
+}
 function acceptFeed(m){
- const k=(m.feed||'').toLowerCase();if(k==='user_notice'){if(typeof m.payload?.text!=='string')return;spotItems.push({type:'notice',text:m.payload.text,category:['buddy','user','node'].includes(m.payload.category)?m.payload.category:'system',_newUntil:0});if(spotItems.length>1000)spotItems.shift();renderSpots();return;}
+ const k=(m.feed||'').toLowerCase();if(k==='user_notice'){
+  if(typeof m.payload?.text!=='string')return;
+  const msg=m.payload.text.trim();
+  if(/^Disconnected by\s+\S+/i.test(msg)){sysopDisconnect();return;}
+  // Native DXSpider human-readable spot line duplicates the CC11 structured feed.
+  // Suppress only that recognized format; preserve all other user notices.
+  if(/^DX de\s+\S+:\s+\d+(?:\.\d+)?\s+\S+\s+/i.test(msg))return;
+  // A command can emit asynchronous user_notice lines before command_result.
+  // Keep the origin captured when the command was submitted, not the active tab.
+  routeCommandNotice('console',m.payload.text);
+  return;
+ }
  if(k==='human'||k==='rbn'){
    const p=parseCC11(m.payload);
    if(!p)return;
@@ -621,11 +680,29 @@ function finishCommandTarget(target){
 }
 function handle(m){
  if(m.type==='reg_request_result'){$('registerSubmit').disabled=false;if(m.status==='ok'){const r=m.result||{};$('registerResult').textContent=`Request #${r.id||'?'} sent successfully.`;setTimeout(()=>{$('registerDialog').close()},900)}else{$('registerResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Registration request failed'))}return}
- if(m.type==='status'){$('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===true)loginState(true,m);else if(m.authenticated===false&&!logoutPending)loginState(false);return}
+ if(sysopDisconnected && m.type!=='status')return;
+ if(m.type==='status'){if(sysopDisconnected){$('status').textContent='disconnected by SYSOP';return} $('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===true)loginState(true,m);else if(m.authenticated===false&&!logoutPending)loginState(false);return}
  if(m.type==='logout_result'){logoutPending=false;if(m.status==='ok'){loginState(false);clearSessionData()}else notice(`Logout failed: ${m.error||'unknown error'}`);return}
+ if(m.type==='session_evicted'){
+   sysopDisconnect('replaced');
+   return;
+ }
  if(m.type==='auth'||m.type==='auth_result'){
    $('loginSubmit').disabled=false;
-   if(m.status==='ok'){loginState(true,m);$('loginDialog').close();$('loginError').textContent='';clearSessionData()}
+   if(m.error==='takeover_required' && takeoverLogin && m.takeover_token){
+     const saved=takeoverLogin;
+     if(window.confirm(`An existing session for ${saved.call} is connected. Replace it?`)){
+       $('loginSubmit').disabled=true;
+       if(!send({type:'auth',call:saved.call,password:saved.password,takeover_token:m.takeover_token})){
+         $('loginSubmit').disabled=false;
+         $('loginError').textContent='DXSpider connection is not ready';
+         takeoverLogin=null;
+       }
+     }else{$('loginError').textContent='Existing session preserved.';takeoverLogin=null;}
+     return;
+   }
+   takeoverLogin=null;
+   if(m.status==='ok'){sysopDisconnected=false;loginState(true,m);$('loginDialog').close();$('loginError').textContent='';clearSessionData()}
    else {$('loginError').textContent=m.error||'Authentication failed';loginState(false)}
    return;
  }
@@ -640,7 +717,7 @@ function handle(m){
    if(isFilterRead){if(!vfReadActive){vfReadActive=true;vfReadLines=[]}if(t)vfReadLines.push(...t.split('\n'))}
    if(m.final!==false){
      if(isFilterRead){vfPopulateExisting(vfReadLines);vfReadActive=false;vfReadLines=[]}
-     finishCommandTarget(target);pendingCommandTargets.shift();pendingCommandNames.shift();
+     finishCommandTarget(target);pendingCommandTargets.shift();pendingCommandNames.shift();dispatchNextPanelCommand();
      // Re-read the authoritative filter after editing. Never infer success from status=ok.
      if(target==='filters'&&/^(?:(?:accept|reject)\/(?:spots|rbn)\s|clear\/(?:spots|rbn)\s)/i.test(issued)){
        const family=issued.match(/^(?:accept|reject)\/(spots|rbn)\s/i)[1];

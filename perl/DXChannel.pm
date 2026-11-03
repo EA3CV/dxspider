@@ -340,7 +340,8 @@ sub del
 	my $self = shift;
 
 	$self->{group} = undef;		# belt and braces
-	delete $channels{$self->{call}};
+	# A stale channel must never remove a newer session with the same call.
+	delete $channels{$self->{call}} if $channels{$self->{call}} && $channels{$self->{call}} == $self;
 }
 
 # is it a bbs
@@ -590,7 +591,7 @@ sub closeall
 #
 sub tell_login
 {
-	my ($self, $m, $call) = @_;
+	my ($self, $m, $call, $origin) = @_;
 	
 	$call ||= $self->{call};
 	
@@ -600,9 +601,13 @@ sub tell_login
 	foreach $dxchan (@dxchan) {
 		next if $dxchan == $self;
 		next if $dxchan->{call} eq $main::mycall;
-		$dxchan->send($dxchan->msg($m, $call)) if $dxchan->{logininfo};
+		if ($dxchan->{logininfo}) {
+			my $message = $dxchan->msg($m, $call);
+			$message .= " from WEB" if defined $origin && $origin eq "WEB";
+			$dxchan->send($message);
+		}
 	}
-	Web::publish_user_notice('logininfo', $m, $call)
+	Web::publish_user_notice('logininfo', $m, $call, undef, $origin)
 		if Web->can('publish_user_notice');
 }
 
