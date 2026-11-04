@@ -1,5 +1,11 @@
 #!/usr/bin/env perl
 
+#
+# DXSpider Web - Maintenance or test tool
+#
+# Copyright (c) 2026 Dirk Koopman G1TLH
+#
+
 use strict;
 use warnings;
 use IO::Socket::INET;

@@ -1,5 +1,11 @@
 #!/usr/bin/env perl
 
+#
+# DXSpider Web - Perl script
+#
+# Copyright (c) 2026 Dirk Koopman G1TLH
+#
+
 use strict;
 use warnings;
 use FindBin;
@@ -11,15 +17,14 @@ $ENV{HTTP_HOST}          //= '0.0.0.0';
 $ENV{HTTP_PORT}          //= '7380';
 $ENV{MOJO_REVERSE_PROXY} //= '0';
 $ENV{DXWEB_SCHEME}       //= 'http';
-if ($ENV{DXWEB_SCHEME} eq 'https') {
+if ( $ENV{DXWEB_SCHEME} eq 'https' ) {
     die "DXWEB_TLS_CERT and DXWEB_TLS_KEY required for HTTPS\n"
-        unless $ENV{DXWEB_TLS_CERT} && $ENV{DXWEB_TLS_KEY};
+      unless $ENV{DXWEB_TLS_CERT} && $ENV{DXWEB_TLS_KEY};
 }
 
-
-my $app = File::Spec->catfile( $FindBin::Bin, 'app.pl' );
+my $app    = File::Spec->catfile( $FindBin::Bin, 'app.pl' );
 my $listen = "$ENV{DXWEB_SCHEME}://$ENV{HTTP_HOST}:$ENV{HTTP_PORT}";
-if ($ENV{DXWEB_SCHEME} eq 'https') {
+if ( $ENV{DXWEB_SCHEME} eq 'https' ) {
     $listen .= '?cert=' . $ENV{DXWEB_TLS_CERT} . '&key=' . $ENV{DXWEB_TLS_KEY};
 }
 exec {$^X} $^X, $app, 'daemon', '-l', $listen;

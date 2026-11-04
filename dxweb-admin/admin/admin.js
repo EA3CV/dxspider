@@ -8,6 +8,7 @@
 // Release version is provided by /admin-version.json (dxweb-admin/VERSION).
 'use strict';
 const $=id=>document.getElementById(id);
+let adminCaptchaEnabled=true,adminCaptchaReady=false,adminCaptchaWidget=null,adminCaptchaPassed=false;
 let ws=null,authenticated=false,logoutPending=false,authUser=null,authPriv=0,activeSection='operation',activePanel='spots';const SYSOP_SECTIONS=new Set(['registration','supervision','metrics','timeline','liveDebugSection','terminalSection','networkChatSection']);
 // Server-authoritative terminal feature flag (default enabled for compatibility).
 let linuxTerminalEnabled=true;
@@ -151,10 +152,32 @@ let takeoverLogin=null;
 function loginState(ok,m={}){if(!ok){networkChatMessages.length=0;networkChatRender()} authenticated=ok;document.body.classList.toggle('authenticated',ok);authUser=ok?(m.call||authUser):null;authPriv=ok?Number(m.priv||0):0;document.querySelectorAll('#deleteUserOpen, #historyCompress, #historyDelete, #maintenanceUpdates button, .opCommandForm button, #consoleForm button, #filterForm button, #filters .filterBuilder button').forEach(b=>{b.disabled=ok&&authPriv<9;b.hidden=ok&&authPriv<9&&b.id==='deleteUserOpen'});document.querySelectorAll('.mainTabs [data-section]').forEach(b=>{const denied=ok&&authPriv<5&&SYSOP_SECTIONS.has(b.dataset.section);b.style.display='';b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 5':'';b.classList.toggle('sysopDenied',denied);b.style.filter=''});document.querySelectorAll('.v2NavBtn[data-v2-target]').forEach(b=>{const denied=ok&&authPriv<5&&SYSOP_SECTIONS.has(b.dataset.v2Target);b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 5':'';b.classList.toggle('sysopDenied',denied)});if(ok&&authPriv<5&&SYSOP_SECTIONS.has(activeSection))selectSection('operation');$('loginButton').textContent=ok?`Logout ${authUser}`:'Login';setLocked(!ok);spotFontForSession();consoleFontRestore();spotPresentationRestore();spotViewsRestore();panelZoomRestore();}
 function notice(t){$('noticeText').textContent=t;$('noticeDialog').showModal()}
 $('noticeClose').onclick=()=>$('noticeDialog').close();
-function showLogin(msg=''){if($('loginDialog').open)return;$('loginError').textContent=msg;$('loginDialog').showModal();$('loginCall').focus()}
-function connect(){const proto=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${proto}://${location.host}${new URL("./ws",location.href).pathname}`);ws.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error('admin message error',err,e.data)}};ws.onclose=()=>{pendingCommandTargets.length=0;pendingCommandNames.length=0;queuedPanelCommands.length=0;terminalLocalClose();supervisorInflight.clear();authenticated=false;logoutPending=false;loginState(false);$('status').textContent='disconnected';setTimeout(connect,2000)}}
+let adminCaptchaSiteKey=null;
+function adminCaptchaRender(){
+ const container=$('adminLoginTurnstile');
+ if(!container||!$('loginDialog').open||!adminCaptchaSiteKey||!window.turnstile||adminCaptchaReady)return;
+ container.hidden=false;
+ try{adminCaptchaWidget=window.turnstile.render(container,{sitekey:adminCaptchaSiteKey});adminCaptchaReady=true}
+ catch(err){console.error('Admin Turnstile render failed',err);$('loginError').textContent='Turnstile could not be displayed.'}
+}
+async function adminCaptchaInit(){
+ try {
+  const response=await fetch('./turnstile-config.json',{cache:'no-store'});
+  const cfg=await response.json();
+  if(!response.ok||!cfg.enabled||!cfg.site_key)throw new Error('Turnstile unavailable');
+  const script=document.createElement('script');
+  script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+  script.async=true;
+  script.onload=()=>{adminCaptchaSiteKey=cfg.site_key;adminCaptchaRender()};
+  script.onerror=()=>{$('loginError').textContent='Turnstile could not be loaded.'};
+  document.head.appendChild(script);
+ }catch(_){$('loginError').textContent='Turnstile configuration unavailable.'}
+}
+adminCaptchaInit();
+function showLogin(msg=''){if($('loginDialog').open){adminCaptchaRender();return}$('loginError').textContent=msg;$('loginDialog').showModal();if(!adminCaptchaPassed){$('adminLoginTurnstile').hidden=false;adminCaptchaRender()}$('loginCall').focus()}
+function connect(){const proto=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${proto}://${location.host}${new URL("./ws",location.href).pathname}`);ws.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error('admin message error',err,e.data)}};ws.onclose=()=>{adminCaptchaPassed=false;if(adminCaptchaReady)window.turnstile.reset(adminCaptchaWidget);pendingCommandTargets.length=0;pendingCommandNames.length=0;queuedPanelCommands.length=0;terminalLocalClose();supervisorInflight.clear();authenticated=false;logoutPending=false;loginState(false);$('status').textContent='disconnected';setTimeout(connect,2000)}}
 $('loginButton').onclick=()=>{if(authenticated){liveDebugStop();if(logoutPending)return;terminalSshClear();logoutPending=true;send({type:'logout'});$('loginButton').textContent='Logging out…'}else showLogin()};
-$('loginForm').addEventListener('submit',e=>{e.preventDefault();const call=$('loginCall').value.trim().toUpperCase(),password=$('loginPass').value;if(!call||!password){$('loginError').textContent='Callsign and password are required.';return}$('loginSubmit').disabled=true;takeoverLogin={call,password};if(!send({type:'auth',call,password})){$('loginSubmit').disabled=false;$('loginError').textContent='DXSpider connection is not ready';return}$('loginPass').value=''});
+$('loginForm').addEventListener('submit',e=>{e.preventDefault();const call=$('loginCall').value.trim().toUpperCase(),password=$('loginPass').value;if(!call||!password){$('loginError').textContent='Callsign and password are required.';return}if(!adminCaptchaPassed&&(!adminCaptchaReady||!window.turnstile.getResponse(adminCaptchaWidget))){$('loginError').textContent='Complete Turnstile verification before login.';return}$('loginSubmit').disabled=true;takeoverLogin={call,password};if(!send({type:'auth',call,password,turnstile_token:adminCaptchaPassed?'':window.turnstile.getResponse(adminCaptchaWidget)})){$('loginSubmit').disabled=false;$('loginError').textContent='DXSpider connection is not ready';return}$('loginPass').value=''});
 function selectSection(id){if(id==='terminalSection'&&!linuxTerminalEnabled)return;if(authenticated&&(id==='liveDebugSection'||id==='terminalSection'||id==='networkChatSection')&&authPriv<9)return;if(authenticated&&authPriv<5&&SYSOP_SECTIONS.has(id))return;activeSection=id;document.querySelectorAll('.mainTabs button').forEach(b=>b.classList.toggle('active',b.dataset.section===id));document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.id===id));if(authenticated&&id==='registration')loadPending();if(authenticated&&id==='supervision')selectSupervision(activeSupervisionPanel);if(authenticated&&id==='metrics')requestMetrics();if(authenticated&&id==='timeline')requestTimeline();if(id!=='liveDebugSection'&&liveDebugFollowing)liveDebugStop();if(id==='terminalSection')setTimeout(terminalFit,30);if(id==='consoleSection')requestAnimationFrame(()=>{$('consoleCommand')?.focus({preventScroll:true})})}
 document.querySelectorAll('.mainTabs button[data-section]').forEach(b=>b.onclick=()=>{if(b.disabled||b.getAttribute('aria-disabled')==='true')return;selectSection(b.dataset.section)});
 $('quickConsole').onclick=()=>{selectSection('consoleSection');$('consoleCommand').focus()};
@@ -815,6 +838,7 @@ function handle(m){
  if(m.type==='session_evicted'){
    clearSessionContent();loginState(false);setLocked(true);showLogin('Session replaced by another authenticated connection.');return;
  }
+ if((m.type==='auth'||m.type==='auth_result')&&m.error!=='Human verification failed'&&m.error!=='Turnstile configuration unavailable'&&m.error!=='Human verification busy'){adminCaptchaPassed=true;if($('adminLoginTurnstile'))$('adminLoginTurnstile').hidden=true}else if((m.type==='auth'||m.type==='auth_result')&&adminCaptchaReady){window.turnstile.reset(adminCaptchaWidget)}
  if(m.type==='auth'&&m.error==='takeover_required'&&takeoverLogin&&m.takeover_token){
    $('loginSubmit').disabled=false;
    const saved=takeoverLogin;
@@ -1548,18 +1572,69 @@ function neighboursRender(){
  const unique=[...new Map(rows.map(x=>[String(x.call).toUpperCase(),x])).values()].sort((a,b)=>String(a.call).localeCompare(String(b.call)));
  note.textContent=`${unique.length} configured and observed peers · ${fresh?'Snapshot '+Math.round(age)+'s old':'Snapshot stale or unavailable — link states unknown'} · Direct connections only`;
  const NS='http://www.w3.org/2000/svg',el=(tag,attrs={},content)=>{const n=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,String(v));if(content!==undefined)n.textContent=String(content);return n};
- svg.replaceChildren();svg.setAttribute('viewBox','0 0 900 680');
+ // Allocate concentric rings by usable circumference, keeping 120 SVG units
+ // between peer centres (52-unit node radius plus label clearance).
+ const ringStep=132,firstRadius=235,minArc=125;
+ const rings=[],positions=[];
+ for(let i=0;i<unique.length;){
+  const radius=firstRadius+rings.length*ringStep;
+  const capacity=Math.max(1,Math.floor(2*Math.PI*radius/minArc));
+  const count=Math.min(capacity,unique.length-i);
+  rings.push({radius,count});
+  for(let j=0;j<count;j++){
+   const angle=-Math.PI/2+2*Math.PI*(j+(rings.length%2?0:.5))/count;
+   positions.push({angle,radius});
+  }
+  i+=count;
+ }
+ // Test actual line-to-disc clearance against every other node, not only
+ // the preceding ring. Keep a generous margin for stroke and arrowheads.
+ const clearance=61;
+ const pointSegmentDistance=(px,py,ax,ay,bx,by)=>{
+  const dx=bx-ax,dy=by-ay,den=dx*dx+dy*dy;
+  const t=den?Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/den)):0;
+  return Math.hypot(px-ax-t*dx,py-ay-t*dy);
+ };
+ const unobstructed=(a,b,skip)=>positions.every((p,i)=>i===skip||pointSegmentDistance(p.radius*Math.cos(p.angle),p.radius*Math.sin(p.angle),a[0],a[1],b[0],b[1])>clearance);
+ const outer=rings.length?rings[rings.length-1].radius:235;
+ // Exterior routing is used only if a direct ray would intersect a peer.
+ // It enters the destination from the outside, avoiding all inner rings.
+ const routingRadius=outer+115;
+ const extent=routingRadius+80, cx=extent,cy=extent;
+ const side=extent*2;
+ svg.replaceChildren();svg.setAttribute('viewBox',`0 0 ${side} ${side}`);
  const defs=el('defs');for(const [id,color] of [['blue','#3989e6'],['red','#ef6464']]){const m=el('marker',{id:'neigh-'+id,markerWidth:9,markerHeight:9,refX:8,refY:4,orient:'auto-start-reverse',markerUnits:'strokeWidth'});m.append(el('path',{d:'M0 0 L8 4 L0 8 Z',fill:color}));defs.append(m)}svg.append(defs);
- const scene=el('g',{transform:`translate(450 340) scale(${neighboursZoom}) translate(-450 -340)`});svg.append(scene);
- const cx=450,cy=340,rad=260;
+ const scene=el('g',{transform:`translate(${cx} ${cy}) scale(${neighboursZoom}) translate(${-cx} ${-cy})`});svg.append(scene);
  const center=el('g');center.append(el('circle',{cx,cy,r:76,fill:'#193954',stroke:'#64a7d7','stroke-width':3}));center.append(el('text',{x:cx,y:cy+7,'text-anchor':'middle',fill:'#fff','font-size':20,'font-weight':700},self||'LOCAL NODE'));scene.append(center);
  if(!unique.length){detail.textContent='No observed physical peers in the current supervisor snapshot.';return}
  unique.forEach((r,i)=>{
-  const a=-Math.PI/2+2*Math.PI*i/unique.length,x=cx+rad*Math.cos(a),y=cy+rad*Math.sin(a);
+  const {angle:a,radius:rad}=positions[i],x=cx+rad*Math.cos(a),y=cy+rad*Math.sin(a);
   const live=fresh&&(r.online===true||r.online===1);
   const offline=fresh&&(r.online===false||r.online===0);
   const color=live?'#3989e6':offline?'#ef6464':'#8493a5';
-  const ux=Math.cos(a),uy=Math.sin(a);const line=el('line',{x1:cx+ux*79,y1:cy+uy*79,x2:x-ux*56,y2:y-uy*56,stroke:color,'stroke-width':3});
+  const ux=Math.cos(a),uy=Math.sin(a);
+  const start=[ux*79,uy*79],end=[ux*(rad-56),uy*(rad-56)];
+  let line;
+  if(unobstructed(start,end,i)){
+   line=el('line',{x1:cx+start[0],y1:cy+start[1],x2:cx+end[0],y2:cy+end[1],stroke:color,'stroke-width':3});
+  }else{
+   // Find a free radial corridor through *all* rings. The external arc
+   // stays beyond every peer, then approaches the target from outside.
+   let corridor=null,best=-Infinity;
+   for(let k=0;k<1440;k++){
+    const theta=2*Math.PI*k/1440;
+    const vx=Math.cos(theta),vy=Math.sin(theta);
+    const margin=Math.min(...positions.map(p=>pointSegmentDistance(p.radius*Math.cos(p.angle),p.radius*Math.sin(p.angle),vx*79,vy*79,vx*routingRadius,vy*routingRadius)));
+    if(margin>best){best=margin;corridor=theta}
+   }
+   const vx=Math.cos(corridor),vy=Math.sin(corridor);
+   // A full outer-ring detour is possible only if a free radial lane exists.
+   // Ring capacities leave open gaps; enforce the safety test here.
+   if(best<=clearance)console.warn('Peers: no unobstructed radial corridor',best);
+   const sweep=((a-corridor+2*Math.PI)%(2*Math.PI))<=Math.PI?1:0;
+   const d=`M ${cx+vx*79} ${cy+vy*79} L ${cx+vx*routingRadius} ${cy+vy*routingRadius} A ${routingRadius} ${routingRadius} 0 ${sweep?0:1} ${sweep} ${cx+ux*routingRadius} ${cy+uy*routingRadius} L ${cx+ux*(rad+56)} ${cy+uy*(rad+56)}`;
+   line=el('path',{d,fill:'none',stroke:color,'stroke-width':3});
+  }
   // A missing outbound property is not proof of inbound direction.
   const outbound=r.outbound===true||r.outbound===1||((r.kind==='rbn'||String(r.sort||'').toUpperCase()==='N')&&live);
   const inbound=!outbound&&(r.outbound===false||r.outbound===0);

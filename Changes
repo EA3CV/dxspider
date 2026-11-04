@@ -1,3 +1,15 @@
+04Nov26======================================================================
+1. Updated DXWeb to version 4.0.3 and DXWeb Admin to version 2.0.3.
+2. Integrated Cloudflare Turnstile into DXWeb and DXWeb Admin login,
+   including protection of the public DXWeb registration form.
+3. Improved web security with per-IP connection limits, authentication
+   rate limiting and timeouts for unauthenticated sessions.
+4. Improved the interactive DXWeb installation and management menu:
+   dxweb-menu.pl
+5. Updated the Spanish and English installation manuals, including
+   deployment procedures and Turnstile configuration.
+6. Improved the DXWeb Admin Peers/Neighbours diagram with a concentric
+   ring layout for nodes.
 03Nov26======================================================================
 1. Updated DXWeb to version 4.0.0 and DXWeb Admin to version 2.0.0.
 2. Redesigned the DXWeb/DXSpider integration to provide an independent

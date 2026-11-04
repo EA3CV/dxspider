@@ -174,6 +174,27 @@ $('sysopDisconnectClose').onclick=()=>{
 };
 function notice(text){$('noticeText').textContent=text;$('noticeDialog').showModal()}
 $('noticeClose').onclick=()=>$('noticeDialog').close();
+let turnstileEnabled=false, turnstileWidget=null, turnstileReady=false, turnstilePassed=false, registerWidget=null;
+async function loadRegistrationTurnstile(){
+ try{
+  const r=await fetch('./turnstile-config.json',{cache:'no-store'});
+  if(!r.ok)throw new Error('configuration unavailable');
+  const cfg=await r.json();
+  turnstileEnabled=!!cfg.enabled;
+  const target=$('loginTurnstile');
+  target.hidden=!turnstileEnabled;
+  $('registerTurnstile').hidden=!turnstileEnabled;
+  if(!turnstileEnabled)return;
+  if(!cfg.site_key)throw new Error('missing Site Key');
+  const script=document.createElement('script');
+  script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+  script.async=true;
+  script.onload=()=>{turnstileWidget=window.turnstile.render(target,{sitekey:cfg.site_key});registerWidget=window.turnstile.render($('registerTurnstile'),{sitekey:cfg.site_key});turnstileReady=true};
+  script.onerror=()=>{$('registerResult').textContent='Human verification could not be loaded.'};
+  document.head.appendChild(script);
+ }catch(_){turnstileEnabled=true;$('registerResult').textContent='Verification configuration unavailable.'}
+}
+loadRegistrationTurnstile();
 $('registerButton').onclick=()=>{
  $('registerResult').textContent='';
  $('registerCall').value=authUser||$('loginCall').value.trim().toUpperCase();
@@ -206,8 +227,12 @@ $('registerForm').addEventListener('submit',e=>{
  let ssids;
  try{ssids=parseSsidSpec($('registerSsids').value);$('registerSsids').value=compactSsidSpec(ssids)}
  catch(err){$('registerResult').textContent=err.message;return}
+ if(turnstileEnabled && !turnstilePassed && (!turnstileReady || !window.turnstile || !window.turnstile.getResponse(registerWidget))){
+  $('registerResult').textContent='Complete human verification before sending.';return;
+ }
+ const turnstile_token=turnstileEnabled && !turnstilePassed?window.turnstile.getResponse(registerWidget):'';
  $('registerSubmit').disabled=true;$('registerResult').textContent='Sending request…';
- if(!send({type:'reg_request',call:$('registerCall').value.trim().toUpperCase(),ssids,name:$('registerName').value.trim(),email:$('registerEmail').value.trim(),locator:$('registerLocator').value.trim().toUpperCase(),language:$('registerLanguage').value||'EN',comment:$('registerComment').value.trim()})){$('registerSubmit').disabled=false;$('registerResult').textContent='DXSpider connection is not ready.'}
+ if(!send({type:'reg_request',turnstile_token,call:$('registerCall').value.trim().toUpperCase(),ssids,name:$('registerName').value.trim(),email:$('registerEmail').value.trim(),locator:$('registerLocator').value.trim().toUpperCase(),language:$('registerLanguage').value||'EN',comment:$('registerComment').value.trim()})){$('registerSubmit').disabled=false;$('registerResult').textContent='DXSpider connection is not ready.'}
 });
 
 function clearSessionData(){
@@ -221,7 +246,7 @@ function clearSessionData(){
 function connect(){
  const proto=location.protocol==='https:'?'wss':'ws'; ws=new WebSocket(`${proto}://${location.host}${new URL("./ws",location.href).pathname}`);
  ws.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error('dxweb message handler error',err,e.data);$('status').textContent='ui-error'}};
- ws.onclose=()=>{logoutPending=false;$('loginSubmit').disabled=false;$('status').textContent='disconnected';clearSessionData();loginState(false);setTimeout(connect,2000)};
+ ws.onclose=()=>{turnstilePassed=false;if(turnstileReady)window.turnstile.reset(turnstileWidget);logoutPending=false;$('loginSubmit').disabled=false;$('status').textContent='disconnected';clearSessionData();loginState(false);setTimeout(connect,2000)};
 }
 function selectTab(id){
  activeTab=id; document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));
@@ -241,7 +266,8 @@ $('loginForm').addEventListener('submit',e=>{
  const call=$('loginCall').value.trim().toUpperCase();if(!call)return;
  $('loginSubmit').disabled=true;
  takeoverLogin={call,password:$('loginPass').value};
- if(!send({type:'auth',call,password:takeoverLogin.password})){$('loginSubmit').disabled=false;$('loginError').textContent='DXSpider connection is not ready';return}
+ if(turnstileEnabled && !turnstilePassed && (!turnstileReady || !window.turnstile || !window.turnstile.getResponse(turnstileWidget))){$('loginSubmit').disabled=false;$('loginError').textContent='Complete human verification before login.';return}
+ if(!send({type:'auth',call,password:takeoverLogin.password,turnstile_token:turnstileEnabled&&!turnstilePassed?window.turnstile.getResponse(turnstileWidget):''})){$('loginSubmit').disabled=false;$('loginError').textContent='DXSpider connection is not ready';return}
  $('loginPass').value='';
 });
 function spotCancelPending(){const d=$('spotDialog');d.close();$('spotResult').textContent='';$('spotForm').reset()}
@@ -679,7 +705,7 @@ function finishCommandTarget(target){
  out.scrollTop=out.scrollHeight;
 }
 function handle(m){
- if(m.type==='reg_request_result'){$('registerSubmit').disabled=false;if(m.status==='ok'){const r=m.result||{};$('registerResult').textContent=`Request #${r.id||'?'} sent successfully.`;setTimeout(()=>{$('registerDialog').close()},900)}else{$('registerResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Registration request failed'))}return}
+ if(m.type==='reg_request_result'){$('registerSubmit').disabled=false;if(turnstileReady && !turnstilePassed)window.turnstile.reset(registerWidget);if(m.status==='ok'){const r=m.result||{};$('registerResult').textContent=`Request #${r.id||'?'} sent successfully.`;setTimeout(()=>{$('registerDialog').close()},900)}else{$('registerResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Registration request failed'))}return}
  if(sysopDisconnected && m.type!=='status')return;
  if(m.type==='status'){if(sysopDisconnected){$('status').textContent='disconnected by SYSOP';return} $('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===true)loginState(true,m);else if(m.authenticated===false&&!logoutPending)loginState(false);return}
  if(m.type==='logout_result'){logoutPending=false;if(m.status==='ok'){loginState(false);clearSessionData()}else notice(`Logout failed: ${m.error||'unknown error'}`);return}
@@ -702,8 +728,8 @@ function handle(m){
      return;
    }
    takeoverLogin=null;
-   if(m.status==='ok'){sysopDisconnected=false;loginState(true,m);$('loginDialog').close();$('loginError').textContent='';clearSessionData()}
-   else {$('loginError').textContent=m.error||'Authentication failed';loginState(false)}
+   if(m.status==='ok'){turnstilePassed=true;$('loginTurnstile').hidden=true;sysopDisconnected=false;loginState(true,m);$('loginDialog').close();$('loginError').textContent='';clearSessionData()}
+   else {if(turnstileEnabled && !turnstilePassed){if(m.error==='Human verification failed' || m.error==='Turnstile configuration error' || m.error==='Verification busy'){ if(turnstileReady)window.turnstile.reset(turnstileWidget)}else{turnstilePassed=true;$('loginTurnstile').hidden=true}}$('loginError').textContent=m.error||'Authentication failed';loginState(false)}
    return;
  }
  if(m.type==='profile_result'){profileHandle(m);return}

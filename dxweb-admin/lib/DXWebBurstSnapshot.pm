@@ -1,3 +1,10 @@
+
+#
+# DXSpider Web Supervision - Perl module
+#
+# Copyright (c) 2026 Dirk Koopman G1TLH
+#
+
 package DXWebBurstSnapshot;
 
 use strict;
@@ -16,30 +23,35 @@ sub new {
     my ( $class, %opt ) = @_;
     die 'history required' unless $opt{history};
     return bless {
-        history    => $opt{history},
-        path       => $opt{path} // ($ENV{DXSPIDER_ROOT} ? "$ENV{DXSPIDER_ROOT}/local_data/dxweb-bursts.json" : undef),
-        interval   => 0 + ( $opt{interval} // 30 ),
-        window     => $opt{window} // '1h',
-        timer      => undef,
-        inflight   => 0,
-        last_write => undef,
-        error      => undef,
-        logger     => $opt{logger},
+        history => $opt{history},
+        path    => $opt{path} // (
+            $ENV{DXSPIDER_ROOT}
+            ? "$ENV{DXSPIDER_ROOT}/local_data/dxweb-bursts.json"
+            : undef
+        ),
+        interval          => 0 + ( $opt{interval} // 30 ),
+        window            => $opt{window} // '1h',
+        timer             => undef,
+        inflight          => 0,
+        last_write        => undef,
+        error             => undef,
+        logger            => $opt{logger},
         last_logged_error => undef,
     }, $class;
 }
 
 sub _log_event {
-    my ($s, $level, $message) = @_;
-    return unless ref($s->{logger}) eq 'CODE';
-    eval { $s->{logger}->($level, $message) };
+    my ( $s, $level, $message ) = @_;
+    return unless ref( $s->{logger} ) eq 'CODE';
+    eval { $s->{logger}->( $level, $message ) };
 }
 
 sub _log_failure_once {
-    my ($s, $level, $message) = @_;
-    return if defined $s->{last_logged_error} && $s->{last_logged_error} eq $message;
+    my ( $s, $level, $message ) = @_;
+    return
+      if defined $s->{last_logged_error} && $s->{last_logged_error} eq $message;
     $s->{last_logged_error} = $message;
-    $s->_log_event($level, $message);
+    $s->_log_event( $level, $message );
 }
 
 sub status {
@@ -78,7 +90,8 @@ sub refresh {
             $s->{inflight} = 0;
             if ( $err || ref($r) ne 'HASH' ) {
                 $s->{error} = $err || 'invalid_metrics_result';
-                $s->_log_failure_once('warn', "burst metrics failed: $s->{error}");
+                $s->_log_failure_once( 'warn',
+                    "burst metrics failed: $s->{error}" );
                 $s->_schedule( $s->{interval} );
                 return;
             }
@@ -87,7 +100,8 @@ sub refresh {
             for my $x ( @{ $tr->{neighbour_summary} || [] } ) {
                 next unless ref($x) eq 'HASH';
                 push @neighbours,
-                  { map { $_ => $x->{$_} }
+                  {
+                    map  { $_ => $x->{$_} }
                     grep { exists $x->{$_} }
                       qw(neighbour latest_pps baseline_pps baseline_samples deviation_ratio burst dominant_pc peak_pps peak_at peak_dominant_pc)
                   };
@@ -96,7 +110,8 @@ sub refresh {
             for my $x ( @{ $tr->{origin_summary} || [] } ) {
                 next unless ref($x) eq 'HASH';
                 push @origins,
-                  { map { $_ => $x->{$_} }
+                  {
+                    map  { $_ => $x->{$_} }
                     grep { exists $x->{$_} }
                       qw(origin latest_pps baseline_pps baseline_samples deviation_ratio burst dominant_pc peak_pps peak_at peak_dominant_pc)
                   };
@@ -114,11 +129,15 @@ sub refresh {
             };
             my $ok = eval { $s->_write_atomic($o); 1 };
             if ($ok) {
-                $s->{last_write} = $o->{generated_at};
-                $s->{error}      = undef;
+                $s->{last_write}        = $o->{generated_at};
+                $s->{error}             = undef;
                 $s->{last_logged_error} = undef;
             }
-            else { $s->{error} = "$@"; $s->_log_failure_once('error', "burst snapshot write failed: $s->{error}") }
+            else {
+                $s->{error} = "$@";
+                $s->_log_failure_once( 'error',
+                    "burst snapshot write failed: $s->{error}" );
+            }
             $s->_schedule( $s->{interval} );
         }
     );

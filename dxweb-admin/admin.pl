@@ -1,4 +1,5 @@
 #!/usr/bin/env perl
+
 #
 # DXSpider Web Supervision
 #
@@ -8,38 +9,40 @@
 #
 # Copyright (c) 2026 Dirk Koopman G1TLH
 #
-# DXSpider Web Admin: version defined exclusively in VERSION
+
 use strict;
 use warnings;
 use utf8;
 use Mojolicious::Lite -signatures;
-use POSIX ();
-use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK);
-use Errno qw(EAGAIN EWOULDBLOCK EINTR);
+use POSIX        ();
+use Fcntl        qw(F_GETFL F_SETFL O_NONBLOCK);
+use Errno        qw(EAGAIN EWOULDBLOCK EINTR);
 use MIME::Base64 qw(encode_base64 decode_base64);
-use IO::Pty ();
-use File::Spec ();
+use IO::Pty      ();
+use File::Spec   ();
 use Mojo::IOLoop;
 use Mojo::URL;
 use Mojo::UserAgent;
 use Socket qw(AF_INET AF_INET6 inet_pton);
 use Mojo::IOLoop::Subprocess;
 use Mojo::JSON  qw(encode_json decode_json);
-use Encode ();
-use JSON::PP (); # ASCII-safe JSON on the DXSpider line transport
+use Encode      ();
+use JSON::PP    ();         # ASCII-safe JSON on the DXSpider line transport
 use Time::HiRes qw(time);
 use FindBin;
 
 # Optional local configuration. Default: Linux terminal enabled.
 our $enable_linux_terminal = 1;
 my $admin_config = "$FindBin::Bin/config.pl";
-if (-e $admin_config) {
+if ( -e $admin_config ) {
     my $loaded = do $admin_config;
-    die "Cannot load $admin_config: " . ($@ || $! || "invalid return value") . "\n"
-        unless $loaded;
+    die "Cannot load $admin_config: "
+      . ( $@ || $! || "invalid return value" ) . "\n"
+      unless $loaded;
 }
 die "Invalid enable_linux_terminal in $admin_config (expected 0 or 1)\n"
-    unless defined($enable_linux_terminal) && "$enable_linux_terminal" =~ /\A[01]\z/;
+  unless defined($enable_linux_terminal)
+  && "$enable_linux_terminal" =~ /\A[01]\z/;
 
 # Single source of truth for the Admin release version.
 my $ADMIN_VERSION = do {
@@ -54,27 +57,31 @@ my $ADMIN_VERSION = do {
 use lib "$FindBin::Bin/lib";
 use DXWebHistory;
 use DXWebBurstSnapshot;
+use lib "$FindBin::Bin/../perl";
+use DXWeb::Admission;
+use lib "$FindBin::Bin/../dxweb/lib";
+use DXWeb::Turnstile;
+use DXWeb::TurnstileGate;
 
 # Resolve the actual DXSpider root independently of the working directory.
 # Allow an explicit override for custom installations.
 use File::Spec;
-my $DXSPIDER_ROOT = $ENV{DXSPIDER_ROOT} // File::Spec->rel2abs(
-    File::Spec->catdir($FindBin::Bin, '..')
-);
--d File::Spec->catdir($DXSPIDER_ROOT, 'perl')
-    or die "Invalid DXSPIDER_ROOT: $DXSPIDER_ROOT\n";
+my $DXSPIDER_ROOT = $ENV{DXSPIDER_ROOT}
+  // File::Spec->rel2abs( File::Spec->catdir( $FindBin::Bin, '..' ) );
+-d File::Spec->catdir( $DXSPIDER_ROOT, 'perl' )
+  or die "Invalid DXSPIDER_ROOT: $DXSPIDER_ROOT\n";
 
+my $DXS_HOST   = '127.0.0.1'; # security boundary: admin transport is local-only
+my $DXS_PORT   = $ENV{DXS_PORT}      // 27754;
+my $DXWEB_HOST = $ENV{DXWEB_HOST}    // '0.0.0.0';
+my $DXWEB_PORT = $ENV{DXWEB_PORT}    // 7381;        # default Admin UI port
+my $RECONNECT  = $ENV{RECONNECT_SEC} // 3;
 
-my $DXS_HOST = '127.0.0.1';   # security boundary: admin transport is local-only
-my $DXS_PORT        = $ENV{DXS_PORT}        // 27754;
-my $DXWEB_HOST      = $ENV{DXWEB_HOST}      // '0.0.0.0';
-my $DXWEB_PORT      = $ENV{DXWEB_PORT}      // 7381;     # default Admin UI port
-my $RECONNECT       = $ENV{RECONNECT_SEC}   // 3;
 # WebSocket protocol ping/pong: no inactivity expiry, but reap dead peers.
-my $WS_PING_INTERVAL_SEC = $ENV{WS_PING_INTERVAL_SEC} // 30;
-my $WS_PONG_GRACE_SEC    = $ENV{WS_PONG_GRACE_SEC} // 90;
-my $MAX_INPUT_BYTES = $ENV{MAX_INPUT_BYTES} // 262144;
-my $MAX_HISTORY     = $ENV{MAX_HISTORY}     // 250;
+my $WS_PING_INTERVAL_SEC      = $ENV{WS_PING_INTERVAL_SEC}      // 30;
+my $WS_PONG_GRACE_SEC         = $ENV{WS_PONG_GRACE_SEC}         // 90;
+my $MAX_INPUT_BYTES           = $ENV{MAX_INPUT_BYTES}           // 262144;
+my $MAX_HISTORY               = $ENV{MAX_HISTORY}               // 250;
 my $MAX_HISTORY_BYTES         = $ENV{MAX_HISTORY_BYTES}         // 524288;
 my $MAX_FANOUT_ITEMS          = $ENV{MAX_FANOUT_ITEMS}          // 256;
 my $MAX_FANOUT_BYTES          = $ENV{MAX_FANOUT_BYTES}          // 524288;
@@ -87,9 +94,41 @@ my $ORPHAN_AUTH_TIMEOUT       = $ENV{ORPHAN_AUTH_TIMEOUT_SEC}   // 120;
 my $MAX_BROWSER_MESSAGE_BYTES = $ENV{MAX_BROWSER_MESSAGE_BYTES} // 65536;
 my $MAX_PENDING_TOTAL         = $ENV{MAX_PENDING_TOTAL}         // 256;
 my $MAX_PENDING_PER_CLIENT    = $ENV{MAX_PENDING_PER_CLIENT}    // 16;
-my $MAX_CLIENTS               = $ENV{MAX_CLIENTS}               // 64;
-my $MAX_COMMAND_BYTES         = $ENV{MAX_COMMAND_BYTES}         // 4096;
-my $HISTORY_DB = $ENV{DXWEB_HISTORY_DB} // ($DXSPIDER_ROOT . '/local_data/dxhistory.db');
+
+# Admission limits are independent for each web service.
+my $WS_PER_IP_LIMIT   = $ENV{DXWEB_WS_PER_IP_LIMIT}   // 12;
+my $WS_UNVERIFIED_SEC = $ENV{DXWEB_WS_UNVERIFIED_SEC} // 90;
+my $WS_AUTH_PER_MIN   = $ENV{DXWEB_WS_AUTH_PER_MIN}   // 12;
+my $admission         = DXWeb::Admission->new(
+    per_ip   => $WS_PER_IP_LIMIT,
+    window   => 60,
+    max_auth => $WS_AUTH_PER_MIN
+);
+
+# Share the existing DXWeb Turnstile credentials, but never its WS authorization.
+my $TURNSTILE_CONFIG = $ENV{DXWEB_TURNSTILE_CONFIG}
+  // '/etc/dxweb/turnstile.json';
+my $turnstile_gate = DXWeb::TurnstileGate->new( max_inflight => 16 );
+
+sub admin_turnstile_settings() {
+    return { broken => 1 } unless -f $TURNSTILE_CONFIG && !-l $TURNSTILE_CONFIG;
+    my @st = stat($TURNSTILE_CONFIG);
+    return { broken => 1 } unless @st && !( $st[2] & 0077 );
+    open my $fh, '<', $TURNSTILE_CONFIG or return { broken => 1 };
+    local $/;
+    my $raw = <$fh>;
+    close $fh;
+    my $d = eval { decode_json($raw) };
+    return { broken => 1 } unless ref($d) eq 'HASH' && $d->{enabled};
+    return { broken => 1 }
+      unless ( $d->{site_key} // '' ) =~ /\A[A-Za-z0-9_-]{8,256}\z/
+      && ( $d->{secret_key} // '' )   =~ /\A[A-Za-z0-9_-]{8,256}\z/;
+    return $d;
+}
+my $MAX_CLIENTS       = $ENV{MAX_CLIENTS}       // 64;
+my $MAX_COMMAND_BYTES = $ENV{MAX_COMMAND_BYTES} // 4096;
+my $HISTORY_DB        = $ENV{DXWEB_HISTORY_DB}
+  // ( $DXSPIDER_ROOT . '/local_data/dxhistory.db' );
 my $HISTORY_INTERVAL = $ENV{DXWEB_HISTORY_INTERVAL_SEC} // 30;
 my @HISTORY_KINDS = qw(status connections traffic spot_ranks rbn self_health);
 my ( $history_timer, $history_inflight ) = ( undef, 0 );
@@ -98,14 +137,20 @@ my ( %clients, %pending );
 
 my %MAINT_UPDATE_ACTION = (
     download_usdb => [
-        'wget', '-N', '-P', ($DXSPIDER_ROOT . '/local_data'),
+        'wget', '-N', '-P',
+        ( $DXSPIDER_ROOT . '/local_data' ),
         'ftp://ftp.w1nr.net/usdbraw.gz'
     ],
-    prepare_usdb =>
-      [ ($DXSPIDER_ROOT . '/perl/create_usdb.pl'), ($DXSPIDER_ROOT . '/local_data/usdbraw.gz') ],
-    prepare_keps =>
-      [ ($DXSPIDER_ROOT . '/perl/convkeps.pl'), '-p', ($DXSPIDER_ROOT . '/local_data/nasabare.txt') ],
-    prepare_prefix => [($DXSPIDER_ROOT . '/perl/create_prefix.pl')],
+    prepare_usdb => [
+        ( $DXSPIDER_ROOT . '/perl/create_usdb.pl' ),
+        ( $DXSPIDER_ROOT . '/local_data/usdbraw.gz' )
+    ],
+    prepare_keps => [
+        ( $DXSPIDER_ROOT . '/perl/convkeps.pl' ),
+        '-p',
+        ( $DXSPIDER_ROOT . '/local_data/nasabare.txt' )
+    ],
+    prepare_prefix => [ ( $DXSPIDER_ROOT . '/perl/create_prefix.pl' ) ],
 );
 
 sub maintenance_update_action( $cid, $action ) {
@@ -191,20 +236,21 @@ my %counters = map { $_ => 0 }
   qw(human rbn ann wwv wcy wx total reconnects input_overflow fanout_dropped ws_sent ws_dropped ws_slow_disconnects auth_ok auth_failed commands);
 my $last_feed_at;
 my $persistence_logger = sub {
-    my ($level, $message) = @_;
+    my ( $level, $message ) = @_;
     $level = 'debug' unless $level =~ /\A(?:debug|info|warn|error)\z/;
     app->log->$level($message);
 };
-app->log->debug("persistence root=$DXSPIDER_ROOT uid=$< gid=$( history=$HISTORY_DB");
+app->log->debug(
+    "persistence root=$DXSPIDER_ROOT uid=$< gid=$( history=$HISTORY_DB");
 my $history_store = DXWebHistory->new(
     path            => $HISTORY_DB,
     logger          => $persistence_logger,
-    local_data_root => ($DXSPIDER_ROOT . '/local_data')
+    local_data_root => ( $DXSPIDER_ROOT . '/local_data' )
 );
 my $burst_snapshot = DXWebBurstSnapshot->new(
     history  => $history_store,
     logger   => $persistence_logger,
-    path     => ($DXSPIDER_ROOT . '/local_data/dxweb-bursts.json'),
+    path     => ( $DXSPIDER_ROOT . '/local_data/dxweb-bursts.json' ),
     interval => $HISTORY_INTERVAL,
     window   => '1h'
 );
@@ -219,18 +265,18 @@ sub public_status() {
     return {
         type => 'status',
         %state,
-        dxs_host            => $DXS_HOST,
-        dxs_port            => 0 + $DXS_PORT,
-        counters            => {%counters},
-        last_feed_at        => $last_feed_at,
-        websocket_clients   => scalar( keys %clients ),
-        history_items       => scalar(@history),
-        history_bytes       => $history_bytes,
-        fanout_items        => scalar(@fanout),
-        fanout_bytes        => $fanout_bytes,
-        pending_requests    => scalar( keys %pending ),
+        dxs_host              => $DXS_HOST,
+        dxs_port              => 0 + $DXS_PORT,
+        counters              => {%counters},
+        last_feed_at          => $last_feed_at,
+        websocket_clients     => scalar( keys %clients ),
+        history_items         => scalar(@history),
+        history_bytes         => $history_bytes,
+        fanout_items          => scalar(@fanout),
+        fanout_bytes          => $fanout_bytes,
+        pending_requests      => scalar( keys %pending ),
         enable_linux_terminal => $enable_linux_terminal ? \1 : \0,
-        supervision_history => $history_store->status()
+        supervision_history   => $history_store->status()
     };
 }
 
@@ -241,12 +287,21 @@ sub browser_client_snapshot() {
         clients       => $total,
         authenticated => 0 + $auth,
         anonymous     => $total - $auth,
-        users         => [ map {
-            my $cl = $clients{$_};
-            +{ call => $cl->{call}, ip => $cl->{ip} || '',
-               startt => 0 + ($cl->{authenticated_at} || 0),
-               registered => $cl->{registered} ? \1 : \0 }
-        } grep { $clients{$_}{authenticated} && defined($clients{$_}{call}) && length($clients{$_}{call}) } keys %clients ]
+        users         => [
+            map {
+                my $cl = $clients{$_};
+                +{
+                    call       => $cl->{call},
+                    ip         => $cl->{ip} || '',
+                    startt     => 0 + ( $cl->{authenticated_at} || 0 ),
+                    registered => $cl->{registered} ? \1 : \0
+                }
+            } grep {
+                     $clients{$_}{authenticated}
+                  && defined( $clients{$_}{call} )
+                  && length( $clients{$_}{call} )
+            } keys %clients
+        ]
     };
 }
 
@@ -292,6 +347,7 @@ sub release_client( $id, $reason = 'browser_disconnect' ) {
     live_debug_stop($id);
     log_window_stop_all($id);
     terminal_stop($id);
+    $admission->disconnect( $cl->{ip} );
     delete $clients{$id};
     for my $rid ( keys %pending ) {
         if ( $pending{$rid}{client} == $id ) {
@@ -339,11 +395,12 @@ sub ws_send_guarded( $id, $json ) {
         drop_slow_client($id);
         return 0;
     }
+
     # Mojo::JSON::encode_json returns UTF-8 octets, while Mojo's
     # WebSocket text send expects decoded Perl characters.
     # Keep $json as octets for byte-based limits and retry queues.
-    my $ws_text = Encode::decode('UTF-8', $json,
-        Encode::FB_CROAK() | Encode::LEAVE_SRC());
+    my $ws_text = Encode::decode( 'UTF-8', $json,
+        Encode::FB_CROAK() | Encode::LEAVE_SRC() );
     my $ok = eval { $tx->send($ws_text); 1 };
     if ( !$ok ) { release_client( $id, 'send_failed' ); return 0 }
     $counters{ws_sent}++;
@@ -379,11 +436,12 @@ sub ws_send_response( $id, $json, $tries = 0 ) {
             sub { ws_send_response( $id, $json, $tries + 1 ) } );
         return 1;
     }
+
     # Mojo::JSON::encode_json returns UTF-8 octets, while Mojo's
     # WebSocket text send expects decoded Perl characters.
     # Keep $json as octets for byte-based limits and retry queues.
-    my $ws_text = Encode::decode('UTF-8', $json,
-        Encode::FB_CROAK() | Encode::LEAVE_SRC());
+    my $ws_text = Encode::decode( 'UTF-8', $json,
+        Encode::FB_CROAK() | Encode::LEAVE_SRC() );
     my $ok = eval { $tx->send($ws_text); 1 };
     unless ($ok) { release_client( $id, 'send_failed' ); return 0 }
     $counters{ws_sent}++;
@@ -393,8 +451,8 @@ sub ws_send_response( $id, $json, $tries = 0 ) {
 sub client_can_receive_feed( $id, $targets = undef ) {
     my $cl = $clients{$id} or return 0;
     return 0 unless $cl->{authenticated};
-    if (ref($targets) eq 'HASH') {
-        return 0 unless ($cl->{priv} // 0) >= ($targets->{min_priv} // 9);
+    if ( ref($targets) eq 'HASH' ) {
+        return 0 unless ( $cl->{priv} // 0 ) >= ( $targets->{min_priv} // 9 );
         $targets = $targets->{calls};
         return 0 unless ref($targets) eq 'ARRAY';
     }
@@ -467,26 +525,41 @@ sub push_feed( $kind, $raw ) {
         $payload = $d->{payload} if exists $d->{payload};
         $targets = $d->{targets} if ref( $d->{targets} ) eq 'ARRAY';
     }
+
     # PC93 channel messages are never broadcast to all authenticated browsers.
     # Require an explicit, bounded target list and SYSOP privilege at fanout
     # and history replay, including after logout/login of the same socket.
-    if ($kind eq 'network_chat') {
-        return unless ref($d) eq 'HASH' && ($d->{type} // '') eq 'network_chat';
-        return unless ($d->{channel} // '') =~ /\A(?:ERROR|SYSOP)\z/;
+    if ( $kind eq 'network_chat' ) {
+        return
+          unless ref($d) eq 'HASH' && ( $d->{type} // '' ) eq 'network_chat';
+        return unless ( $d->{channel} // '' ) =~ /\A(?:ERROR|SYSOP)\z/;
         return unless ref($targets) eq 'ARRAY' && @$targets && @$targets <= 256;
-        return unless length($d->{text} // '') <= 4096;
+        return unless length( $d->{text} // '' ) <= 4096;
         $targets = { calls => $targets, min_priv => 9 };
-        $payload = { channel => $d->{channel}, from => $d->{from},
-                     text => $d->{text}, onode => $d->{onode} };
+        $payload = {
+            channel => $d->{channel},
+            from    => $d->{from},
+            text    => $d->{text},
+            onode   => $d->{onode}
+        };
     }
-    if ($kind eq 'user_notice') {
-        return unless ref($d) eq 'HASH' && ($d->{type} // '') eq 'user_notice';
+    if ( $kind eq 'user_notice' ) {
+        return
+          unless ref($d) eq 'HASH' && ( $d->{type} // '' ) eq 'user_notice';
         return unless ref($targets) eq 'ARRAY' && @$targets && @$targets <= 256;
-        return unless defined($d->{text}) && !ref($d->{text}) && length($d->{text}) <= 4096;
+        return
+             unless defined( $d->{text} )
+          && !ref( $d->{text} )
+          && length( $d->{text} ) <= 4096;
         my $category = $d->{category} // 'system';
-        $category = 'system' unless $category =~ /\A(?:buddy|user|node|system)\z/;
-        my $o = { type => 'feed', feed => 'user_notice', payload => { text => $d->{text}, category => $category } };
-        queue_fanout(encode_json($o), $targets);
+        $category = 'system'
+          unless $category =~ /\A(?:buddy|user|node|system)\z/;
+        my $o = {
+            type    => 'feed',
+            feed    => 'user_notice',
+            payload => { text => $d->{text}, category => $category }
+        };
+        queue_fanout( encode_json($o), $targets );
         return;
     }
     $counters{$kind}++ if exists $counters{$kind};
@@ -508,11 +581,18 @@ sub send_line($l) { return unless $stream; $stream->write( $l . "\n" ) }
 sub send_dxs($o) {
     return unless $state{web_call};
     my $wire = JSON::PP->new->ascii(1)->encode($o);
-    if (($o->{type} // '') =~ /\Areg_(?:accept|reject)\z/) {
+    if ( ( $o->{type} // '' ) =~ /\Areg_(?:accept|reject)\z/ ) {
+
         # Log only the request ID and whether Unicode escaping was used.
         # Never log the SYSOP note, credentials or registration data.
-        app->log->info(sprintf('registration outbound action=%s id=%s escaped_unicode=%s',
-            $o->{type}, $o->{id} // '-', $wire =~ /\\u[0-9a-fA-F]{4}/ ? 'yes' : 'no'));
+        app->log->info(
+            sprintf(
+                'registration outbound action=%s id=%s escaped_unicode=%s',
+                $o->{type},
+                $o->{id} // '-',
+                $wire =~ /\\u[0-9a-fA-F]{4}/ ? 'yes' : 'no'
+            )
+        );
     }
     send_line( 'I' . $state{web_call} . '|' . $wire );
 }
@@ -527,8 +607,9 @@ sub pending_timeout($id) {
         cancel_pending_auth($id)                               if $pending{$id};
         return;
     }
-    app->log->error('registration timeout action=' . $p->{action} . ' id=' . $id)
-        if ($p->{action} // '') =~ /\Areg_(?:accept|reject)\z/;
+    app->log->error(
+        'registration timeout action=' . $p->{action} . ' id=' . $id )
+      if ( $p->{action} // '' ) =~ /\Areg_(?:accept|reject)\z/;
     delete $pending{$id};
     my $cid = $p->{client};
     my $cl  = $clients{$cid} or return;
@@ -667,10 +748,14 @@ sub replay_history( $id, $pos = 0 ) {
 sub handle_response($msg) {
     my $id = $msg->{id};
     my $p  = delete $pending{$id} or return;
-    if (($p->{action} // '') =~ /\Areg_(?:accept|reject)\z/) {
-        app->log->info('registration response action=' . $p->{action}
-            . ' id=' . $id . ' status=' . ($msg->{status} // '-')
-            . ' error=' . ($msg->{error} // '-'));
+    if ( ( $p->{action} // '' ) =~ /\Areg_(?:accept|reject)\z/ ) {
+        app->log->info( 'registration response action='
+              . $p->{action} . ' id='
+              . $id
+              . ' status='
+              . ( $msg->{status} // '-' )
+              . ' error='
+              . ( $msg->{error} // '-' ) );
     }
     Mojo::IOLoop->remove( $p->{timer} ) if $p->{timer};
     if ( $p->{internal_history} ) {
@@ -738,13 +823,13 @@ sub handle_response($msg) {
                 );
                 return;
             }
-            $cl->{authenticated} = 1;
+            $cl->{authenticated}    = 1;
             $cl->{authenticated_at} = time;
-            $cl->{call}          = $msg->{call};
-            $cl->{generation}    = $msg->{generation};
-            $cl->{priv}          = $priv;
-            $cl->{registered}    = $msg->{registered} ? 1 : 0;
-            $cl->{password_used} = 1;
+            $cl->{call}             = $msg->{call};
+            $cl->{generation}       = $msg->{generation};
+            $cl->{priv}             = $priv;
+            $cl->{registered}       = $msg->{registered} ? 1 : 0;
+            $cl->{password_used}    = 1;
             $counters{auth_ok}++;
             ws_send_guarded(
                 $cid,
@@ -978,17 +1063,26 @@ sub handle_line($line) {
             return;
         }
         if ( ( $m->{type} // '' ) eq 'session_evicted' ) {
-            for my $cid (keys %clients) {
+            for my $cid ( keys %clients ) {
                 my $cl = $clients{$cid} or next;
                 next unless $cl->{authenticated};
-                next unless ($cl->{call} // '') eq ($m->{call} // '');
-                next unless defined($cl->{generation}) && defined($m->{generation});
+                next unless ( $cl->{call} // '' ) eq ( $m->{call} // '' );
+                next
+                  unless defined( $cl->{generation} )
+                  && defined( $m->{generation} );
                 next unless "$cl->{generation}" eq "$m->{generation}";
                 $cl->{authenticated} = 0;
-                delete @{$cl}{qw(call generation registered password_used priv)};
-                ws_send_guarded($cid, encode_json({
-                    type => 'session_evicted', reason => 'replaced'
-                }));
+                delete @{$cl}
+                  {qw(call generation registered password_used priv)};
+                ws_send_guarded(
+                    $cid,
+                    encode_json(
+                        {
+                            type   => 'session_evicted',
+                            reason => 'replaced'
+                        }
+                    )
+                );
             }
             return;
         }
@@ -1074,8 +1168,9 @@ sub connect_dxs() {
                     }
                     %pending = ();
                     for my $id ( keys %clients ) {
-                        # The DXSpider authority is gone: revoke privileged PTYs now.
-                        terminal_stop($id, 1);
+
+                   # The DXSpider authority is gone: revoke privileged PTYs now.
+                        terminal_stop( $id, 1 );
                         $clients{$id}{authenticated} = 0;
                         delete $clients{$id}{call};
                     }
@@ -1251,7 +1346,7 @@ sub send_history_summary( $id, $window = '15m' ) {
 
 # Process age from Linux /proc, without invoking systemctl or blocking DXSpider.
 sub _proc_age_seconds {
-    my ($pid, $host_uptime, $ticks) = @_;
+    my ( $pid, $host_uptime, $ticks ) = @_;
     return undef unless defined $pid && $pid =~ /\A\d+\z/ && $ticks > 0;
     open my $fh, '<', "/proc/$pid/stat" or return undef;
     my $line = <$fh> // '';
@@ -1264,7 +1359,7 @@ sub _proc_age_seconds {
 }
 
 sub _dxweb_process_age {
-    my ($host_uptime, $ticks) = @_;
+    my ( $host_uptime, $ticks ) = @_;
     opendir my $dh, '/proc' or return undef;
     my @pids = grep { /\A\d+\z/ } readdir $dh;
     closedir $dh;
@@ -1276,8 +1371,8 @@ sub _dxweb_process_age {
         close $fh;
         my @args = split /\0/, $cmd;
         next unless grep { m{(?:^|/)dxweb/app\.pl\z} } @args;
-        my $age = _proc_age_seconds($pid, $host_uptime, $ticks);
-        $best = $age if defined $age && (!defined($best) || $age > $best);
+        my $age = _proc_age_seconds( $pid, $host_uptime, $ticks );
+        $best = $age if defined $age && ( !defined($best) || $age > $best );
     }
     return $best;
 }
@@ -1289,11 +1384,13 @@ sub local_system_snapshot {
         $r{host_uptime_seconds} = 0 + $1 if $line =~ /^([0-9.]+)/;
         close $fh;
     }
-    if (defined $r{host_uptime_seconds}) {
+    if ( defined $r{host_uptime_seconds} ) {
         my $ticks = POSIX::sysconf(&POSIX::_SC_CLK_TCK);
-        if (defined $ticks && $ticks > 0) {
-            $r{admin_uptime_seconds} = _proc_age_seconds($$, $r{host_uptime_seconds}, $ticks);
-            $r{dxweb_uptime_seconds} = _dxweb_process_age($r{host_uptime_seconds}, $ticks);
+        if ( defined $ticks && $ticks > 0 ) {
+            $r{admin_uptime_seconds} =
+              _proc_age_seconds( $$, $r{host_uptime_seconds}, $ticks );
+            $r{dxweb_uptime_seconds} =
+              _dxweb_process_age( $r{host_uptime_seconds}, $ticks );
         }
     }
     if ( open my $fh, '<', '/proc/loadavg' ) {
@@ -1374,10 +1471,11 @@ sub local_system_snapshot {
 
 # DXSpider update reference check: official mojo first, EA3CV mirror only as fallback.
 # Runs outside the event loop and keeps its Git cache isolated from /spider/.git.
-my $UPDATE_PRIMARY       = 'git://scm.dxcluster.org/spider';
-my $UPDATE_FALLBACK      = 'https://github.com/EA3CV/dxspider.git';
-my $UPDATE_BRANCH        = 'mojo';
-my $UPDATE_CACHE_REPO    = ($DXSPIDER_ROOT . '/local_data/dxweb-update-check.git');
+my $UPDATE_PRIMARY  = 'git://scm.dxcluster.org/spider';
+my $UPDATE_FALLBACK = 'https://github.com/EA3CV/dxspider.git';
+my $UPDATE_BRANCH   = 'mojo';
+my $UPDATE_CACHE_REPO =
+  ( $DXSPIDER_ROOT . '/local_data/dxweb-update-check.git' );
 my $UPDATE_CACHE_TTL     = 300;
 my $UPDATE_FETCH_TIMEOUT = $ENV{DXWEB_UPDATE_FETCH_TIMEOUT} // 15;
 my (
@@ -1565,20 +1663,24 @@ sub update_status_async($cb) {
 # The timer runs on the event loop; SIGALRM is a last-resort safety net if
 # the loop stops dispatching callbacks. Both terminate only this Admin process.
 my $admin_shutdown_requested = 0;
+
 sub admin_shutdown_request() {
     return if $admin_shutdown_requested++;
     $SIG{ALRM} = sub { POSIX::_exit(0) };
     alarm 8;
-    Mojo::IOLoop->next_tick(sub {
-        for my $id (keys %clients) {
-            eval { release_client($id, 'server_shutdown') };
-            app->log->warn("Shutdown client cleanup: $@") if $@;
+    Mojo::IOLoop->next_tick(
+        sub {
+            for my $id ( keys %clients ) {
+                eval { release_client( $id, 'server_shutdown' ) };
+                app->log->warn("Shutdown client cleanup: $@") if $@;
+            }
+
+            # Allow asynchronous child cleanup to run briefly, but do not wait
+            # indefinitely for open WebSockets or background recurring watchers.
+            Mojo::IOLoop->timer( 3 => sub { exit 0 } );
+            Mojo::IOLoop->stop_gracefully;
         }
-        # Allow asynchronous child cleanup to run briefly, but do not wait
-        # indefinitely for open WebSockets or background recurring watchers.
-        Mojo::IOLoop->timer(3 => sub { exit 0 });
-        Mojo::IOLoop->stop_gracefully;
-    });
+    );
 }
 
 hook before_server_start => sub( $server, $app ) {
@@ -1587,7 +1689,8 @@ hook before_server_start => sub( $server, $app ) {
     v040_warm_caches();
     Mojo::IOLoop->next_tick( sub { connect_dxs(); $burst_snapshot->start } );
 };
-get '/'                   => sub($c) { $c->reply->static('index.html') };
+get '/' => sub($c) { $c->reply->static('index.html') };
+
 # Versions are sampled independently: the process version is fixed at startup,
 # whereas the installed version is read from disk on each request.
 sub read_installed_release($path) {
@@ -1598,15 +1701,15 @@ sub read_installed_release($path) {
     return $v =~ /\A\d+(?:\.\d+)+\z/ ? $v : undef;
 }
 $ENV{DXWEB_CLIENT_SCHEME} //= 'http';
-$ENV{DXWEB_CLIENT_HOST} //= '127.0.0.1';
-$ENV{DXWEB_SCHEME} //= 'http';
-my $DXWEB_CLIENT_PORT = $ENV{DXWEB_CLIENT_PORT} // 7380;
+$ENV{DXWEB_CLIENT_HOST}   //= '127.0.0.1';
+$ENV{DXWEB_SCHEME}        //= 'http';
+my $DXWEB_CLIENT_PORT   = $ENV{DXWEB_CLIENT_PORT} // 7380;
 my $software_version_ua = Mojo::UserAgent->new;
 $software_version_ua->max_redirects(0);
 $software_version_ua->request_timeout(2);
 get '/software-versions.json' => sub($c) {
-    $c->render_later;  # asynchronous DXWeb query must retain the HTTP response
-    my $root = "$FindBin::Bin/..";
+    $c->render_later;   # asynchronous DXWeb query must retain the HTTP response
+    my $root     = "$FindBin::Bin/..";
     my $versions = {
         admin => {
             running   => $ADMIN_VERSION,
@@ -1617,17 +1720,22 @@ get '/software-versions.json' => sub($c) {
             installed => read_installed_release("$root/dxweb/VERSION"),
         },
     };
+
     # Query the live DXWeb process without blocking the Admin event loop.
-    $software_version_ua->get("$ENV{DXWEB_CLIENT_SCHEME}://$ENV{DXWEB_CLIENT_HOST}:$DXWEB_CLIENT_PORT/software-version.json" => sub($ua,$tx) {
-        if ($tx->result->is_success) {
-            my $v = $tx->result->json;
-            $versions->{dxweb}{running} = $v->{running}
-                if ref($v) eq 'HASH' && defined($v->{running})
-                   && $v->{running} =~ /\A\d+(?:\.\d+)+\z/;
-        }
-        $c->res->headers->cache_control('no-store');
-        $c->render(json => $versions);
-    });
+    $software_version_ua->get(
+"$ENV{DXWEB_CLIENT_SCHEME}://$ENV{DXWEB_CLIENT_HOST}:$DXWEB_CLIENT_PORT/software-version.json"
+          => sub( $ua, $tx ) {
+            if ( $tx->result->is_success ) {
+                my $v = $tx->result->json;
+                $versions->{dxweb}{running} = $v->{running}
+                  if ref($v) eq 'HASH'
+                  && defined( $v->{running} )
+                  && $v->{running} =~ /\A\d+(?:\.\d+)+\z/;
+            }
+            $c->res->headers->cache_control('no-store');
+            $c->render( json => $versions );
+          }
+    );
 };
 get '/admin-version.json' => sub($c) {
     $c->render(
@@ -1807,344 +1915,601 @@ sub websocket_client_ip($c) {
     return $remote;
 }
 
-
 # Live Debug: per-browser bounded incremental file reader, no subprocesses.
 my %live_debug;
+
 sub live_debug_stop($id) {
     my $watch = delete $live_debug{$id} or return;
-    Mojo::IOLoop->remove($watch->{timer}) if $watch->{timer};
-    close $watch->{fh} if $watch->{fh};
+    Mojo::IOLoop->remove( $watch->{timer} ) if $watch->{timer};
+    close $watch->{fh}                      if $watch->{fh};
 }
-sub live_debug_path($source,$date) {
+
+sub live_debug_path( $source, $date ) {
     return unless $source =~ /\A(?:debug|spots|log|wwv|wcy)\z/;
-    return unless $date =~ /\A(20\d\d)-(0[1-9]|1[0-2])-([0-2]\d|3[01])\z/;
-    my ($y,$m,$d)=($1,$2,$3);
+    return unless $date   =~ /\A(20\d\d)-(0[1-9]|1[0-2])-([0-2]\d|3[01])\z/;
+    my ( $y, $m, $d ) = ( $1, $2, $3 );
     require Time::Local;
-    my $epoch=eval { Time::Local::timegm(0,0,12,$d,$m-1,$y) };
+    my $epoch = eval { Time::Local::timegm( 0, 0, 12, $d, $m - 1, $y ) };
     return unless defined $epoch;
-    my @t=gmtime($epoch);
-    return unless $t[5]+1900==$y && $t[4]+1==int($m) && $t[3]==int($d);
-    my $file=($source eq 'debug'||$source eq 'spots') ? sprintf('%03d.dat',$t[7]+1) : "$m.dat";
+    my @t = gmtime($epoch);
+    return
+      unless $t[5] + 1900 == $y && $t[4] + 1 == int($m) && $t[3] == int($d);
+    my $file =
+      ( $source eq 'debug' || $source eq 'spots' )
+      ? sprintf( '%03d.dat', $t[7] + 1 )
+      : "$m.dat";
     return "$FindBin::Bin/../local_data/$source/$y/$file";
 }
+
 sub live_debug_tick($id) {
-    my $w=$live_debug{$id} or return;
-    my $cl=$clients{$id};
-    unless ($cl && $cl->{authenticated} && ($cl->{priv}//0)>=9) { live_debug_stop($id);return }
+    my $w  = $live_debug{$id} or return;
+    my $cl = $clients{$id};
+    unless ( $cl && $cl->{authenticated} && ( $cl->{priv} // 0 ) >= 9 ) {
+        live_debug_stop($id);
+        return;
+    }
     return if $w->{paused};
-    my $path=$w->{path};
-    my @st=stat($path);
-    if (!@st || !-f _) {return}
-    if (!$w->{fh} || $w->{inode}!=$st[1] || $st[7]<$w->{offset}) {
+    my $path = $w->{path};
+    my @st   = stat($path);
+    if ( !@st || !-f _ ) { return }
+    if ( !$w->{fh} || $w->{inode} != $st[1] || $st[7] < $w->{offset} ) {
         my $first = !$w->{fh};
         close $w->{fh} if $w->{fh};
-        open my $fh,'<:raw',$path or return;
-        $w->{fh}=$fh;$w->{inode}=$st[1];$w->{offset}=0 unless $first;
-        ws_send_guarded($id,encode_json({type=>'live_debug_data',rotated=>\1,text=>"\n--- File opened: $path ---\n"}));
+        open my $fh, '<:raw', $path or return;
+        $w->{fh}     = $fh;
+        $w->{inode}  = $st[1];
+        $w->{offset} = 0 unless $first;
+        ws_send_guarded(
+            $id,
+            encode_json(
+                {
+                    type    => 'live_debug_data',
+                    rotated => \1,
+                    text    => "\n--- File opened: $path ---\n"
+                }
+            )
+        );
     }
-    my $fh=$w->{fh};
-    seek($fh,$w->{offset},0) or return;
-    my $buf='';my $n=read($fh,$buf,8192);
-    if (defined($n) && $n>0) {
-        $w->{offset}+=$n;
+    my $fh = $w->{fh};
+    seek( $fh, $w->{offset}, 0 ) or return;
+    my $buf = '';
+    my $n   = read( $fh, $buf, 8192 );
+    if ( defined($n) && $n > 0 ) {
+        $w->{offset} += $n;
         $buf =~ s/[^\x09\x0a\x0d\x20-\x7e\x80-\xff]/?/g;
-        ws_send_guarded($id,encode_json({type=>'live_debug_data',text=>$buf}));
+        ws_send_guarded( $id,
+            encode_json( { type => 'live_debug_data', text => $buf } ) );
     }
 }
-sub live_debug_start($id,$m) {
+
+sub live_debug_start( $id, $m ) {
     live_debug_stop($id);
-    my $source=$m->{source}//'debug';my $date=$m->{date}//'';
-    my $path=live_debug_path($source,$date);
-    unless ($path) {ws_send_guarded($id,encode_json({type=>'live_debug_result',status=>'error',error=>'Invalid source or date'}));return}
-    $live_debug{$id}={path=>$path,offset=>0,inode=>-1,paused=>0};
-    # Historical files start near the end, not at the beginning of multi-GB logs.
-    if (-f $path) {my @st=stat($path);$live_debug{$id}{offset}=$st[7]>32768?$st[7]-32768:0;}
-    $live_debug{$id}{timer}=Mojo::IOLoop->recurring(0.5=>sub {live_debug_tick($id)});
-    ws_send_guarded($id,encode_json({type=>'live_debug_result',status=>'ok',path=>"$source / $date"}));
+    my $source = $m->{source} // 'debug';
+    my $date   = $m->{date}   // '';
+    my $path   = live_debug_path( $source, $date );
+    unless ($path) {
+        ws_send_guarded(
+            $id,
+            encode_json(
+                {
+                    type   => 'live_debug_result',
+                    status => 'error',
+                    error  => 'Invalid source or date'
+                }
+            )
+        );
+        return;
+    }
+    $live_debug{$id} = { path => $path, offset => 0, inode => -1, paused => 0 };
+
+   # Historical files start near the end, not at the beginning of multi-GB logs.
+    if ( -f $path ) {
+        my @st = stat($path);
+        $live_debug{$id}{offset} = $st[7] > 32768 ? $st[7] - 32768 : 0;
+    }
+    $live_debug{$id}{timer} =
+      Mojo::IOLoop->recurring( 0.5 => sub { live_debug_tick($id) } );
+    ws_send_guarded(
+        $id,
+        encode_json(
+            {
+                type   => 'live_debug_result',
+                status => 'ok',
+                path   => "$source / $date"
+            }
+        )
+    );
     live_debug_tick($id);
 }
 
 # Independent log consoles. Child processes never execute in the DXSpider event loop.
 # One process per WATCH/GREP window; bounded output, concurrency and lifetime.
 my %log_windows;
-sub log_window_event($id,$wid,$status,$detail='') {
-    ws_send_guarded($id,encode_json({type=>'log_window_status',window_id=>$wid,status=>$status,detail=>$detail}));
+
+sub log_window_event( $id, $wid, $status, $detail = '' ) {
+    ws_send_guarded(
+        $id,
+        encode_json(
+            {
+                type      => 'log_window_status',
+                window_id => $wid,
+                status    => $status,
+                detail    => $detail
+            }
+        )
+    );
 }
-sub log_window_stop($id,$wid,$silent=0) {
-    my $w=delete $log_windows{$id}{$wid} or return;
-    Mojo::IOLoop->remove($w->{timer}) if $w->{timer};
-    Mojo::IOLoop->singleton->reactor->remove($w->{fh}) if $w->{fh};
-    close $w->{fh} if $w->{fh};
-    if ($w->{pid}) {
-        kill 'TERM',$w->{pid};
-        my $reaped=waitpid($w->{pid},POSIX::WNOHANG());
-        if ($reaped==0) {
-            my $child=$w->{pid};
+
+sub log_window_stop( $id, $wid, $silent = 0 ) {
+    my $w = delete $log_windows{$id}{$wid} or return;
+    Mojo::IOLoop->remove( $w->{timer} )                  if $w->{timer};
+    Mojo::IOLoop->singleton->reactor->remove( $w->{fh} ) if $w->{fh};
+    close $w->{fh}                                       if $w->{fh};
+    if ( $w->{pid} ) {
+        kill 'TERM', $w->{pid};
+        my $reaped = waitpid( $w->{pid}, POSIX::WNOHANG() );
+        if ( $reaped == 0 ) {
+            my $child = $w->{pid};
             my $reaper;
-            my $tries=0;
-            $reaper=Mojo::IOLoop->recurring(0.25=>sub {
-                if (waitpid($child,POSIX::WNOHANG())!=0) {Mojo::IOLoop->remove($reaper);return}
-                kill 'KILL',$child if ++$tries>=8;
-            });
+            my $tries = 0;
+            $reaper = Mojo::IOLoop->recurring(
+                0.25 => sub {
+                    if ( waitpid( $child, POSIX::WNOHANG() ) != 0 ) {
+                        Mojo::IOLoop->remove($reaper);
+                        return;
+                    }
+                    kill 'KILL', $child if ++$tries >= 8;
+                }
+            );
         }
     }
-    log_window_event($id,$wid,'stopped') unless $silent;
+    log_window_event( $id, $wid, 'stopped' ) unless $silent;
 }
+
 sub log_window_stop_all($id) {
-    log_window_stop($id,$_,1) for keys %{ $log_windows{$id} || {} };
+    log_window_stop( $id, $_, 1 ) for keys %{ $log_windows{$id} || {} };
     delete $log_windows{$id};
 }
-sub log_window_start($id,$m) {
-    my $wid=$m->{window_id}//'';
+
+sub log_window_start( $id, $m ) {
+    my $wid = $m->{window_id} // '';
     return unless $wid =~ /\A[a-zA-Z0-9_-]{1,40}\z/;
-    my $mode=lc($m->{mode}//'');
-    return log_window_event($id,$wid,'error','Invalid mode') unless $mode eq 'watch' || $mode eq 'grep';
-    log_window_stop($id,$wid,1);
-    my $active=scalar keys %{ $log_windows{$id} || {} };
-    return log_window_event($id,$wid,'error','Too many log windows') if $active>=6;
-    my $same=scalar grep { ($_->{mode}//'') eq $mode } values %{ $log_windows{$id} || {} };
-    return log_window_event($id,$wid,'error','Too many concurrent searches') if $same>=($mode eq 'grep'?2:4);
-    my $filter=$m->{filter}//'';
-    return log_window_event($id,$wid,'error','Filter too long') if length($filter)>512;
+    my $mode = lc( $m->{mode} // '' );
+    return log_window_event( $id, $wid, 'error', 'Invalid mode' )
+      unless $mode eq 'watch' || $mode eq 'grep';
+    log_window_stop( $id, $wid, 1 );
+    my $active = scalar keys %{ $log_windows{$id} || {} };
+    return log_window_event( $id, $wid, 'error', 'Too many log windows' )
+      if $active >= 6;
+    my $same = scalar grep { ( $_->{mode} // '' ) eq $mode }
+      values %{ $log_windows{$id} || {} };
+    return log_window_event( $id, $wid, 'error',
+        'Too many concurrent searches' )
+      if $same >= ( $mode eq 'grep' ? 2 : 4 );
+    my $filter = $m->{filter} // '';
+    return log_window_event( $id, $wid, 'error', 'Filter too long' )
+      if length($filter) > 512;
     require Text::ParseWords;
+
     # Keep regex backslashes intact: shellwords() would turn \d into d.
-    my @terms=eval { Text::ParseWords::parse_line(q{\s+},1,$filter) };
-    @terms=map { my $v=$_; $v =~ s/\A(["'])(.*)\1\z/$2/s; $v } @terms;
-    return log_window_event($id,$wid,'error','Invalid quoting') if $@;
-    return log_window_event($id,$wid,'error','Too many expressions') if @terms>12;
+    my @terms = eval { Text::ParseWords::parse_line( q{\s+}, 1, $filter ) };
+    @terms = map { my $v = $_; $v =~ s/\A(["'])(.*)\1\z/$2/s; $v } @terms;
+    return log_window_event( $id, $wid, 'error', 'Invalid quoting' ) if $@;
+    return log_window_event( $id, $wid, 'error', 'Too many expressions' )
+      if @terms > 12;
     for my $term (@terms) {
-        return log_window_event($id,$wid,'error','Invalid expression')
-            if length($term)>128 || $term =~ /\A-/ || $term =~ /\.pm\z/i || $term =~ /\(\?\??\{/ || $term eq '!';
-        my $regex=$term =~ /^!/ ? substr($term,1) : $term;
+        return log_window_event( $id, $wid, 'error', 'Invalid expression' )
+          if length($term) > 128
+          || $term =~ /\A-/
+          || $term =~ /\.pm\z/i
+          || $term =~ /\(\?\??\{/
+          || $term eq '!';
+        my $regex = $term =~ /^!/ ? substr( $term, 1 ) : $term;
         eval { qr/$regex/i };
-        return log_window_event($id,$wid,'error','Invalid regular expression') if $@;
+        return log_window_event( $id, $wid, 'error',
+            'Invalid regular expression' )
+          if $@;
     }
-    my $context=$m->{context}//0;
-    return log_window_event($id,$wid,'error','Invalid context') unless "$context" =~ /\A\d{1,2}\z/ && $context<=20;
-    my @args=($^X,"$DXSPIDER_ROOT/perl/".($mode eq 'watch'?'watchdbg':'grepdbg'));
-    if ($mode eq 'grep') {
-        my $date=$m->{date}//'';
-        return log_window_event($id,$wid,'error','Invalid date') unless live_debug_path('debug',$date);
+    my $context = $m->{context} // 0;
+    return log_window_event( $id, $wid, 'error', 'Invalid context' )
+      unless "$context" =~ /\A\d{1,2}\z/ && $context <= 20;
+    my @args = (
+        $^X,
+        "$DXSPIDER_ROOT/perl/" . ( $mode eq 'watch' ? 'watchdbg' : 'grepdbg' )
+    );
+    if ( $mode eq 'grep' ) {
+        my $date = $m->{date} // '';
+        return log_window_event( $id, $wid, 'error', 'Invalid date' )
+          unless live_debug_path( 'debug', $date );
         require Time::Local;
-        my ($y,$mo,$d)=split /-/,$date;
-        my $target=Time::Local::timegm(0,0,12,$d,$mo-1,$y);
-        my @now=gmtime(time);
-        my $today=Time::Local::timegm(0,0,12,$now[3],$now[4],$now[5]+1900);
-        my $days=int(($today-$target)/86400);
-        return log_window_event($id,$wid,'error','Date must be within the last 365 days') if $days<0 || $days>365;
-        push @args,$days;
+        my ( $y, $mo, $d ) = split /-/, $date;
+        my $target = Time::Local::timegm( 0, 0, 12, $d, $mo - 1, $y );
+        my @now    = gmtime(time);
+        my $today =
+          Time::Local::timegm( 0, 0, 12, $now[3], $now[4], $now[5] + 1900 );
+        my $days = int( ( $today - $target ) / 86400 );
+        return log_window_event( $id, $wid, 'error',
+            'Date must be within the last 365 days' )
+          if $days < 0 || $days > 365;
+        push @args, $days;
     }
-    push @args,"-$context" if $context;
-    push @args,@terms;
-    pipe(my $reader,my $writer) or return log_window_event($id,$wid,'error','Cannot create pipe');
-    my $pid=fork();
-    unless (defined $pid) {close $reader;close $writer;return log_window_event($id,$wid,'error','Cannot fork')}
-    if (!$pid) {
+    push @args, "-$context" if $context;
+    push @args, @terms;
+    pipe( my $reader, my $writer )
+      or return log_window_event( $id, $wid, 'error', 'Cannot create pipe' );
+    my $pid = fork();
+    unless ( defined $pid ) {
         close $reader;
-        open STDOUT,'>&',$writer or POSIX::_exit(126);
-        open STDERR,'>&',$writer or POSIX::_exit(126);
         close $writer;
-        select STDOUT; $|=1;  # grepdbg uses buffered print() by default.
+        return log_window_event( $id, $wid, 'error', 'Cannot fork' );
+    }
+    if ( !$pid ) {
+        close $reader;
+        open STDOUT, '>&', $writer or POSIX::_exit(126);
+        open STDERR, '>&', $writer or POSIX::_exit(126);
+        close $writer;
+        select STDOUT;
+        $| = 1;    # grepdbg uses buffered print() by default.
         chdir $DXSPIDER_ROOT or POSIX::_exit(126);
-        $ENV{DXSPIDER_ROOT}=$DXSPIDER_ROOT;
+        $ENV{DXSPIDER_ROOT} = $DXSPIDER_ROOT;
         eval { POSIX::nice(10) };
         exec { $args[0] } @args;
         POSIX::_exit(127);
     }
     close $writer;
-    my $flags=fcntl($reader,F_GETFL,0);
-    fcntl($reader,F_SETFL,$flags|O_NONBLOCK);
-    my $w={pid=>$pid,fh=>$reader,mode=>$mode,bytes=>0,started=>time,window_started=>time,window_bytes=>0};
-    $log_windows{$id}{$wid}=$w;
-    my $reactor=Mojo::IOLoop->singleton->reactor;
-    $reactor->io($reader=>sub {
-        return unless $log_windows{$id}{$wid} && $log_windows{$id}{$wid}==$w;
-        my $buf='';my $n=sysread($reader,$buf,4096);
-        if (defined $n && $n>0) {
-            $w->{bytes}+=$n;
-            if (time-$w->{window_started}>=60) {
-                $w->{window_started}=time;
-                $w->{window_bytes}=0;
+    my $flags = fcntl( $reader, F_GETFL, 0 );
+    fcntl( $reader, F_SETFL, $flags | O_NONBLOCK );
+    my $w = {
+        pid            => $pid,
+        fh             => $reader,
+        mode           => $mode,
+        bytes          => 0,
+        started        => time,
+        window_started => time,
+        window_bytes   => 0
+    };
+    $log_windows{$id}{$wid} = $w;
+    my $reactor = Mojo::IOLoop->singleton->reactor;
+    $reactor->io(
+        $reader => sub {
+            return
+              unless $log_windows{$id}{$wid} && $log_windows{$id}{$wid} == $w;
+            my $buf = '';
+            my $n   = sysread( $reader, $buf, 4096 );
+            if ( defined $n && $n > 0 ) {
+                $w->{bytes} += $n;
+                if ( time - $w->{window_started} >= 60 ) {
+                    $w->{window_started} = time;
+                    $w->{window_bytes}   = 0;
+                }
+                $w->{window_bytes} += $n;
+                if ( $mode eq 'watch' && $w->{window_bytes} > 4194304 ) {
+                    log_window_event( $id, $wid, 'truncated',
+'WATCH exceeded 4 MiB/min; stopped to protect the admin server'
+                    );
+                    log_window_stop( $id, $wid, 1 );
+                    return;
+                }
+                if ( $w->{bytes} > 1048576 && $mode eq 'grep' ) {
+                    log_window_event( $id, $wid, 'truncated',
+                        'Search exceeded 1 MiB' );
+                    log_window_stop( $id, $wid, 1 );
+                    return;
+                }
+                $buf =~ s/[^\x09\x0a\x0d\x20-\x7e\x80-\xff]/?/g;
+                ws_send_guarded(
+                    $id,
+                    encode_json(
+                        {
+                            type      => 'log_window_data',
+                            window_id => $wid,
+                            text      => $buf
+                        }
+                    )
+                );
             }
-            $w->{window_bytes}+=$n;
-            if ($mode eq 'watch' && $w->{window_bytes}>4194304) {
-                log_window_event($id,$wid,'truncated','WATCH exceeded 4 MiB/min; stopped to protect the admin server');
-                log_window_stop($id,$wid,1);return;
+            elsif ( defined($n) && $n == 0 ) {
+                log_window_stop( $id, $wid, 1 );
+                log_window_event( $id, $wid, 'finished' );
             }
-            if ($w->{bytes}>1048576 && $mode eq 'grep') {
-                log_window_event($id,$wid,'truncated','Search exceeded 1 MiB');
-                log_window_stop($id,$wid,1);return;
+            elsif ( $! != EAGAIN && $! != EWOULDBLOCK && $! != EINTR ) {
+                log_window_stop( $id, $wid, 1 );
+                log_window_event( $id, $wid, 'error', 'Read failed' );
             }
-            $buf =~ s/[^\x09\x0a\x0d\x20-\x7e\x80-\xff]/?/g;
-            ws_send_guarded($id,encode_json({type=>'log_window_data',window_id=>$wid,text=>$buf}));
-        } elsif (defined($n) && $n==0) {
-            log_window_stop($id,$wid,1);
-            log_window_event($id,$wid,'finished');
-        } elsif ($! != EAGAIN && $! != EWOULDBLOCK && $! != EINTR) {
-            log_window_stop($id,$wid,1);
-            log_window_event($id,$wid,'error','Read failed');
         }
-    })->watch($reader,1,0);
-    $w->{timer}=Mojo::IOLoop->recurring(1=>sub {
-        return unless $log_windows{$id}{$wid} && $log_windows{$id}{$wid}==$w;
-        if ($mode eq 'grep' && time-$w->{started}>30) {
-            log_window_stop($id,$wid,1);log_window_event($id,$wid,'timeout','Search timed out');
+    )->watch( $reader, 1, 0 );
+    $w->{timer} = Mojo::IOLoop->recurring(
+        1 => sub {
+            return
+              unless $log_windows{$id}{$wid} && $log_windows{$id}{$wid} == $w;
+            if ( $mode eq 'grep' && time - $w->{started} > 30 ) {
+                log_window_stop( $id, $wid, 1 );
+                log_window_event( $id, $wid, 'timeout', 'Search timed out' );
+            }
         }
-    });
-    log_window_event($id,$wid,'running');
+    );
+    log_window_event( $id, $wid, 'running' );
 }
 
 # Terminal Linux: one local OpenSSH session per authenticated SYSOP WebSocket.
 # Never log terminal input or output (passwords and passphrases can traverse PTY).
 my %terminal_sessions;
-sub terminal_event($id,$status,$message='') {
-    ws_send_guarded($id,encode_json({type=>'terminal_status',status=>$status,message=>$message}));
+
+sub terminal_event( $id, $status, $message = '' ) {
+    ws_send_guarded(
+        $id,
+        encode_json(
+            {
+                type    => 'terminal_status',
+                status  => $status,
+                message => $message
+            }
+        )
+    );
 }
+
 sub terminal_default_user() {
-    my $root=File::Spec->canonpath($DXSPIDER_ROOT);
+    my $root = File::Spec->canonpath($DXSPIDER_ROOT);
     my %uids;
-    for my $entry (glob '/proc/[0-9]*/cmdline') {
-        my ($pid)=$entry =~ m{/proc/(\d+)/cmdline\z}; next unless $pid;
-        open my $fh,'<',$entry or next;
-        local $/; my $cmd=<$fh>//''; close $fh;
+    for my $entry ( glob '/proc/[0-9]*/cmdline' ) {
+        my ($pid) = $entry =~ m{/proc/(\d+)/cmdline\z};
+        next unless $pid;
+        open my $fh, '<', $entry or next;
+        local $/;
+        my $cmd = <$fh> // '';
+        close $fh;
         next unless $cmd =~ m{(?:^|\0)(?:[^\0]*/)?(?:perl|cluster\.pl)(?:\0|$)};
         next unless $cmd =~ /cluster\.pl/;
-        my $cwd=readlink("/proc/$pid/cwd")//'';
-        next unless File::Spec->canonpath($cwd) eq $root || File::Spec->canonpath($cwd) eq "$root/perl";
-        open my $sf,'<',"/proc/$pid/status" or next;
-        my $st=do{local $/;<$sf>};close $sf;
-        my ($uid)=$st =~ /^Uid:\s+(\d+)\s+(\d+)/m;
-        my ($euid)=$st =~ /^Uid:\s+\d+\s+(\d+)/m;
-        $uids{$euid}=1 if defined $euid;
+        my $cwd = readlink("/proc/$pid/cwd") // '';
+        next
+          unless File::Spec->canonpath($cwd) eq $root
+          || File::Spec->canonpath($cwd) eq "$root/perl";
+        open my $sf, '<', "/proc/$pid/status" or next;
+        my $st = do { local $/; <$sf> };
+        close $sf;
+        my ($uid)  = $st =~ /^Uid:\s+(\d+)\s+(\d+)/m;
+        my ($euid) = $st =~ /^Uid:\s+\d+\s+(\d+)/m;
+        $uids{$euid} = 1 if defined $euid;
     }
-    return unless keys(%uids)==1;
-    my ($uid)=keys %uids;
-    return scalar(getpwuid($uid));
+    return unless keys(%uids) == 1;
+    my ($uid) = keys %uids;
+    return scalar( getpwuid($uid) );
 }
-sub terminal_stop($id,$silent=0) {
-    my $session=delete $terminal_sessions{$id} or return;
-    Mojo::IOLoop->remove($session->{reaper}) if $session->{reaper};
-    Mojo::IOLoop->remove($session->{writer}) if $session->{writer};
-    eval { Mojo::IOLoop->singleton->reactor->remove($session->{pty}) };
+
+sub terminal_stop( $id, $silent = 0 ) {
+    my $session = delete $terminal_sessions{$id} or return;
+    Mojo::IOLoop->remove( $session->{reaper} ) if $session->{reaper};
+    Mojo::IOLoop->remove( $session->{writer} ) if $session->{writer};
+    eval { Mojo::IOLoop->singleton->reactor->remove( $session->{pty} ) };
     close $session->{pty};
-    my $pid=$session->{pid};
-    if ($pid && waitpid($pid,POSIX::WNOHANG())==0) {
+    my $pid = $session->{pid};
+    if ( $pid && waitpid( $pid, POSIX::WNOHANG() ) == 0 ) {
         kill 'TERM', -$pid;
-        # Escalation timer is deliberately short; do not leave SSH children behind.
-        Mojo::IOLoop->timer(1.5=>sub {
-            if (waitpid($pid,POSIX::WNOHANG())==0) {kill 'KILL',-$pid;waitpid($pid,POSIX::WNOHANG())}
-        });
+
+     # Escalation timer is deliberately short; do not leave SSH children behind.
+        Mojo::IOLoop->timer(
+            1.5 => sub {
+                if ( waitpid( $pid, POSIX::WNOHANG() ) == 0 ) {
+                    kill 'KILL', -$pid;
+                    waitpid( $pid, POSIX::WNOHANG() );
+                }
+            }
+        );
     }
-    terminal_event($id,'disconnected') unless $silent;
+    terminal_event( $id, 'disconnected' ) unless $silent;
 }
-sub terminal_start($id,$m) {
-    terminal_stop($id,1);
-    my $user=$m->{user}//'';
-    $user=terminal_default_user() if $user eq '';
-    unless (defined($user) && $user =~ /\A[a-z_][a-z0-9_.-]{0,31}\z/i && defined(getpwnam($user))) {
-        terminal_event($id,'error','Invalid Unix account or DXSpider identity unavailable');return;
+
+sub terminal_start( $id, $m ) {
+    terminal_stop( $id, 1 );
+    my $user = $m->{user} // '';
+    $user = terminal_default_user() if $user eq '';
+    unless ( defined($user)
+        && $user =~ /\A[a-z_][a-z0-9_.-]{0,31}\z/i
+        && defined( getpwnam($user) ) )
+    {
+        terminal_event( $id, 'error',
+            'Invalid Unix account or DXSpider identity unavailable' );
+        return;
     }
     my $port = $m->{port} // 22;
-    unless ($port =~ /\A[0-9]{1,5}\z/ && $port >= 1 && $port <= 65535) {
-        terminal_event($id,'error','Invalid SSH port');return;
+    unless ( $port =~ /\A[0-9]{1,5}\z/ && $port >= 1 && $port <= 65535 ) {
+        terminal_event( $id, 'error', 'Invalid SSH port' );
+        return;
     }
-    my @pw=getpwnam($user);
-    my ($uid,$gid,$home)=@pw[2,3,7];
-    unless (@pw >= 8 && defined($uid) && $uid =~ /\A\d+\z/
-            && defined($gid) && $gid =~ /\A\d+\z/
-            && defined($home) && length($home) && -d $home) {
-        terminal_event($id,'error','Unix account has incomplete uid/gid/home information');return;
+    my @pw = getpwnam($user);
+    my ( $uid, $gid, $home ) = @pw[ 2, 3, 7 ];
+    unless ( @pw >= 8
+        && defined($uid)
+        && $uid =~ /\A\d+\z/
+        && defined($gid)
+        && $gid =~ /\A\d+\z/
+        && defined($home)
+        && length($home)
+        && -d $home )
+    {
+        terminal_event( $id, 'error',
+            'Unix account has incomplete uid/gid/home information' );
+        return;
     }
-    my $pty=eval{IO::Pty->new};
-    unless($pty){terminal_event($id,'error','IO::Pty unavailable');return}
-    my $pid=fork();
-    unless(defined $pid){close $pty;terminal_event($id,'error','Cannot fork SSH');return}
-    if($pid==0) {
+    my $pty = eval { IO::Pty->new };
+    unless ($pty) {
+        terminal_event( $id, 'error', 'IO::Pty unavailable' );
+        return;
+    }
+    my $pid = fork();
+    unless ( defined $pid ) {
+        close $pty;
+        terminal_event( $id, 'error', 'Cannot fork SSH' );
+        return;
+    }
+    if ( $pid == 0 ) {
         eval {
             POSIX::setsid();
-            # make_slave_controlling_terminal returns a status, not a filehandle.
-            $pty->make_slave_controlling_terminal() or die "controlling PTY: $!";
-            my $slave=$pty->slave() or die "PTY slave: $!";
-            open(STDIN,'<&',$slave) or die "PTY stdin: $!";
-            open(STDOUT,'>&',$slave) or die "PTY stdout: $!";
-            open(STDERR,'>&',$slave) or die "PTY stderr: $!";
+
+           # make_slave_controlling_terminal returns a status, not a filehandle.
+            $pty->make_slave_controlling_terminal()
+              or die "controlling PTY: $!";
+            my $slave = $pty->slave() or die "PTY slave: $!";
+            open( STDIN,  '<&', $slave ) or die "PTY stdin: $!";
+            open( STDOUT, '>&', $slave ) or die "PTY stdout: $!";
+            open( STDERR, '>&', $slave ) or die "PTY stderr: $!";
             close $slave;
             close $pty;
+
             # The SSH target account (-l) is independent of the local SSH
             # client identity. An unprivileged service must not attempt to
             # switch to the target UID/GID or borrow its HOME/known_hosts.
             # Preserve the established root-service behavior when possible.
-            if ($> == 0 && ($uid != 0 || $gid != 0)) {
+            if ( $> == 0 && ( $uid != 0 || $gid != 0 ) ) {
                 POSIX::setgid($gid) == 0
-                    or die "Cannot switch to Unix group $gid: $!";
+                  or die "Cannot switch to Unix group $gid: $!";
                 POSIX::setuid($uid) == 0
-                    or die "Cannot switch to Unix user $user (UID $uid): $!";
+                  or die "Cannot switch to Unix user $user (UID $uid): $!";
             }
-            my @client_pw = getpwuid($>);
+            my @client_pw   = getpwuid($>);
             my $client_home = $client_pw[7];
             die "SSH client identity has no valid home directory"
-                unless defined($client_home) && length($client_home) && -d $client_home;
-            $ENV{HOME} = $client_home;
-            $ENV{USER} = $client_pw[0];
+              unless defined($client_home)
+              && length($client_home)
+              && -d $client_home;
+            $ENV{HOME}    = $client_home;
+            $ENV{USER}    = $client_pw[0];
             $ENV{LOGNAME} = $client_pw[0];
             chdir($client_home) or die "chdir SSH client home: $!";
-            $ENV{TERM}='xterm-256color';
+            $ENV{TERM} = 'xterm-256color';
             delete @ENV{qw(SSH_ASKPASS SSH_ASKPASS_REQUIRE DISPLAY)};
-            exec('/usr/bin/ssh','-tt','-o','BatchMode=no','-o','StrictHostKeyChecking=ask',
-                 '-o','ConnectTimeout=10','-o','ForwardAgent=no','-o','ClearAllForwardings=yes',
-                 '-o','PermitLocalCommand=no','-o','RequestTTY=force',
-                 '-p',$port,'-l',$user,'localhost');
+            exec(
+                '/usr/bin/ssh', '-tt',
+                '-o',           'BatchMode=no',
+                '-o',           'StrictHostKeyChecking=ask',
+                '-o',           'ConnectTimeout=10',
+                '-o',           'ForwardAgent=no',
+                '-o',           'ClearAllForwardings=yes',
+                '-o',           'PermitLocalCommand=no',
+                '-o',           'RequestTTY=force',
+                '-p',           $port,
+                '-l',           $user,
+                'localhost'
+            );
         };
+
         # Errors on the child side must be visible in the browser terminal.
-        if ($@) { my $err=$@; syswrite(STDERR,"Terminal startup failed: $err"); }
+        if ($@) {
+            my $err = $@;
+            syswrite( STDERR, "Terminal startup failed: $err" );
+        }
         POSIX::_exit(127);
     }
     $pty->close_slave();
-    my $flags=fcntl($pty,F_GETFL,0);
-    fcntl($pty,F_SETFL,$flags|O_NONBLOCK) if defined $flags;
-    my $session={pty=>$pty,pid=>$pid,queue=>''};
-    $terminal_sessions{$id}=$session;
-    Mojo::IOLoop->singleton->reactor->io($pty=>sub {
-        return unless $terminal_sessions{$id} && $terminal_sessions{$id}==$session;
-        my $buf=''; my $n=sysread($pty,$buf,8192);
-        if(defined($n) && $n>0) {
-            ws_send_guarded($id,encode_json({type=>'terminal_data',data=>encode_base64($buf,'')}));
-        } elsif(defined($n) && $n==0 || !defined($n) && !$!{EAGAIN} && !$!{EWOULDBLOCK} && !$!{EINTR}) {
-            terminal_stop($id);
+    my $flags = fcntl( $pty, F_GETFL, 0 );
+    fcntl( $pty, F_SETFL, $flags | O_NONBLOCK ) if defined $flags;
+    my $session = { pty => $pty, pid => $pid, queue => '' };
+    $terminal_sessions{$id} = $session;
+    Mojo::IOLoop->singleton->reactor->io(
+        $pty => sub {
+            return
+              unless $terminal_sessions{$id}
+              && $terminal_sessions{$id} == $session;
+            my $buf = '';
+            my $n   = sysread( $pty, $buf, 8192 );
+            if ( defined($n) && $n > 0 ) {
+                ws_send_guarded(
+                    $id,
+                    encode_json(
+                        {
+                            type => 'terminal_data',
+                            data => encode_base64( $buf, '' )
+                        }
+                    )
+                );
+            }
+            elsif ( defined($n) && $n == 0
+                || !defined($n)
+                && !$!{EAGAIN}
+                && !$!{EWOULDBLOCK}
+                && !$!{EINTR} )
+            {
+                terminal_stop($id);
+            }
         }
-    });
-    Mojo::IOLoop->singleton->reactor->watch($pty,1,0);
-    $session->{writer}=Mojo::IOLoop->recurring(0.04=>sub {
-        return unless $terminal_sessions{$id} && $terminal_sessions{$id}==$session;
-        return unless length $session->{queue};
-        my $n=syswrite($pty,$session->{queue},8192);
-        if(defined($n) && $n>0){substr($session->{queue},0,$n,'')}
-        elsif(!defined($n) && !$!{EAGAIN} && !$!{EWOULDBLOCK} && !$!{EINTR}){terminal_stop($id)}
-    });
-    $session->{reaper}=Mojo::IOLoop->recurring(1=>sub {
-        return unless $terminal_sessions{$id} && $terminal_sessions{$id}==$session;
-        terminal_stop($id) if waitpid($pid,POSIX::WNOHANG())==$pid;
-    });
+    );
+    Mojo::IOLoop->singleton->reactor->watch( $pty, 1, 0 );
+    $session->{writer} = Mojo::IOLoop->recurring(
+        0.04 => sub {
+            return
+              unless $terminal_sessions{$id}
+              && $terminal_sessions{$id} == $session;
+            return unless length $session->{queue};
+            my $n = syswrite( $pty, $session->{queue}, 8192 );
+            if ( defined($n) && $n > 0 ) {
+                substr( $session->{queue}, 0, $n, '' );
+            }
+            elsif (!defined($n)
+                && !$!{EAGAIN}
+                && !$!{EWOULDBLOCK}
+                && !$!{EINTR} )
+            {
+                terminal_stop($id);
+            }
+        }
+    );
+    $session->{reaper} = Mojo::IOLoop->recurring(
+        1 => sub {
+            return
+              unless $terminal_sessions{$id}
+              && $terminal_sessions{$id} == $session;
+            terminal_stop($id) if waitpid( $pid, POSIX::WNOHANG() ) == $pid;
+        }
+    );
+
     # This only confirms the SSH process started, not successful authentication.
-    terminal_event($id,'starting',"SSH localhost:$port as $user");
+    terminal_event( $id, 'starting', "SSH localhost:$port as $user" );
 }
-sub terminal_input($id,$m) {
-    my $s=$terminal_sessions{$id} or return;
-    my $b=$m->{data}//'';
-    return unless $b =~ /\A[A-Za-z0-9+\/=]*\z/ && length($b)<=16384;
-    my $bytes=eval{decode_base64($b)};
-    return unless defined $bytes && length($bytes)<=8192;
-    if(length($s->{queue})+length($bytes)>32768){terminal_stop($id);return}
-    $s->{queue}.=$bytes;
+
+sub terminal_input( $id, $m ) {
+    my $s = $terminal_sessions{$id} or return;
+    my $b = $m->{data} // '';
+    return unless $b =~ /\A[A-Za-z0-9+\/=]*\z/ && length($b) <= 16384;
+    my $bytes = eval { decode_base64($b) };
+    return unless defined $bytes && length($bytes) <= 8192;
+    if ( length( $s->{queue} ) + length($bytes) > 32768 ) {
+        terminal_stop($id);
+        return;
+    }
+    $s->{queue} .= $bytes;
 }
-sub terminal_resize($id,$m) {
-    my $s=$terminal_sessions{$id} or return;
-    my ($cols,$rows)=($m->{cols}//0,$m->{rows}//0);
-    return unless $cols =~ /\A\d+\z/ && $rows =~ /\A\d+\z/ && $cols>=20 && $cols<=300 && $rows>=5 && $rows<=120;
-    my $winsize=pack('SSSS',$rows,$cols,0,0);
-    eval {require 'sys/ioctl.ph'; no warnings 'experimental'; ioctl($s->{pty},&TIOCSWINSZ,$winsize)};
+
+sub terminal_resize( $id, $m ) {
+    my $s = $terminal_sessions{$id} or return;
+    my ( $cols, $rows ) = ( $m->{cols} // 0, $m->{rows} // 0 );
+    return
+         unless $cols =~ /\A\d+\z/
+      && $rows =~ /\A\d+\z/
+      && $cols >= 20
+      && $cols <= 300
+      && $rows >= 5
+      && $rows <= 120;
+    my $winsize = pack( 'SSSS', $rows, $cols, 0, 0 );
+    eval {
+        require 'sys/ioctl.ph';
+        no warnings 'experimental';
+        ioctl( $s->{pty}, &TIOCSWINSZ, $winsize );
+    };
     kill 'WINCH', -$s->{pid};
 }
+
+get '/turnstile-config.json' => sub($c) {
+    $c->res->headers->cache_control('no-store');
+    my $settings = admin_turnstile_settings();
+    $c->render(
+        json => {
+            enabled  => ( $settings && !$settings->{broken} ) ? \1 : \0,
+            site_key => ( $settings && !$settings->{broken} )
+            ? $settings->{site_key}
+            : ''
+        }
+    );
+};
 
 websocket '/ws' => sub($c) {
     unless ( websocket_origin_allowed($c) ) {
@@ -2170,29 +2535,48 @@ websocket '/ws' => sub($c) {
     $s->high_water_mark($MAX_WS_MESSAGE_BYTES);
     my $ip = websocket_client_ip($c);
     $ip =~ s/^::ffff://i;
+    unless ( $admission->connect($ip) ) {
+        $c->finish( 1013 => 'per-IP connection limit' );
+        return;
+    }
     $clients{$id} = { tx => $tx, ip => $ip, authenticated => 0 };
+    $clients{$id}{opened_at} = time;
     $c->inactivity_timeout(0);
     my $last_pong = time;
+
     # Mojolicious 9.49 emits 'frame' for control frames, not 'pong'.
-    $tx->on(frame => sub {
-        my ($tx, $frame) = @_;
-        return unless $frame->[4] == 10; # WS_PONG
-        $last_pong = time;
-    });
-    my $heartbeat = Mojo::IOLoop->recurring($WS_PING_INTERVAL_SEC => sub {
-        return unless exists $clients{$id};
-        if (time - $last_pong > $WS_PONG_GRACE_SEC) {
-            warn "DXWEB_ADMIN_WS_CLOSE client=$id reason=heartbeat_timeout pong_age=" . (time - $last_pong) . "\n";
-            $c->finish(1001 => 'heartbeat timeout');
-            return;
+    $tx->on(
+        frame => sub {
+            my ( $tx, $frame ) = @_;
+            return unless $frame->[4] == 10;    # WS_PONG
+            $last_pong = time;
         }
-        my $ok = eval { $tx->send([1, 0, 0, 0, 9, 'dxweb-admin']); 1 };
-        if (!$ok) {
-            warn "DXWEB_ADMIN_WS_PING_ERROR client=$id error=" . ($@ || 'unknown') . "\n";
-            $c->finish(1011 => 'ping failure');
-            return;
+    );
+    my $heartbeat = Mojo::IOLoop->recurring(
+        $WS_PING_INTERVAL_SEC => sub {
+            return unless exists $clients{$id};
+            if ( !$clients{$id}{authenticated}
+                && time - $clients{$id}{opened_at} > $WS_UNVERIFIED_SEC )
+            {
+                $c->finish( 1008 => 'authentication deadline' );
+                return;
+            }
+            if ( time - $last_pong > $WS_PONG_GRACE_SEC ) {
+                warn
+"DXWEB_ADMIN_WS_CLOSE client=$id reason=heartbeat_timeout pong_age="
+                  . ( time - $last_pong ) . "\n";
+                $c->finish( 1001 => 'heartbeat timeout' );
+                return;
+            }
+            my $ok = eval { $tx->send( [ 1, 0, 0, 0, 9, 'dxweb-admin' ] ); 1 };
+            if ( !$ok ) {
+                warn "DXWEB_ADMIN_WS_PING_ERROR client=$id error="
+                  . ( $@ || 'unknown' ) . "\n";
+                $c->finish( 1011 => 'ping failure' );
+                return;
+            }
         }
-    });
+    );
     ws_send_guarded( $id, encode_json( client_status($id) ) );
     $c->on(
         message => sub( $c, $raw ) {
@@ -2217,24 +2601,96 @@ websocket '/ws' => sub($c) {
                       && $_->{client} == $id
                       && ( $_->{action} // '' ) eq 'auth'
                 } values %pending;
+                unless ( $admission->auth_allowed( $clients{$id}{ip} ) ) {
+                    $c->finish( 1008 => 'authentication rate limit' );
+                    return;
+                }
                 my $call = $m->{call} // '';
                 my $pass = exists $m->{password} ? $m->{password} : undef;
-                dxs_request(
-                    $id, 'auth',
-                    {
-                        type     => 'auth',
-                        call     => $call,
-                        password => $pass,
-                        takeover_token => $m->{takeover_token},
-                        ip       => $clients{$id}{ip}
+                my $forward_auth = sub {
+                    return unless $clients{$id} && $state{state} eq 'ready';
+                    return if grep {
+                             defined( $_->{client} )
+                          && $_->{client} == $id
+                          && ( $_->{action} // '' ) eq 'auth'
+                    } values %pending;
+                    dxs_request(
+                        $id, 'auth',
+                        {
+                            type           => 'auth',
+                            call           => $call,
+                            password       => $pass,
+                            takeover_token => $m->{takeover_token},
+                            ip             => $clients{$id}{ip}
+                        }
+                    );
+                };
+                my $settings = admin_turnstile_settings();
+                if ( $settings->{broken} ) {
+                    ws_send_guarded(
+                        $id,
+                        encode_json(
+                            {
+                                type   => 'auth',
+                                status => 'error',
+                                error  => 'Turnstile configuration unavailable'
+                            }
+                        )
+                    );
+                    return;
+                }
+                if ( $clients{$id}{turnstile_ok} ) {
+                    $forward_auth->();
+                    return;
+                }
+                unless ( $turnstile_gate->reserve($id) eq 'reserved' ) {
+                    ws_send_guarded(
+                        $id,
+                        encode_json(
+                            {
+                                type   => 'auth',
+                                status => 'error',
+                                error  => 'Human verification busy'
+                            }
+                        )
+                    );
+                    return;
+                }
+                my $verifier =
+                  DXWeb::Turnstile->new( secret => $settings->{secret_key} );
+                $verifier->verify_async(
+                    token    => ( $m->{turnstile_token} // '' ),
+                    remoteip => $clients{$id}{ip},
+                    callback => sub {
+                        $turnstile_gate->release($id);
+                        return unless $clients{$id};
+                        my ($result) = @_;
+                        if ( DXWeb::TurnstileGate->decide($result) eq 'allow' )
+                        {
+                            $clients{$id}{turnstile_ok} = 1;
+                            $forward_auth->();
+                        }
+                        else {
+                            ws_send_guarded(
+                                $id,
+                                encode_json(
+                                    {
+                                        type   => 'auth',
+                                        status => 'error',
+                                        error  => 'Human verification failed'
+                                    }
+                                )
+                            );
+                        }
                     }
                 );
                 return;
             }
             if ( $t eq 'logout' ) {
                 return unless $clients{$id}{authenticated};
+
                 # Do not retain an interactive Unix shell during logout.
-                terminal_stop($id, 1);
+                terminal_stop( $id, 1 );
 
                 # Do not queue duplicate logout operations for this connection.
                 return if grep {
@@ -2276,30 +2732,52 @@ websocket '/ws' => sub($c) {
                 );
                 return;
             }
-            if ($t =~ /\Aterminal_(?:connect|disconnect|input|resize)\z/ && !$enable_linux_terminal) {
-                terminal_event($id,'error','Linux terminal is disabled by server configuration');
+            if ( $t =~ /\Aterminal_(?:connect|disconnect|input|resize)\z/
+                && !$enable_linux_terminal )
+            {
+                terminal_event( $id, 'error',
+                    'Linux terminal is disabled by server configuration' );
                 return;
             }
-            if ($t eq 'terminal_connect') {terminal_start($id,$m);return}
-            if ($t eq 'terminal_disconnect') {terminal_stop($id);return}
-            if ($t eq 'terminal_input') {terminal_input($id,$m);return}
-            if ($t eq 'terminal_resize') {terminal_resize($id,$m);return}
-            if ($t eq 'log_window_start') {
-                my $wid=$m->{window_id}//'';
-                my $ok=eval {log_window_start($id,$m);1};
+            if ( $t eq 'terminal_connect' ) {
+                terminal_start( $id, $m );
+                return;
+            }
+            if ( $t eq 'terminal_disconnect' ) { terminal_stop($id); return }
+            if ( $t eq 'terminal_input' ) { terminal_input( $id, $m ); return }
+            if ( $t eq 'terminal_resize' ) {
+                terminal_resize( $id, $m );
+                return;
+            }
+            if ( $t eq 'log_window_start' ) {
+                my $wid = $m->{window_id} // '';
+                my $ok  = eval { log_window_start( $id, $m ); 1 };
                 unless ($ok) {
-                    my $err=$@||'unknown error';
-                    app->log->error('log_window_start failed: '.$err);
-                    log_window_event($id,$wid,'error','Server error; see DXWeb Admin journal') if $wid =~ /\A[a-zA-Z0-9_-]{1,40}\z/;
+                    my $err = $@ || 'unknown error';
+                    app->log->error( 'log_window_start failed: ' . $err );
+                    log_window_event( $id, $wid, 'error',
+                        'Server error; see DXWeb Admin journal' )
+                      if $wid =~ /\A[a-zA-Z0-9_-]{1,40}\z/;
                 }
                 return;
             }
-            if ($t eq 'log_window_stop') {my $wid=$m->{window_id}//'';log_window_stop($id,$wid) if $wid =~ /\A[a-zA-Z0-9_-]{1,40}\z/;return}
-            if ($t eq 'live_debug_start') {live_debug_start($id,$m);return}
-            if ($t eq 'live_debug_stop') {live_debug_stop($id);return}
-            if ($t eq 'live_debug_pause') {
-                my $w=$live_debug{$id};
-                if ($w) { $w->{paused}=$m->{paused} ? 1 : 0; live_debug_tick($id) unless $w->{paused}; }
+            if ( $t eq 'log_window_stop' ) {
+                my $wid = $m->{window_id} // '';
+                log_window_stop( $id, $wid )
+                  if $wid =~ /\A[a-zA-Z0-9_-]{1,40}\z/;
+                return;
+            }
+            if ( $t eq 'live_debug_start' ) {
+                live_debug_start( $id, $m );
+                return;
+            }
+            if ( $t eq 'live_debug_stop' ) { live_debug_stop($id); return }
+            if ( $t eq 'live_debug_pause' ) {
+                my $w = $live_debug{$id};
+                if ($w) {
+                    $w->{paused} = $m->{paused} ? 1 : 0;
+                    live_debug_tick($id) unless $w->{paused};
+                }
                 return;
             }
             if ( $t =~ /^reg_(?:pending|history)$/ ) {
@@ -2331,11 +2809,13 @@ websocket '/ws' => sub($c) {
                 unless ( defined $pending_id ) {
                     ws_send_guarded(
                         $id,
-                        encode_json({
-                            type   => $t . '_result',
-                            status => 'error',
-                            error  => 'request_not_accepted'
-                        })
+                        encode_json(
+                            {
+                                type   => $t . '_result',
+                                status => 'error',
+                                error  => 'request_not_accepted'
+                            }
+                        )
                     );
                 }
                 return;
@@ -2613,7 +3093,12 @@ websocket '/ws' => sub($c) {
             }
         }
     );
-    $c->on( finish => sub { Mojo::IOLoop->remove($heartbeat); release_client( $id, 'browser_finish' ) } );
+    $c->on(
+        finish => sub {
+            Mojo::IOLoop->remove($heartbeat);
+            release_client( $id, 'browser_finish' );
+        }
+    );
 };
 
 # DXWeb Admin uses 7381 by default when started directly without an
@@ -2621,11 +3106,11 @@ websocket '/ws' => sub($c) {
 #   perl admin.pl daemon -l http://127.0.0.1:7310
 if ( !@ARGV ) {
     my $listen = "$ENV{DXWEB_SCHEME}://$DXWEB_HOST:$DXWEB_PORT";
-    if (($ENV{DXWEB_SCHEME} // 'http') eq 'https') {
+    if ( ( $ENV{DXWEB_SCHEME} // 'http' ) eq 'https' ) {
         die "DXWEB_TLS_CERT and DXWEB_TLS_KEY required for HTTPS\n"
-            unless $ENV{DXWEB_TLS_CERT} && $ENV{DXWEB_TLS_KEY};
-        $listen .= '?cert=' . $ENV{DXWEB_TLS_CERT}
-                 . '&key=' . $ENV{DXWEB_TLS_KEY};
+          unless $ENV{DXWEB_TLS_CERT} && $ENV{DXWEB_TLS_KEY};
+        $listen .=
+          '?cert=' . $ENV{DXWEB_TLS_CERT} . '&key=' . $ENV{DXWEB_TLS_KEY};
     }
     app->start( 'daemon', '-l', $listen );
 }
