@@ -8,7 +8,7 @@
 // Release version is provided by /admin-version.json (dxweb-admin/VERSION).
 'use strict';
 const $=id=>document.getElementById(id);
-let adminCaptchaEnabled=true,adminCaptchaReady=false,adminCaptchaWidget=null,adminCaptchaPassed=false;
+let adminCaptchaEnabled=null,adminCaptchaReady=false,adminCaptchaWidget=null,adminCaptchaPassed=false;
 let ws=null,authenticated=false,logoutPending=false,authUser=null,authPriv=0,activeSection='operation',activePanel='spots';const SYSOP_SECTIONS=new Set(['registration','supervision','metrics','timeline','liveDebugSection','terminalSection','networkChatSection']);
 // Server-authoritative terminal feature flag (default enabled for compatibility).
 let linuxTerminalEnabled=true;
@@ -163,21 +163,57 @@ function adminCaptchaRender(){
 async function adminCaptchaInit(){
  try {
   const response=await fetch('./turnstile-config.json',{cache:'no-store'});
+  if(!response.ok)throw new Error('Turnstile configuration request failed');
   const cfg=await response.json();
-  if(!response.ok||!cfg.enabled||!cfg.site_key)throw new Error('Turnstile unavailable');
+  if(typeof cfg.enabled!=='boolean')throw new Error('Invalid Turnstile configuration');
+  adminCaptchaEnabled=cfg.enabled;
+  if(!adminCaptchaEnabled){
+   $('adminLoginTurnstile').hidden=true;
+   return;
+  }
+  if(!cfg.site_key)throw new Error('Turnstile enabled without site key');
   const script=document.createElement('script');
   script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
   script.async=true;
   script.onload=()=>{adminCaptchaSiteKey=cfg.site_key;adminCaptchaRender()};
   script.onerror=()=>{$('loginError').textContent='Turnstile could not be loaded.'};
   document.head.appendChild(script);
- }catch(_){$('loginError').textContent='Turnstile configuration unavailable.'}
+ }catch(err){
+  adminCaptchaEnabled=null;
+  console.error('Admin Turnstile configuration failed',err);
+  $('loginError').textContent='Turnstile configuration unavailable.';
+ }
 }
 adminCaptchaInit();
-function showLogin(msg=''){if($('loginDialog').open){adminCaptchaRender();return}$('loginError').textContent=msg;$('loginDialog').showModal();if(!adminCaptchaPassed){$('adminLoginTurnstile').hidden=false;adminCaptchaRender()}$('loginCall').focus()}
+function showLogin(msg=''){
+ if($('loginDialog').open){if(adminCaptchaEnabled===true)adminCaptchaRender();return}
+ $('loginError').textContent=msg;
+ $('loginDialog').showModal();
+ $('adminLoginTurnstile').hidden=adminCaptchaEnabled!==true||adminCaptchaPassed;
+ if(adminCaptchaEnabled===true&&!adminCaptchaPassed)adminCaptchaRender();
+ $('loginCall').focus();
+}
 function connect(){const proto=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${proto}://${location.host}${new URL("./ws",location.href).pathname}`);ws.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error('admin message error',err,e.data)}};ws.onclose=()=>{adminCaptchaPassed=false;if(adminCaptchaReady)window.turnstile.reset(adminCaptchaWidget);pendingCommandTargets.length=0;pendingCommandNames.length=0;queuedPanelCommands.length=0;terminalLocalClose();supervisorInflight.clear();authenticated=false;logoutPending=false;loginState(false);$('status').textContent='disconnected';setTimeout(connect,2000)}}
 $('loginButton').onclick=()=>{if(authenticated){liveDebugStop();if(logoutPending)return;terminalSshClear();logoutPending=true;send({type:'logout'});$('loginButton').textContent='Logging out…'}else showLogin()};
-$('loginForm').addEventListener('submit',e=>{e.preventDefault();const call=$('loginCall').value.trim().toUpperCase(),password=$('loginPass').value;if(!call||!password){$('loginError').textContent='Callsign and password are required.';return}if(!adminCaptchaPassed&&(!adminCaptchaReady||!window.turnstile.getResponse(adminCaptchaWidget))){$('loginError').textContent='Complete Turnstile verification before login.';return}$('loginSubmit').disabled=true;takeoverLogin={call,password};if(!send({type:'auth',call,password,turnstile_token:adminCaptchaPassed?'':window.turnstile.getResponse(adminCaptchaWidget)})){$('loginSubmit').disabled=false;$('loginError').textContent='DXSpider connection is not ready';return}$('loginPass').value=''});
+$('loginForm').addEventListener('submit',e=>{
+ e.preventDefault();
+ const call=$('loginCall').value.trim().toUpperCase(),password=$('loginPass').value;
+ if(!call||!password){$('loginError').textContent='Callsign and password are required.';return}
+ if(adminCaptchaEnabled===null){$('loginError').textContent='Turnstile configuration unavailable.';return}
+ let token='';
+ if(adminCaptchaEnabled===true&&!adminCaptchaPassed){
+  token=adminCaptchaReady&&window.turnstile?window.turnstile.getResponse(adminCaptchaWidget):'';
+  if(!token){$('loginError').textContent='Complete Turnstile verification before login.';return}
+ }
+ $('loginSubmit').disabled=true;
+ takeoverLogin={call,password};
+ if(!send({type:'auth',call,password,turnstile_token:token})){
+  $('loginSubmit').disabled=false;
+  $('loginError').textContent='DXSpider connection is not ready';
+  return;
+ }
+ $('loginPass').value='';
+});
 function selectSection(id){if(id==='terminalSection'&&!linuxTerminalEnabled)return;if(authenticated&&(id==='liveDebugSection'||id==='terminalSection'||id==='networkChatSection')&&authPriv<9)return;if(authenticated&&authPriv<5&&SYSOP_SECTIONS.has(id))return;activeSection=id;document.querySelectorAll('.mainTabs button').forEach(b=>b.classList.toggle('active',b.dataset.section===id));document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.id===id));if(authenticated&&id==='registration')loadPending();if(authenticated&&id==='supervision')selectSupervision(activeSupervisionPanel);if(authenticated&&id==='metrics')requestMetrics();if(authenticated&&id==='timeline')requestTimeline();if(id!=='liveDebugSection'&&liveDebugFollowing)liveDebugStop();if(id==='terminalSection')setTimeout(terminalFit,30);if(id==='consoleSection')requestAnimationFrame(()=>{$('consoleCommand')?.focus({preventScroll:true})})}
 document.querySelectorAll('.mainTabs button[data-section]').forEach(b=>b.onclick=()=>{if(b.disabled||b.getAttribute('aria-disabled')==='true')return;selectSection(b.dataset.section)});
 $('quickConsole').onclick=()=>{selectSection('consoleSection');$('consoleCommand').focus()};

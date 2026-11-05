@@ -1,5 +1,4 @@
 #!/usr/bin/env perl
-
 #
 # DXSpider Web - Perl script
 #
@@ -17,7 +16,6 @@ die "Manager missing: $manager\n" unless -f $manager;
 my $root = $ENV{DXWEB_MENU_ROOT}
   // abs_path( File::Spec->catdir( $FindBin::Bin, '..' ) );
 die "Root missing\n" unless defined($root) && -d $root;
-
 sub ask {
     my ( $prompt, $default ) = @_;
     print "$prompt", defined($default) ? " [$default]" : "", ": ";
@@ -35,7 +33,6 @@ sub choose {
         print "Invalid selection.\n";
     }
 }
-
 sub run_manager {
     my (@args) = @_;
     print "\nManager: ",
@@ -81,6 +78,25 @@ sub deployment {
         }
         @extra = ( '--hostname', $hostname, '--cert', $cert, '--key', $key );
     }
+    my $identity_choice = choose(
+        'Service user/group: 1 Preserve/detect, 2 Specify explicitly',
+        [qw(1 2)], '1'
+    );
+    if ( $identity_choice eq '2' ) {
+        my $user  = ask('Service user');
+        my $group = ask('Service group');
+        for my $name ( $user, $group ) {
+            unless ( $name =~ /\A[a-z_][a-z0-9_-]*\z/ ) {
+                print "Invalid service user/group; cancelled.\n";
+                return;
+            }
+        }
+        unless ( defined(getpwnam($user)) && defined(getgrnam($group)) ) {
+            print "Service user/group does not exist; cancelled.\n";
+            return;
+        }
+        push @extra, '--user', $user, '--group', $group;
+    }
     my @base = (
         '--root', $root, '--components', $component,
         '--mode', $mode, '--scheme',     $scheme,
@@ -92,7 +108,6 @@ sub deployment {
       eq '1';
     run_manager( '--action', 'install', @base, '--apply' );
 }
-
 sub rollback {
     my $backup = ask('Absolute backup transaction directory');
     unless ( safe_path($backup) && -d $backup && -f "$backup/manifest.json" ) {
@@ -104,12 +119,11 @@ sub rollback {
       unless choose( 'Apply rollback? 1 Yes, 2 No', [qw(1 2)], '2' ) eq '1';
     run_manager( '--action', 'rollback', '--backup', $backup, '--apply' );
 }
-
 sub turnstile {
     my $tool =
       File::Spec->catfile( $FindBin::Bin, 'tools', 'turnstile-config.pl' );
     while (1) {
-        print "\nCloudflare Turnstile — DXWeb public registration ONLY\n";
+        print "\nCloudflare Turnstile — DXWeb registration / DXWeb Admin login\n";
         print
 "1. Setup instructions\n2. Show configuration status\n3. Store / replace keys\n4. Enable Turnstile\n5. Disable Turnstile\n6. Back\n";
         my $n = choose( 'Selection', [qw(1 2 3 4 5 6)], '6' );
@@ -117,11 +131,11 @@ sub turnstile {
         if ( $n eq '1' ) {
             print "1. Sign up: https://dash.cloudflare.com/sign-up\n";
             print
-"2. In Turnstile create a Managed widget for your DXWeb public hostname.\n";
+"2. Create a Managed widget for the hostname(s) used by DXWeb and/or DXWeb Admin.\n";
             print
-"3. Copy the Site Key and Secret Key into this manager (option 3).\n";
+"3. Add all protected hostnames to the widget; store Site Key and Secret Key (option 3).\n";
             print
-"4. Enable Turnstile only after deploying and testing DXWeb v4.0.1.\n";
+"4. Enable after verifying Turnstile support in the installed web application(s).\n";
             next;
         }
         if ( $n eq '2' ) { system( $^X, $tool, '--status' ); next; }
@@ -140,7 +154,6 @@ sub turnstile {
         system( $^X, $tool, '--configure' );
     }
 }
-
 sub component_menu {
     my ( $component, $label ) = @_;
     while (1) {
@@ -154,7 +167,7 @@ sub component_menu {
     }
 }
 print
-  "DXWeb interactive manager v0.07 (existing transactional engine preserved)\n";
+  "DXWeb interactive manager v0.09 (existing transactional engine preserved)\n";
 while (1) {
     print
 "\n1. DXWeb\n2. DXWeb Admin\n3. Both applications\n4. Cloudflare Turnstile\n5. Rollback (dry-run first)\n6. Exit\n";

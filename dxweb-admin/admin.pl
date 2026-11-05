@@ -111,6 +111,9 @@ my $TURNSTILE_CONFIG = $ENV{DXWEB_TURNSTILE_CONFIG}
 my $turnstile_gate = DXWeb::TurnstileGate->new( max_inflight => 16 );
 
 sub admin_turnstile_settings() {
+    # A missing configuration means CAPTCHA was never enabled.
+    # Existing but unreadable, unsafe or invalid configuration fails closed.
+    return { enabled => 0 } unless -e $TURNSTILE_CONFIG || -l $TURNSTILE_CONFIG;
     return { broken => 1 } unless -f $TURNSTILE_CONFIG && !-l $TURNSTILE_CONFIG;
     my @st = stat($TURNSTILE_CONFIG);
     return { broken => 1 } unless @st && !( $st[2] & 0077 );
@@ -119,7 +122,8 @@ sub admin_turnstile_settings() {
     my $raw = <$fh>;
     close $fh;
     my $d = eval { decode_json($raw) };
-    return { broken => 1 } unless ref($d) eq 'HASH' && $d->{enabled};
+    return { broken => 1 } unless ref($d) eq 'HASH';
+    return { enabled => 0 } unless $d->{enabled};
     return { broken => 1 }
       unless ( $d->{site_key} // '' ) =~ /\A[A-Za-z0-9_-]{8,256}\z/
       && ( $d->{secret_key} // '' )   =~ /\A[A-Za-z0-9_-]{8,256}\z/;
@@ -2501,12 +2505,14 @@ sub terminal_resize( $id, $m ) {
 get '/turnstile-config.json' => sub($c) {
     $c->res->headers->cache_control('no-store');
     my $settings = admin_turnstile_settings();
+    if ( $settings->{broken} ) {
+        $c->render( status => 503, json => { error => 'Turnstile configuration unavailable' } );
+        return;
+    }
     $c->render(
         json => {
-            enabled  => ( $settings && !$settings->{broken} ) ? \1 : \0,
-            site_key => ( $settings && !$settings->{broken} )
-            ? $settings->{site_key}
-            : ''
+            enabled  => $settings->{enabled} ? \1 : \0,
+            site_key => $settings->{enabled} ? $settings->{site_key} : ''
         }
     );
 };
@@ -2637,6 +2643,10 @@ websocket '/ws' => sub($c) {
                             }
                         )
                     );
+                    return;
+                }
+                if ( !$settings->{enabled} ) {
+                    $forward_auth->();
                     return;
                 }
                 if ( $clients{$id}{turnstile_ok} ) {

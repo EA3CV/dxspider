@@ -1,3 +1,7 @@
+05Nov26======================================================================
+1. Fixed a bug in the interactive installer for DXWeb and DXWeb Admin.
+2. Expanded and updated the installation guide with more detailed instructions
+   for installing, configuring, and starting both applications.
 04Nov26======================================================================
 1. Updated DXWeb to version 4.0.3 and DXWeb Admin to version 2.0.3.
 2. Integrated Cloudflare Turnstile into DXWeb and DXWeb Admin login,
