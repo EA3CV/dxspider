@@ -193,7 +193,7 @@ function showLogin(msg=''){
  if(adminCaptchaEnabled===true&&!adminCaptchaPassed)adminCaptchaRender();
  $('loginCall').focus();
 }
-function connect(){const proto=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${proto}://${location.host}${new URL("./ws",location.href).pathname}`);ws.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error('admin message error',err,e.data)}};ws.onclose=()=>{adminCaptchaPassed=false;if(adminCaptchaReady)window.turnstile.reset(adminCaptchaWidget);pendingCommandTargets.length=0;pendingCommandNames.length=0;queuedPanelCommands.length=0;terminalLocalClose();supervisorInflight.clear();authenticated=false;logoutPending=false;loginState(false);$('status').textContent='disconnected';setTimeout(connect,2000)}}
+function connect(){const proto=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${proto}://${location.host}${new URL("./ws",location.href).pathname}`);ws.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error('admin message error',err,e.data)}};ws.onclose=()=>{for(const b of new Set([...refreshWait.keys(),...refreshQueued.keys()]))refreshClear(b);adminCaptchaPassed=false;if(adminCaptchaReady)window.turnstile.reset(adminCaptchaWidget);pendingCommandTargets.length=0;pendingCommandNames.length=0;queuedPanelCommands.length=0;terminalLocalClose();supervisorInflight.clear();authenticated=false;logoutPending=false;loginState(false);$('status').textContent='disconnected';setTimeout(connect,2000)}}
 $('loginButton').onclick=()=>{if(authenticated){liveDebugStop();if(logoutPending)return;terminalSshClear();logoutPending=true;send({type:'logout'});$('loginButton').textContent='Logging out…'}else showLogin()};
 $('loginForm').addEventListener('submit',e=>{
  e.preventDefault();
@@ -214,7 +214,7 @@ $('loginForm').addEventListener('submit',e=>{
  }
  $('loginPass').value='';
 });
-function selectSection(id){if(id==='terminalSection'&&!linuxTerminalEnabled)return;if(authenticated&&(id==='liveDebugSection'||id==='terminalSection'||id==='networkChatSection')&&authPriv<9)return;if(authenticated&&authPriv<5&&SYSOP_SECTIONS.has(id))return;activeSection=id;document.querySelectorAll('.mainTabs button').forEach(b=>b.classList.toggle('active',b.dataset.section===id));document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.id===id));if(authenticated&&id==='registration')loadPending();if(authenticated&&id==='supervision')selectSupervision(activeSupervisionPanel);if(authenticated&&id==='metrics')requestMetrics();if(authenticated&&id==='timeline')requestTimeline();if(id!=='liveDebugSection'&&liveDebugFollowing)liveDebugStop();if(id==='terminalSection')setTimeout(terminalFit,30);if(id==='consoleSection')requestAnimationFrame(()=>{$('consoleCommand')?.focus({preventScroll:true})})}
+function selectSection(id){if(id!==activeSection)for(const b of new Set([...refreshWait.keys(),...refreshQueued.keys()]))refreshClear(b);if(id==='terminalSection'&&!linuxTerminalEnabled)return;if(authenticated&&(id==='liveDebugSection'||id==='terminalSection'||id==='networkChatSection')&&authPriv<9)return;if(authenticated&&authPriv<5&&SYSOP_SECTIONS.has(id))return;activeSection=id;document.querySelectorAll('.mainTabs button').forEach(b=>b.classList.toggle('active',b.dataset.section===id));document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.id===id));if(authenticated&&id==='registration')loadPending();if(authenticated&&id==='supervision')selectSupervision(activeSupervisionPanel);if(authenticated&&id==='metrics')requestMetrics();if(authenticated&&id==='timeline')requestTimeline();if(id!=='liveDebugSection'&&liveDebugFollowing)liveDebugStop();if(id==='terminalSection')setTimeout(terminalFit,30);if(id==='consoleSection')requestAnimationFrame(()=>{$('consoleCommand')?.focus({preventScroll:true})})}
 document.querySelectorAll('.mainTabs button[data-section]').forEach(b=>b.onclick=()=>{if(b.disabled||b.getAttribute('aria-disabled')==='true')return;selectSection(b.dataset.section)});
 $('quickConsole').onclick=()=>{selectSection('consoleSection');$('consoleCommand').focus()};
 function selectPanel(id){activePanel=id;document.querySelectorAll('#operationTabs button').forEach(b=>b.classList.toggle('active',b.dataset.panel===id));document.querySelectorAll('#operation .panel').forEach(p=>p.classList.toggle('active',p.id===id));if(id==='console')requestAnimationFrame(()=>{$('consoleCommand')?.focus({preventScroll:true})})}
@@ -792,11 +792,19 @@ function networkChatAccept(m){
 }
 document.getElementById('networkChatChannel')?.addEventListener('change',networkChatRender);
 document.getElementById('networkChatClear')?.addEventListener('click',()=>{networkChatMessages.length=0;networkChatRender()});
+$('networkChatForm')?.addEventListener('submit',e=>{
+ e.preventDefault();if(!authenticated||authPriv<9)return;
+ const channel=$('networkChatChannel').value,text=$('networkChatMessage').value.trim();
+ if(!text || /[\r\n]/.test(text))return;
+ const btn=$('networkChatSend');btn.disabled=true;
+ setText('networkChatSendState',`Sending to ${channel}…`);
+ if(!send({type:'network_chat_send',channel,text})){btn.disabled=false;setText('networkChatSendState','Admin connection unavailable.');}
+});
 function fmtTime(v){if(!v)return '-';const d=new Date(Number(v)*1000);return Number.isNaN(d.getTime())?'-':d.toLocaleString()}
 function compactSsids(values){const a=[...new Set((Array.isArray(values)?values:[]).map(Number).filter(n=>Number.isInteger(n)&&n>=1&&n<=99))].sort((x,y)=>x-y);if(!a.length)return '-';const out=[];let start=a[0],prev=a[0];const flush=()=>out.push(start===prev?String(start):`${start}-${prev}`);for(let i=1;i<a.length;i++){const n=a[i];if(n===prev+1){prev=n;continue}flush();start=prev=n}flush();return out.join(',')}
 function ssids(r){return compactSsids(r.accepted_ssids||r.requested_ssids||r.affected_ssids||[])}
 function loadPending(){send({type:'reg_pending'})} function loadHistory(){send({type:'reg_history'})}
-$('pendingRefresh').onclick=loadPending;$('historyRefresh').onclick=loadHistory;
+$('pendingRefresh').onclick=()=>refreshUser('pendingRefresh');$('historyRefresh').onclick=()=>refreshUser('historyRefresh');
 $('regSearchForm').addEventListener('submit',e=>{e.preventDefault();const q=$('regSearch').value.trim();if(q)send({type:'reg_search',query:q})});
 function renderPending(rows){$('pendingRows').innerHTML=(rows||[]).map(r=>`<tr><td>#${esc(r.id)}</td><td>${esc(r.call)}</td><td>${esc(compactSsids(r.requested_ssids||[]))}</td><td>${esc(r.name||'-')}</td><td>${authPriv>=9?esc(r.email||'-'):'Restricted'}</td><td>${authPriv>=9?esc(r.ip||'-'):'Restricted'}</td><td>${esc(fmtTime(r.created_at))}</td><td>${authPriv>=9?esc(r.comment||'-'):'Restricted'}</td><td><div class="regActions" style="display:${authPriv>=9?'':'none'}"><button data-reg-id="${esc(r.id)}" data-reg-action="accept">Accept</button><button data-reg-id="${esc(r.id)}" data-reg-action="reject">Reject</button></div></td></tr>`).join('')||'<tr><td colspan="9">No pending registration requests.</td></tr>';document.querySelectorAll('[data-reg-action]').forEach(b=>b.onclick=()=>openDecision(b.dataset.regId,b.dataset.regAction,rows))}
 function renderHistory(rows,target='historyRows'){$(target).innerHTML=(rows||[]).map(r=>`<tr><td>#${esc(r.id)}</td><td>${esc(r.call)}</td><td>${esc(ssids(r))}</td><td class="status-${esc(r.status)}">${esc(r.status||'-')}</td><td>${esc(r.name||'-')}</td><td>${authPriv>=9?esc(r.email||'-'):'Restricted'}</td><td>${esc(fmtTime(r.created_at))}</td><td>${esc(fmtTime(r.processed_at))}</td><td>${esc(r.processed_by||'-')}</td><td>${authPriv>=9?esc(r.note??'-'):'Restricted'}</td></tr>`).join('')||'<tr><td colspan="10">No matching registration records.</td></tr>'}
@@ -870,7 +878,85 @@ function finishCommandTarget(target){
  }
  out.scrollTop=out.scrollHeight;
 }
-function handle(m){
+// Refresh is bound to a real request, never to a global click event.
+// A click while the same endpoint is in flight queues one NEW request;
+// the preceding/background reply cannot acknowledge that click.
+const refreshWait=new Map(),refreshQueued=new Map();
+function refreshClear(button){
+ if(!button)return;
+ const entry=refreshWait.get(button),queued=refreshQueued.get(button);
+ if(entry){clearTimeout(entry.timer);refreshWait.delete(button);}
+ if(queued)clearTimeout(queued.timer);
+ refreshQueued.delete(button);
+ button.classList.remove('refreshAwaiting','refreshFailed');
+ button.removeAttribute('aria-busy');
+ const title=entry?entry.title:queued?queued.title:undefined;
+ if(title!==undefined){if(title===null)button.removeAttribute('title');else button.setAttribute('title',title);}
+}
+function refreshBegin(button,types,scope){
+ if(!button)return;
+ refreshClear(button);
+ const entry={types:new Set(types),scope,title:button.getAttribute('title'),timer:null};
+ refreshWait.set(button,entry);
+ button.classList.add('refreshAwaiting');button.setAttribute('aria-busy','true');
+ button.title='Waiting for this view to update';
+ entry.timer=setTimeout(()=>{
+  if(refreshWait.get(button)!==entry)return;
+  console.warn('Refresh timed out',scope,[...entry.types]);refreshClear(button);
+ },20000);
+}
+function refreshSchedule(button,scope,types,sendRequest,isBusy){
+ if(!button||!authenticated||!ws||ws.readyState!==WebSocket.OPEN)return;
+ // Never claim a request has been sent while a background request is in flight.
+ if(isBusy()){
+  refreshClear(button);
+  const title=button.getAttribute('title');
+  button.classList.add('refreshAwaiting');button.setAttribute('aria-busy','true');
+  button.title='Waiting to send refresh after current request';
+  const timer=setTimeout(()=>{if(refreshQueued.get(button)?.timer!==timer)return;console.warn('Refresh could not be sent',scope);refreshClear(button);},20000);
+  refreshQueued.set(button,{scope,types,sendRequest,isBusy,title,timer});
+  return;
+ }
+ if(sendRequest())refreshBegin(button,types,scope);
+}
+function refreshProcess(m){
+ if(m.type==='supervisor_topology_result'&&topologyPopoutQueued){
+  topologyPopoutQueued=false;
+  if(authenticated&&m.status==='ok')supervisorRequest('topology');
+  else if(topologyPopout&&!topologyPopout.closed)topologyPopout.receiveTopology(topologyPopoutPayload());
+ }
+ // Called only AFTER the response handler has applied the snapshot.
+ for(const [button,entry] of [...refreshWait]){
+  if(!entry.types.has(m.type))continue;
+  entry.types.delete(m.type);
+  if(entry.types.size)continue;
+  if(button.id==='supervisionRefresh'&&entry.scope!==activeSupervisionPanel){refreshClear(button);continue;}
+  refreshClear(button);
+ }
+ for(const [button,q] of [...refreshQueued]){
+  if(q.isBusy())continue;
+  clearTimeout(q.timer);refreshQueued.delete(button);
+  button.classList.remove('refreshAwaiting');button.removeAttribute('aria-busy');
+  if(q.title===null)button.removeAttribute('title');else button.setAttribute('title',q.title);
+  if(button.id==='supervisionRefresh'&&q.scope!==activeSupervisionPanel)continue;
+  if(q.sendRequest())refreshBegin(button,q.types,q.scope);
+ }
+}
+function refreshUser(id){
+ const button=$(id);if(!button)return;
+ if(id==='pendingRefresh')return refreshSchedule(button,id,['reg_pending_result'],()=>send({type:'reg_pending'}),()=>false);
+ if(id==='historyRefresh')return refreshSchedule(button,id,['reg_history_result'],()=>send({type:'reg_history'}),()=>false);
+ if(id==='metricsRefresh')return refreshSchedule(button,id,['history_metrics_result'],()=>{requestMetrics();return metricsInflight;},()=>metricsInflight);
+ if(id==='timelineRefresh')return refreshSchedule(button,id,['history_timeline_result'],()=>{requestTimeline();return timelineInflight;},()=>timelineInflight);
+ if(id==='supervisionRefresh'){
+  const panel=activeSupervisionPanel;
+  if(panel==='maintenance')return refreshSchedule(button,panel,['maintenance_snapshot_result'],()=>{requestMaintenance();return maintenanceInflight;},()=>maintenanceInflight);
+  const kinds=supervisorKindsFor(panel);
+  return refreshSchedule(button,panel,kinds.map(k=>`supervisor_${k}_result`),()=>{supervisorRequest(panel);return kinds.some(k=>supervisorInflight.has(k));},()=>kinds.some(k=>supervisorInflight.has(k)));
+ }
+}
+function handle(m){handleMessage(m);refreshProcess(m);}
+function handleMessage(m){
  if(m.type==='session_evicted'){
    clearSessionContent();loginState(false);setLocked(true);showLogin('Session replaced by another authenticated connection.');return;
  }
@@ -889,11 +975,18 @@ function handle(m){
  }
  if(m.type==='auth'||m.type==='auth_result')takeoverLogin=null;
  if(m.type==='status'){if(typeof m.enable_linux_terminal==='boolean')applyLinuxTerminalAvailability(m.enable_linux_terminal);$('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===false){logoutPending=false;if(authenticated){terminalSshClear();clearSessionContent()}loginState(false);setLocked(true);if(m.state==='ready'&&!$('loginDialog').open)showLogin()}return}if(m.type==='auth'||m.type==='auth_result'){$('loginSubmit').disabled=false;if(m.status==='ok'){clearSessionContent();loginState(true,m);terminalSshForIdentity(authUser);$('loginDialog').close();$('loginError').textContent='';if(authPriv>=5)loadPending();setTimeout(()=>{if(authenticated)requestMetrics()},250);setTimeout(()=>{if(authenticated&&authPriv>=9)requestMaintenance([])},2500)}else{loginState(false);$('loginError').textContent=m.error==='admin_privilege_required'?'DXSpider privilege 5 is required for login (privilege 9 for administrative actions).':m.error==='password_required'?'A valid DXSpider password is required.':(m.error||'Authentication failed');showLogin($('loginError').textContent)}return}if(m.type==='logout_result'){terminalSshClear();logoutPending=false;loginState(false);showLogin();return}if(!authenticated)return;if(m.type==='terminal_status'||m.type==='terminal_data'){terminalReceive(m);return}if(m.type==='log_window_status'||m.type==='log_window_data'){logWindowReceive(m);return}if(m.type==='live_debug_result'||m.type==='live_debug_data'){liveDebugReceive(m);return}if(m.type==='reg_pending_result'){if(m.status==='ok')renderPending(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_history_result'){if(m.status==='ok')renderHistory(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_search_result'){if(m.status==='ok')renderHistory(m.result||[],'searchRows');else notice(responseText(m));return}if(m.type==='reg_accept_result'||m.type==='reg_reject_result'){const expected=decisionAction?`reg_${decisionAction}_result`:null;if(expected&&m.type!==expected){$('regActionResult').textContent=`Unexpected registration response: ${m.type}`;return}if(m.status==='ok'){const accepted=m.type==='reg_accept_result';const pw=accepted&&m.result&&m.result.password?` Password: ${m.result.password}`:'';$('regActionResult').textContent=(accepted?'Accepted.':'Rejected.')+pw;setTimeout(()=>{$('regActionDialog').close();decisionId=null;decisionAction=null;loadPending();loadHistory()},900)}else{$('regAccept').disabled=false;$('regReject').disabled=false;$('regActionResult').textContent=responseText(m)}return}if(m.type==='reg_delete_user_result'){$('deleteUserConfirm').disabled=false;if(m.status==='ok'){const calls=(m.result&&m.result.affected_calls)||[];$('deleteUserResult').textContent=`Deleted ${calls.length} DXUser record(s): ${calls.join(', ')}`;loadHistory();setTimeout(()=>$('deleteUserDialog').close(),1200)}else{$('deleteUserResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Delete failed'))}return}
- if(m.type==='spot_result'){if(!$('spotDialog').open)return;$('spotSubmit').disabled=false;$('spotResult').textContent=responseText(m)||(m.status==='ok'?'Spot accepted by DXSpider':'Spot rejected');if(m.status==='ok')setTimeout(()=>$('spotDialog').close(),500);return}if(m.type==='feed'){if(m.feed==='network_chat'){networkChatAccept(m.payload);return}acceptFeed(m);return}if(m.type==='command_result'){const target=pendingCommandTargets[0]||activePanel,t=responseText(m),out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);if(logs[target]){if(t){logs[target].push(...t.split('\n'));renderLog(target)}}else if(out&&t){if(target==='console'){const b=document.createElement('div');b.className='consoleResponse';b.textContent=t;out.appendChild(b)}else out.textContent+=t+'\n';out.scrollTop=out.scrollHeight}const issued=pendingCommandNames[0]||'';
+ if(m.type==='network_chat_send_result'){
+  $('networkChatSend').disabled=false;
+  if(m.status==='ok'){$('networkChatMessage').value='';setText('networkChatSendState',`Accepted by DXSpider for ${m.channel||'selected channel'}.`)}
+  else setText('networkChatSendState',`Not sent: ${m.error||'rejected'}`);
+  return;
+ }
+ if(m.type==='spot_result'){if(!$('spotDialog').open)return;$('spotSubmit').disabled=false;$('spotResult').textContent=responseText(m)||(m.status==='ok'?'Spot accepted by DXSpider':'Spot rejected');if(m.status==='ok')setTimeout(()=>$('spotDialog').close(),500);return}if(m.type==='feed'){if(m.feed==='network_chat'){networkChatAccept(m.payload);return}acceptFeed(m);return}if(m.type==='command_result'){const target=pendingCommandTargets[0]||activePanel,t=responseText(m),out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);if(target==='networkChat'){if(t)setText('networkChatSendState',t);if(m.status!=='ok')setText('networkChatSendState',m.error||'Rejected by DXSpider');}else if(logs[target]){if(t){logs[target].push(...t.split('\n'));renderLog(target)}}else if(out&&t){if(target==='console'){const b=document.createElement('div');b.className='consoleResponse';b.textContent=t;out.appendChild(b)}else out.textContent+=t+'\n';out.scrollTop=out.scrollHeight}const issued=pendingCommandNames[0]||'';
  const isFilterRead=target==='filters'&&/^show\/filter(?:\s|$)/i.test(issued);
  if(isFilterRead){if(!vfReadActive){vfReadActive=true;vfReadLines=[]}if(t)vfReadLines.push(...t.split('\n'))}
  if(m.final!==false){
   if(isFilterRead){vfPopulateExisting(vfReadLines);vfReadActive=false;vfReadLines=[]}
+  if(target==='networkChat'){$('networkChatSend').disabled=false;if(m.status==='ok'){$('networkChatMessage').value='';setText('networkChatSendState',t||'Command processed by DXSpider.');}}
   finishCommandTarget(target);pendingCommandTargets.shift();pendingCommandNames.shift();dispatchNextPanelCommand();
   if(target==='filters'&&/^(?:(?:accept|reject)\/(?:spots|rbn)\s|clear\/(?:spots|rbn)\s)/i.test(issued)){
    const family=issued.match(/^(?:accept|reject|clear)\/(spots|rbn)\s/i)?.[1];
@@ -953,7 +1046,7 @@ function renderMetricCharts(){if(!metricsData)return;const s=metricsData.series|
  metricLineChart('chartDisk',[{name:'Disk',points:P('fs_used_percent'),cls:'s7',area:true}],{fmt:v=>Math.abs(v).toFixed(1)+'%'});
 }
 function renderMetrics(r){metricsData=r||{};metricsInflight=false;metricsZoom=null;renderRateSummary(metricsData);const peers=Array.isArray(r.peers)?r.peers:[],sel=$('metricsPeer'),old=sel.value;sel.innerHTML='<option value="">All peers</option>'+peers.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');if(peers.includes(old))sel.value=old;renderMetricCharts()}
-document.querySelectorAll('#metricsWindows button[data-window]').forEach(b=>b.onclick=()=>{metricsWindow=b.dataset.window;metricsZoom=null;document.querySelectorAll('#metricsWindows button').forEach(x=>x.classList.toggle('active',x===b));requestMetrics()});$('metricsRefresh').onclick=requestMetrics;$('metricsPeer').onchange=()=>{metricsZoom=null;requestMetrics()};$('metricsResetZoom').onclick=()=>{metricsZoom=null;renderMetricCharts()};
+document.querySelectorAll('#metricsWindows button[data-window]').forEach(b=>b.onclick=()=>{metricsWindow=b.dataset.window;metricsZoom=null;document.querySelectorAll('#metricsWindows button').forEach(x=>x.classList.toggle('active',x===b));requestMetrics()});$('metricsRefresh').onclick=()=>refreshUser('metricsRefresh');$('metricsPeer').onchange=()=>{metricsZoom=null;requestMetrics()};$('metricsResetZoom').onclick=()=>{metricsZoom=null;renderMetricCharts()};
 
 function openMetricExpand(chartId){const src=metricChartRegistry.get(chartId),modal=$('metricExpandModal'),target=$('metricModalChart');if(!src||!modal||!target)return;const r={defs:src.defs,opt:src.opt,kind:src.kind,items:src.items,color:src.color};const card=$(chartId)?.closest('.metricChartCard,.resourcePane');setText('metricModalTitle',card?.querySelector('h3,b')?.textContent||'Metric');modal.classList.add('open');modal.setAttribute('aria-hidden','false');target.innerHTML='';requestAnimationFrame(()=>{if(r.kind==='rankbar')metricRankBarChart('metricModalChart',r.items||[],30,r.color||'#3b82f6');else metricLineChart('metricModalChart',r.defs,r.opt);requestAnimationFrame(()=>dxEchartsInstances.get('metricModalChart')?.resize())})}
 document.addEventListener('click',e=>{const b=e.target.closest?.('.metricExpand');if(b){openMetricExpand(b.dataset.expand);return}if(e.target?.id==='metricModalClose'||e.target?.id==='metricExpandModal'){const m=$('metricExpandModal');m?.classList.remove('open');m?.setAttribute('aria-hidden','true')}});
@@ -968,7 +1061,7 @@ let timelineWindow='15m',timelineInflight=false;
 function requestTimeline(){if(!authenticated||!ws||ws.readyState!==WebSocket.OPEN||timelineInflight)return;timelineInflight=true;setText('timelineState','Loading historical events…');if(!send({type:'history_timeline',window:timelineWindow})){timelineInflight=false;setText('timelineState','Admin link is not ready.')}}
 function timelineValue(v){return v===null||v===undefined||v===''?'—':String(v)}
 function renderTimeline(r){timelineInflight=false;const ev=Array.isArray(r.events)?r.events:[];const body=$('timelineRows');if(!body)return;body.innerHTML=ev.map(e=>`<tr><td class="timelineTime">${esc(new Date(Number(e.at)*1000).toLocaleString())}</td><td>${esc(e.kind||'event')}</td><td><strong>${esc(e.label||e.field||'Change')}</strong><small class="timelineField">${esc(e.field||'')}</small></td><td>${esc(e.kind==='boot'?'previous session':timelineValue(e.before))}</td><td>${esc(e.kind==='boot'?'current session':timelineValue(e.after))}</td></tr>`).join('')||'<tr><td colspan="5" class="emptyCell">No demonstrated events in this window.</td></tr>'}
-document.querySelectorAll('#timelineWindows button[data-window]').forEach(b=>b.onclick=()=>{timelineWindow=b.dataset.window;document.querySelectorAll('#timelineWindows button').forEach(x=>x.classList.toggle('active',x===b));requestTimeline()});$('timelineRefresh').onclick=requestTimeline;
+document.querySelectorAll('#timelineWindows button[data-window]').forEach(b=>b.onclick=()=>{timelineWindow=b.dataset.window;document.querySelectorAll('#timelineWindows button').forEach(x=>x.classList.toggle('active',x===b));requestTimeline()});$('timelineRefresh').onclick=()=>refreshUser('timelineRefresh');
 
 
 
@@ -979,7 +1072,9 @@ function renderHistoryMaintenance(r){const b=r.history_browser||{};maintenancePa
 function historyNavigate(id){const x=maintenanceItems.find(i=>i.id===id);if(!x||!x.navigable)return;if(x.kind==='year')maintenancePath=[String(x.year)];else if(x.kind==='directory'&&maintenancePath.length===1)maintenancePath=[String(x.year),String(x.family)];else if(x.kind==='directory'&&maintenancePath.length>=2)maintenancePath=[...maintenancePath,String(x.name)];else return;requestMaintenance(maintenancePath)}
 function selectedHistoryIds(){return [...document.querySelectorAll('.historyItemCheck:checked')].map(x=>x.value).filter(Boolean)}
 function historyAction(action){if(maintenanceActionInflight)return;const ids=selectedHistoryIds();if(!ids.length){setText('historyMaintenanceState','Select at least one historical item.');return}const names=ids.map(id=>maintenanceItems.find(x=>x.id===id)?.name||id);const verb=action==='delete'?'DELETE permanently':'COMPRESS';if(!confirm(`${verb}: ${names.join(', ')}?${action==='delete'?' Only these server-validated items will be removed.':''}`))return;maintenanceActionInflight=true;setText('historyMaintenanceState',`${action==='delete'?'Deleting':'Compressing'} ${names.join(', ')}…`);if(!send({type:'maintenance_history_action',action,ids})){maintenanceActionInflight=false;setText('historyMaintenanceState','Admin link is not ready.')}}
-function renderMaintenance(r){maintenanceInflight=false;const sys=r.system||{},ok=String(r.quick_check||'').toLowerCase()==='ok';setText('maintDbState',ok?'OK':String(r.quick_check||'UNKNOWN').toUpperCase());setText('maintDbSize',fmtBytes(Number(r.db_bytes||0)));setText('maintSamples',Number(r.samples||0).toLocaleString());const cov=(r.oldest_at&&r.newest_at)?Math.max(0,Number(r.newest_at)-Number(r.oldest_at)):0;setText('maintCoverage',cov?fmtDuration(cov)+' stored':'no coverage');setText('maintBackups',Number(r.backup_count||0));setText('maintLatestBackup',r.latest_backup?.name||'none found');setText('maintAdminPid',sys.admin_pid||'—');setText('maintAdminProcess',`${fmtBytes(Number(sys.admin_rss_bytes||0))} RSS · ${Number(sys.admin_fds||0)} FDs`);$('maintHistory').innerHTML=metricRows([['Integrity',ok?'OK':String(r.quick_check||'UNKNOWN').toUpperCase()],['Database',fmtBytes(Number(r.db_bytes||0))],['WAL',fmtBytes(Number(r.wal_bytes||0))],['SHM',fmtBytes(Number(r.shm_bytes||0))],['Samples',Number(r.samples||0).toLocaleString()],['Oldest sample',r.oldest_at?new Date(Number(r.oldest_at)*1000).toLocaleString():'—'],['Newest sample',r.newest_at?new Date(Number(r.newest_at)*1000).toLocaleString():'—'],['Filesystem used',r.fs_total_bytes?`${fmtBytes(Number(r.fs_used_bytes||0))} / ${fmtBytes(Number(r.fs_total_bytes||0))} (${Number(r.fs_used_percent||0)}%)`:'—'],['Filesystem free',r.fs_total_bytes?fmtBytes(Number(r.fs_available_bytes||0)):'—']]);$('maintSystem').innerHTML=metricRows([['Host uptime',fmtDuration(Number(sys.host_uptime_seconds||0))],['Load',`${Number(sys.load1||0).toFixed(2)} / ${Number(sys.load5||0).toFixed(2)} / ${Number(sys.load15||0).toFixed(2)}`],['RAM used',fmtBytes(Number(sys.mem_used_bytes||0))],['RAM available',fmtBytes(Number(sys.mem_available_bytes||0))],['Admin PID',sys.admin_pid||'—'],['Admin RSS',fmtBytes(Number(sys.admin_rss_bytes||0))],['Admin FDs',Number(sys.admin_fds||0)]]);$('maintBackup').innerHTML=metricRows([['Backups found',Number(r.backup_count||0)],['Latest',r.latest_backup?.name||'—'],['Latest time',r.latest_backup?.mtime?new Date(Number(r.latest_backup.mtime)*1000).toLocaleString():'—'],['Scope','DXWeb Admin backups in DXSpider local_data'],['Mode','controlled local maintenance']]);renderHistoryMaintenance(r);setText('supervisionState','')}
+function renderMaintenance(r){maintenanceInflight=false;const sys=r.system||{},ok=String(r.quick_check||'').toLowerCase()==='ok';setText('maintDbState',ok?'OK':String(r.quick_check||'UNKNOWN').toUpperCase());setText('maintDbSize',fmtBytes(Number(r.db_bytes||0)));setText('maintSamples',Number(r.samples||0).toLocaleString());const cov=(r.oldest_at&&r.newest_at)?Math.max(0,Number(r.newest_at)-Number(r.oldest_at)):0;setText('maintCoverage',cov?fmtDuration(cov)+' stored':'no coverage');setText('maintBackups',Number(r.backup_count||0));setText('maintLatestBackup',r.latest_backup?.name||'none found');setText('maintAdminPid',sys.admin_pid||'—');setText('maintAdminProcess',`${fmtBytes(Number(sys.admin_rss_bytes||0))} RSS · ${Number(sys.admin_fds||0)} FDs`);$('maintHistory').innerHTML=metricRows([['Integrity',ok?'OK':String(r.quick_check||'UNKNOWN').toUpperCase()],['Database',fmtBytes(Number(r.db_bytes||0))],['WAL',fmtBytes(Number(r.wal_bytes||0))],['SHM',fmtBytes(Number(r.shm_bytes||0))],['Samples',Number(r.samples||0).toLocaleString()],['Oldest sample',r.oldest_at?new Date(Number(r.oldest_at)*1000).toLocaleString():'—'],['Newest sample',r.newest_at?new Date(Number(r.newest_at)*1000).toLocaleString():'—'],['Filesystem used',r.fs_total_bytes?`${fmtBytes(Number(r.fs_used_bytes||0))} / ${fmtBytes(Number(r.fs_total_bytes||0))} (${Number(r.fs_used_percent||0)}%)`:'—'],['Filesystem free',r.fs_total_bytes?fmtBytes(Number(r.fs_available_bytes||0)):'—']]);$('maintSystem').innerHTML=metricRows([['Host uptime',fmtDuration(Number(sys.host_uptime_seconds||0))],['Load',`${Number(sys.load1||0).toFixed(2)} / ${Number(sys.load5||0).toFixed(2)} / ${Number(sys.load15||0).toFixed(2)}`],['RAM used',fmtBytes(Number(sys.mem_used_bytes||0))],['RAM available',fmtBytes(Number(sys.mem_available_bytes||0))],['Admin PID',sys.admin_pid||'—'],['Admin RSS',fmtBytes(Number(sys.admin_rss_bytes||0))],['Admin FDs',Number(sys.admin_fds||0)]]);$('maintBackup').innerHTML=metricRows([['Backups found',Number(r.backup_count||0)],['Latest',r.latest_backup?.name||'—'],['Latest time',r.latest_backup?.mtime?new Date(Number(r.latest_backup.mtime)*1000).toLocaleString():'—'],['Scope','DXWeb Admin backups in DXSpider local_data'],['Mode','controlled local maintenance']]);const dbs=Array.isArray(r.databases)?r.databases:[];$('maintDatabases').innerHTML=dbs.map(x=>`<div class="dbInventoryRow"><strong>${esc(x.name)}</strong><span>${fmtBytes(Number(x.total_bytes||0))}</span><small title="${esc(x.path)}">${esc(x.path)}</small></div>`).join('')||'No databases found in local_data';setText('maintMaxRows',Number(r.max_rows||0).toLocaleString());setText('maintRecordCount',Number(r.samples||0).toLocaleString());if(document.activeElement!==$('maintLimitInput'))$('maintLimitInput').value=String(r.max_rows||'');renderHistoryMaintenance(r);setText('supervisionState','')}
+let pendingLimit=null;
+$('maintLimitForm')?.addEventListener('submit',e=>{e.preventDefault();const limit=$('maintLimitInput').value;if(!/^[1-9][0-9]{0,11}$/.test(limit)){setText('maintLimitState','Enter a positive integer.');return}pendingLimit=null;setText('maintLimitState','Checking current records…');send({type:'history_limit_preview',limit});});
 const maintenanceRefresh=$('maintenanceRefresh');if(maintenanceRefresh)maintenanceRefresh.onclick=()=>requestMaintenance(maintenancePath);
 const historyUp=$('historyUp');if(historyUp)historyUp.onclick=()=>{maintenancePath=maintenancePath.slice(0,-1);requestMaintenance(maintenancePath)};
 const historySelectAll=$('historySelectAll');if(historySelectAll)historySelectAll.onchange=()=>document.querySelectorAll('.historyItemCheck:not(:disabled)').forEach(x=>x.checked=historySelectAll.checked);
@@ -1001,9 +1096,9 @@ function updateSupervisorBanner(r){
 function fmtDuration(v){let s=Math.max(0,Math.floor(Number(v)||0));const d=Math.floor(s/86400);s%=86400;const h=Math.floor(s/3600);s%=3600;const m=Math.floor(s/60);return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m}m`}
 function supervisorKindsFor(panel){return panel==='neighbours'?['connections','status']:panel==='overview'?['overview']:panel==='diagnostics'?['self_health']:panel==='system'?['system']:panel==='nodes'?['connections','web']:panel==='connections'?['connections','web']:panel==='users'?['connections','web']:panel==='peers'?['connections','traffic']:[panel]}
 function supervisorRequest(panel=activeSupervisionPanel){if(!authenticated||!ws||ws.readyState!==WebSocket.OPEN)return;if(panel==='maintenance'){requestMaintenance();return}const todo=supervisorKindsFor(panel).filter(what=>!supervisorInflight.has(what));if(!todo.length)return;$('supervisionState').textContent='';for(const what of todo){supervisorInflight.add(what);if(!send({type:`supervisor_${what}`}))supervisorInflight.delete(what)}}
-function selectSupervision(id){activeSupervisionPanel=id||'overview';if(activeSupervisionPanel==='neighbours')neighboursRender();if(activeSupervisionPanel==='overview')refreshSoftwareVersions();document.querySelectorAll('#supervisionTabs button[data-superpanel]').forEach(b=>b.classList.toggle('active',b.dataset.superpanel===activeSupervisionPanel));document.querySelectorAll('#supervision .superPanel').forEach(p=>p.classList.toggle('active',p.id===activeSupervisionPanel));if(authenticated){supervisorRequest(activeSupervisionPanel);if(activeSupervisionPanel==='diagnostics')requestMetrics()}}
+function selectSupervision(id){if(activeSupervisionPanel!==(id||'overview')&&$('supervisionRefresh'))refreshClear($('supervisionRefresh'));activeSupervisionPanel=id||'overview';if(activeSupervisionPanel==='neighbours')neighboursRender();if(activeSupervisionPanel==='overview')refreshSoftwareVersions();document.querySelectorAll('#supervisionTabs button[data-superpanel]').forEach(b=>b.classList.toggle('active',b.dataset.superpanel===activeSupervisionPanel));document.querySelectorAll('#supervision .superPanel').forEach(p=>p.classList.toggle('active',p.id===activeSupervisionPanel));if(authenticated){supervisorRequest(activeSupervisionPanel);if(activeSupervisionPanel==='diagnostics')requestMetrics()}}
 document.querySelectorAll('#supervisionTabs button[data-superpanel]').forEach(b=>b.onclick=()=>selectSupervision(b.dataset.superpanel));
-if($('supervisionRefresh'))$('supervisionRefresh').onclick=()=>supervisorRequest(activeSupervisionPanel);
+if($('supervisionRefresh'))$('supervisionRefresh').onclick=()=>refreshUser('supervisionRefresh');
 function fmtBytes(n){n=Number(n)||0;for(const u of ['B','KiB','MiB','GiB','TiB']){if(Math.abs(n)<1024||u==='TiB')return `${n.toFixed(u==='B'?0:1)} ${u}`;n/=1024}}
 function valueUnit(value,unit=''){return `<span class=\"vu\"><span class=\"vuValue\">${esc(value)}</span><span class=\"vuUnit\">${esc(unit)}</span></span>`}
 function bytesVU(n,suffix=''){const p=fmtBytes(n).split(' ');return valueUnit(p[0],`${p[1]||''}${suffix}`)}
@@ -1118,7 +1213,14 @@ function topologyPopoutPayload(){
   root:topologyState.root||''
  };
 }
+let topologyPopoutQueued=false;
+function topologyRefreshFromPopout(){
+ if(!authenticated||!ws||ws.readyState!==WebSocket.OPEN)return false;
+ if(supervisorInflight.has('topology')){topologyPopoutQueued=true;return true;}
+ supervisorRequest('topology');return supervisorInflight.has('topology');
+}
 function topologySyncPopout(){
+ if(topologyPopoutQueued)return;
  if(!topologyPopout||topologyPopout.closed){topologyPopout=null;return}
  try{if(typeof topologyPopout.receiveTopology==='function')topologyPopout.receiveTopology(topologyPopoutPayload())}catch(e){}
 }
@@ -1157,8 +1259,8 @@ function topologyOpenMap(){
  function select(call,center=false){if(!st.by.has(call))return;st.selected=call;inspect(call);focus();if(center){let p=st.pos.get(call),b=st.box;if(p)box({x:p[0]-b.w/2,y:p[1]-b.h/2,w:b.w,h:b.h})}}
  function find(){let q=$('q').value.trim().toUpperCase();if(!q)return;let n=st.nodes.find(n=>String(n.call).toUpperCase()===q)||st.nodes.find(n=>String(n.call).toUpperCase().includes(q));if(n)select(n.call,true)}
  function draw(){const nodes=st.nodes,edges=st.edges,W=1400,H=Math.max(760,Math.min(1400,540+nodes.length*.95)),cx=W/2,cy=H/2,root=st.root||nodes.find(n=>n.self)?.call||'';st.by=new Map(nodes.map(n=>[n.call,n]));st.adj=new Map(nodes.map(n=>[n.call,new Set()]));for(const e of edges)if(st.adj.has(e.from)&&st.adj.has(e.to)){st.adj.get(e.from).add(e.to);st.adj.get(e.to).add(e.from)}const depth=new Map(),q=[];if(root&&st.by.has(root)){depth.set(root,0);q.push(root)}while(q.length){let a=q.shift(),d=depth.get(a);for(const b of st.adj.get(a)||[])if(!depth.has(b)){depth.set(b,d+1);q.push(b)}}let maxd=Math.max(1,...depth.values());for(const n of nodes)if(!depth.has(n.call))depth.set(n.call,maxd+1);maxd=Math.max(...depth.values());const rings=new Map();for(const n of nodes){let d=depth.get(n.call);if(!rings.has(d))rings.set(d,[]);rings.get(d).push(n)}st.pos=new Map();for(const [d,arr] of [...rings.entries()].sort((a,b)=>a[0]-b[0])){arr.sort((a,b)=>String(a.call).localeCompare(String(b.call)));if(d===0){for(const n of arr)st.pos.set(n.call,[cx,cy]);continue}let rad=Math.min(W*.43,H*.43)*(d/Math.max(1,maxd));arr.forEach((n,i)=>{let a=-Math.PI/2+2*Math.PI*i/arr.length;st.pos.set(n.call,[cx+Math.cos(a)*rad,cy+Math.sin(a)*rad])})}st.base={x:0,y:0,w:W,h:H};st.box={...st.base};const NS='http://www.w3.org/2000/svg',svg=$('g');svg.innerHTML='';let ge=document.createElementNS(NS,'g'),gn=document.createElementNS(NS,'g');svg.append(ge,gn);for(const e of edges){let a=st.pos.get(e.from),b=st.pos.get(e.to);if(!a||!b)continue;let l=document.createElementNS(NS,'line');l.setAttribute('x1',a[0]);l.setAttribute('y1',a[1]);l.setAttribute('x2',b[0]);l.setAttribute('y2',b[1]);l.dataset.from=e.from;l.dataset.to=e.to;l.setAttribute('class','edge'+(e.direct?' direct':'')+(e.pc92?' pc92':''));ge.append(l)}for(const n of nodes){let p=st.pos.get(n.call);if(!p)continue;let g=document.createElementNS(NS,'g'),cls=n.self?'self':n.direct?'direct':n.do_pc9x?'pc92':'legacy';g.setAttribute('class','node '+cls);g.dataset.call=n.call;g.setAttribute('transform','translate('+p[0]+' '+p[1]+')');let c=document.createElementNS(NS,'circle');c.setAttribute('r',n.self?10:n.direct?8:5);let t=document.createElementNS(NS,'text');t.setAttribute('x',n.self?14:n.direct?12:8);t.setAttribute('y','4');t.textContent=n.call;g.append(c,t);g.onclick=e=>{e.stopPropagation();select(n.call)};g.ondblclick=e=>{e.stopPropagation();select(n.call,true);zoom(.55)};gn.append(g)}fit();if(st.selected&&st.by.has(st.selected))select(st.selected);else if(root)select(root)}
- window.receiveTopology=p=>{let old=st.selected;st.nodes=p.nodes||[];st.edges=p.edges||[];st.root=p.root||'';st.hops=p.hops||'all';st.selected=p.selected||old;document.querySelectorAll('.hop').forEach(b=>b.classList.toggle('active',b.dataset.hops===st.hops));draw()}
- $('find').onclick=find;$('q').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();find()}};$('zin').onclick=()=>zoom(.72);$('zout').onclick=()=>zoom(1.38);$('fit').onclick=fit;$('reset').onclick=()=>{let b=st.base;box({x:b.x+b.w*.25,y:b.y+b.h*.25,w:b.w*.5,h:b.h*.5})};document.querySelectorAll('.hop').forEach(b=>b.onclick=()=>{st.hops=b.dataset.hops;document.querySelectorAll('.hop').forEach(x=>x.classList.toggle('active',x===b));focus()});$('refresh').onclick=()=>{if(window.opener&&!window.opener.closed)window.opener.supervisorRequest('topology')};
+ window.receiveTopology=p=>{if(window._refreshTimeout){clearTimeout(window._refreshTimeout);window._refreshTimeout=null;$('refresh').style.background='';$('refresh').style.color='';}let old=st.selected;st.nodes=p.nodes||[];st.edges=p.edges||[];st.root=p.root||'';st.hops=p.hops||'all';st.selected=p.selected||old;document.querySelectorAll('.hop').forEach(b=>b.classList.toggle('active',b.dataset.hops===st.hops));draw()}
+ $('find').onclick=find;$('q').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();find()}};$('zin').onclick=()=>zoom(.72);$('zout').onclick=()=>zoom(1.38);$('fit').onclick=fit;$('reset').onclick=()=>{let b=st.base;box({x:b.x+b.w*.25,y:b.y+b.h*.25,w:b.w*.5,h:b.h*.5})};document.querySelectorAll('.hop').forEach(b=>b.onclick=()=>{st.hops=b.dataset.hops;document.querySelectorAll('.hop').forEach(x=>x.classList.toggle('active',x===b));focus()});$('refresh').onclick=()=>{if(window.opener&&!window.opener.closed){$('refresh').style.background='#d59b22';$('refresh').style.color='#171717';window._refreshTimeout=setTimeout(()=>{$('refresh').style.background='';$('refresh').style.color='';window._refreshTimeout=null;},20000);if(!window.opener.topologyRefreshFromPopout()){clearTimeout(window._refreshTimeout);window._refreshTimeout=null;$('refresh').style.background='';$('refresh').style.color='';}}};
  const svg=$('g');svg.onwheel=e=>{e.preventDefault();let r=svg.getBoundingClientRect();zoom(e.deltaY<0?.82:1.22,(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height)};svg.onpointerdown=e=>{if(e.target.closest('.node'))return;svg.setPointerCapture(e.pointerId);st.drag={x:e.clientX,y:e.clientY,box:{...st.box}};$('stage').classList.add('dragging')};svg.onpointermove=e=>{if(!st.drag)return;let r=svg.getBoundingClientRect(),dx=(e.clientX-st.drag.x)*st.drag.box.w/r.width,dy=(e.clientY-st.drag.y)*st.drag.box.h/r.height;box({x:st.drag.box.x-dx,y:st.drag.box.y-dy,w:st.drag.box.w,h:st.drag.box.h})};svg.onpointerup=svg.onpointercancel=()=>{st.drag=null;$('stage').classList.remove('dragging')};
  if(window.opener&&!window.opener.closed)window.opener.topologySyncPopout();
  <\/script></body></html>`);
@@ -1368,11 +1470,19 @@ const _dxwebSupervisorHandle=handle;
 handle=function(m){
  if(m.type==='maintenance_update_action_result'){if(!authenticated)return;const a=m.action||'';const btn=document.querySelector(`[data-update-action="${a}"]`);if(btn){btn.disabled=false;delete btn.dataset.running}const lines=Array.isArray(m.output)?m.output:[];lines.forEach(x=>updateLog(x));if(m.status==='ok'){updateLog(`${a}: OK`);const next=btn?.dataset.updateNext;if(next)runUpdateCommand(next)}else updateLog(`${a}: ERROR ${m.error||'unknown'}`);return;}
  if(m.type==='maintenance_history_action_result'){maintenanceActionInflight=false;if(!authenticated)return;if(m.status==='ok'){const rs=m.result?.results||[];setText('historyMaintenanceState',rs.map(x=>x.action==='compress'?`Compressed ${x.id}: ${Number(x.files||0)} file(s)`:`Deleted ${x.id}`).join(' · ')||'Maintenance action completed.');requestMaintenance(maintenancePath)}else setText('historyMaintenanceState',`Maintenance action failed: ${m.error||'unknown'}`);return;}
- if(m.type==='maintenance_snapshot_result'){maintenanceInflight=false;if(!authenticated)return;if(m.status==='ok')renderMaintenance(m.result||{});else setText('supervisionState',`Maintenance error: ${m.error||'unknown'}`);return;}
- if(m.type==='history_metrics_result'){metricsInflight=false;if(!authenticated)return;if(m.status==='ok')renderMetrics(m.result||{});else setText('metricsState',`History error: ${m.error||'unknown'}`);return;}
- if(m.type==='history_timeline_result'){timelineInflight=false;if(!authenticated)return;if(m.status==='ok')renderTimeline(m.result||{});else setText('timelineState',`History error: ${m.error||'unknown'}`);return;}
+ if(m.type==='history_limit_preview_result'){
+  if(m.status!=='ok'){setText('maintLimitState',m.error||'Preview failed');return}
+  const r=m.result||{};pendingLimit={limit:r.limit,count:r.current};
+  const msg=`Change maximum to ${Number(r.limit).toLocaleString()}? Current: ${Number(r.current).toLocaleString()}. ${Number(r.delete_count).toLocaleString()} oldest records will be permanently deleted.`;
+  if(confirm(msg)){setText('maintLimitState','Applying confirmed limit…');send({type:'history_limit_apply',limit:r.limit,expected_count:r.current});}else{pendingLimit=null;setText('maintLimitState','Cancelled; no changes made.')}
+  return;
+ }
+ if(m.type==='history_limit_apply_result'){pendingLimit=null;setText('maintLimitState',m.status==='ok'?`Saved. Deleted ${Number(m.result?.deleted||0).toLocaleString()} oldest records.`:`Not applied: ${m.error||'unknown'}. Review again.`);requestMaintenance(maintenancePath);return;}
+ if(m.type==='maintenance_snapshot_result'){maintenanceInflight=false;if(!authenticated)return;if(m.status==='ok')renderMaintenance(m.result||{});else setText('supervisionState',`Maintenance error: ${m.error||'unknown'}`);refreshProcess(m);return;}
+ if(m.type==='history_metrics_result'){metricsInflight=false;if(!authenticated)return;if(m.status==='ok')renderMetrics(m.result||{});else setText('metricsState',`History error: ${m.error||'unknown'}`);refreshProcess(m);return;}
+ if(m.type==='history_timeline_result'){timelineInflight=false;if(!authenticated)return;if(m.status==='ok')renderTimeline(m.result||{});else setText('timelineState',`History error: ${m.error||'unknown'}`);refreshProcess(m);return;}
  if(/^supervisor_(overview|status|connections|traffic|web|rbn|self_health|system|topology)_result$/.test(m.type||'')){
-  const kind=RegExp.$1;supervisorInflight.delete(kind);if(!authenticated)return;if(m.status==='ok'){if(kind==='overview')renderOverviewSnapshot(m.result);else renderSupervisor(kind,m.result)}else $('supervisionState').textContent=`Supervisor error: ${m.error||'unknown'}`;return;
+  const kind=RegExp.$1;supervisorInflight.delete(kind);if(!authenticated)return;if(m.status==='ok'){if(kind==='overview')renderOverviewSnapshot(m.result);else renderSupervisor(kind,m.result)}else $('supervisionState').textContent=`Supervisor error: ${m.error||'unknown'}`;refreshProcess(m);return;
  }
  return _dxwebSupervisorHandle(m);
 };

@@ -20,11 +20,13 @@ push @out, "  Callsign Type Started                 Uptime    RTT Count Int.  Pi
 
 foreach $dxchan ( sort {$a->call cmp $b->call} DXChannel::get_all ) {
 	next if $dxchan == $main::me;
-	next unless $dxchan->is_node || $dxchan->is_rbn;
+	# Include physical Web transports, never logical Web user channels.
+	my $web_link = $dxchan->isa('Web') && $dxchan->is_webcluster;
+	next unless $dxchan->is_node || $dxchan->is_rbn || $web_link;
 	my $call = $dxchan->call();
 	my $t = cldatetime($dxchan->startt);
 	my $sort;
-	my $name = $dxchan->user->name || " ";
+	my $name = $dxchan->user ? ($dxchan->user->name || " ") : " ";
 	my $obscount = $dxchan->nopings;
 	my $pingint = $dxchan->pingint;
 	my $lastt = $dxchan->lastping ? ($dxchan->pingint - ($nowt - $dxchan->lastping)) : $pingint;
@@ -43,10 +45,11 @@ foreach $dxchan ( sort {$a->call cmp $b->call} DXChannel::get_all ) {
 			$fout = $dxchan->routefilter =~ /node_default/ ? 'D' : 'Y';
 		}
 	}
-	unless ($pingint && $ping) {
+	unless (!$web_link && $pingint && $ping) {
 		$lastt = 0;
 		$ping = '       ';
 		$obscount = ' ';
+		$pingint = 0 if $web_link;
 	}
 
 	$sort = "DXSP" if $dxchan->is_spider;
@@ -56,6 +59,7 @@ foreach $dxchan ( sort {$a->call cmp $b->call} DXChannel::get_all ) {
 	$sort = "AK1A" if $dxchan->is_ak1a;
 	$sort = "RBN " if $dxchan->is_rbn;
 	$sort = "CCCL" if $dxchan->is_ccluster;
+	$sort = "WEB " if $web_link;
 	my $ipaddr;
 
 	my $addr = $dxchan->hostname;
@@ -63,7 +67,7 @@ foreach $dxchan ( sort {$a->call cmp $b->call} DXChannel::get_all ) {
 	    $ipaddr = $addr if is_ipaddr($addr);
 		$ipaddr = 'local' if $addr =~ /^127\./ || $addr =~ /^::[0-9a-f]+$/;
 	}
-	$ipaddr = 'ax25' if $dxchan->conn->ax25;
+	$ipaddr = 'ax25' if $dxchan->conn && $dxchan->conn->can('ax25') && $dxchan->conn->ax25;
 
 	push @out, sprintf "%10s $sort $t%13s$ping   $obscount  %5d %5d  $iso    $fin   $fout   $pc92    $ipaddr", $call, $uptime ,$pingint, $lastt;
 }

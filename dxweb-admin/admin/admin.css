@@ -1883,3 +1883,9 @@ body.v2-shell .v2Topbar::before{content:"BETA";position:absolute;left:20px;top:5
 
 /* DXWeb Neighbours native view */
 .neighTools{display:flex;gap:7px;margin:10px 0}.neighTools button{min-width:42px}.neighWorkspace{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:12px;min-height:580px}.neighSvg{width:100%;height:600px;border:1px solid var(--border,#34485f);border-radius:9px;background:#0c192a}.neighDetail{padding:14px;border:1px solid var(--border,#34485f);border-radius:9px;overflow:auto}.neighField{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #46556a;font-size:13px}.neighField strong{text-align:right}.neighSvg g[role=button]{cursor:pointer}@media(max-width:800px){.neighWorkspace{grid-template-columns:1fr;min-height:0}.neighSvg{height:460px}.neighDetail{max-height:330px}}
+
+/* Four-item maintenance and Network Chat additions */
+.networkChatComposer{display:flex;gap:8px;margin-top:10px;align-items:center}.networkChatComposer input{flex:1;min-width:0}.networkChatComposer button{min-width:85px}.dbInventoryRow{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:7px 0;border-bottom:1px solid var(--border,#5553)}.dbInventoryRow small{grid-column:1/-1;overflow-wrap:anywhere;opacity:.75}.refreshAwaiting{background:#d59b22!important;color:#171717!important;box-shadow:0 0 0 2px #f2c75b!important}
+
+/* Refresh feedback only while an actual request is pending. At rest the original theme wins. */
+body.v2-shell #supervisionTabs .supervisionRefresh.refreshAwaiting{background:#d59b22!important;color:#171717!important;box-shadow:0 0 0 2px #f2c75b!important}

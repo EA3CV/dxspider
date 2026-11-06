@@ -1,3 +1,12 @@
+06Nov26======================================================================
+1. DXHistory v2: new SQLite schema, data compression, and 365-day retention.
+2. DXWeb Admin 2.0.9: Maintenance improvements, database information, 
+   and configurable history record limits.
+3. Refresh: fixed WebSocket response handling.
+4. DXSpider links: added support for displaying WebCluster #WEB-n connections
+    while preserving the original format.
+5. Installation: added integrity and compatibility checks, along with 
+   automatic backups before applying changes.
 05Nov26======================================================================
 1. Fixed a bug in the interactive installer for DXWeb and DXWeb Admin.
 2. Expanded and updated the installation guide with more detailed instructions

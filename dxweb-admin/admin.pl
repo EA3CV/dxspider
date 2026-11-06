@@ -867,6 +867,15 @@ sub handle_response($msg) {
         }
         return;
     }
+    if ($p->{action} eq 'network_chat_send') {
+        ws_send_guarded($cid,encode_json({
+            type=>'network_chat_send_result',
+            status=>$msg->{status}//'error',
+            error=>$msg->{error},
+            channel=>$msg->{channel}
+        }));
+        return;
+    }
     if ( $p->{action} eq 'command' ) {
         $counters{commands}++;
         my @m = @{ $msg->{messages} || [] };
@@ -1774,6 +1783,30 @@ sub v040_cached_async( $key, $ttl, $producer, $cb ) {
         Mojo::IOLoop->next_tick( sub { $cb->( undef, $v040_cache{$key} ) } );
         return;
     }
+    # Metrics only: serve a recently expired view immediately while one
+    # background refresh runs. Never return stale results beyond 120 seconds
+    # from their original computation, or on the initial uncached request.
+    my $stale_limit = $key =~ /\Ametrics:/ ? 120 : 0;
+    my $age = $now - ( $v040_cache_at{$key} || 0 );
+    if ( $stale_limit && exists $v040_cache{$key}
+        && $age >= $ttl && $age < $stale_limit )
+    {
+        Mojo::IOLoop->next_tick( sub { $cb->( undef, $v040_cache{$key} ) } );
+        return if $v040_running{$key};
+        $v040_running{$key} = 1;
+        $producer->(
+            sub( $err, $result ) {
+                if ( !$err && defined $result ) {
+                    $v040_cache{$key}    = $result;
+                    $v040_cache_at{$key} = time;
+                }
+                $v040_running{$key} = 0;
+                my @w = @{ delete( $v040_waiters{$key} ) || [] };
+                $_->( $err, $result ) for @w;
+            }
+        );
+        return;
+    }
     push @{ $v040_waiters{$key} }, $cb;
     return if $v040_running{$key};
     $v040_running{$key} = 1;
@@ -1840,25 +1873,26 @@ sub v040_maintenance_async( $path, $cb ) {
 }
 
 sub v040_warm_caches() {
-
-# Rebuild the bounded prepared views from persistent dxhistory.db after an
-# admin restart. Stagger work so startup and the DXSpider bridge stay responsive.
-    my @w = qw(1h 6h 24h 7d 30d 1y);
-    for my $i ( 0 .. $#w ) {
-        my $win = $w[$i];
-        Mojo::IOLoop->timer(
-            0.5 + $i * 0.75 => sub {
-                v040_metrics_async( $win, '', sub { } );
-            }
-        );
-    }
-    Mojo::IOLoop->timer(
-        5.5 => sub {
-            v040_timeline_async( '15m', sub { } );
-        }
-    );
-
-    # Maintenance and SQLite quick_check run on explicit request only.
+    # Warm one historical window at a time. Starting all six within a few
+    # seconds can cause competing cold SQLite reads on a multi-GB database.
+    # This only affects startup prewarming; live requests still coalesce via
+    # v040_cached_async and retain the original metrics calculation.
+    my @windows = qw(1h 6h 24h 7d 30d 1y);
+    my $next;
+    $next = sub {
+        my $window = shift @windows;
+        return unless defined $window;
+        v040_metrics_async( $window, '', sub {
+            # Yield to the event loop between successive warmups, including
+            # when an individual window fails.
+            Mojo::IOLoop->next_tick($next);
+        } );
+    };
+    Mojo::IOLoop->timer( 0.5 => $next );
+    Mojo::IOLoop->timer( 5.5 => sub {
+        v040_timeline_async( '15m', sub { } );
+    } );
+    # Maintenance and SQLite quick_check remain explicit-request only.
 }
 
 # Browser WebSocket handshake: reject cross-origin requests before allocating
@@ -2995,6 +3029,21 @@ websocket '/ws' => sub($c) {
                 );
                 return;
             }
+            if ($t eq 'history_limit_preview' || $t eq 'history_limit_apply') {
+                unless (($clients{$id}{priv} // 0) >= 9) {return}
+                my $action=$t;
+                my $cb=sub {
+                    my ($err,$r)=@_;
+                    return unless $clients{$id} && $clients{$id}{authenticated} && ($clients{$id}{priv}//0)>=9;
+                    ws_send_response($id,encode_json({type=>$action.'_result',status=>$err?'error':'ok',error=>$err,result=>$r}));
+                };
+                if ($t eq 'history_limit_preview') {
+                    $history_store->limit_preview_async($m->{limit},$cb);
+                } else {
+                    $history_store->limit_apply_async($m->{limit},$m->{expected_count},$cb);
+                }
+                return;
+            }
             if ( $t eq 'maintenance_snapshot' ) {
                 v040_maintenance_async(
                     $m->{history_path},
@@ -3071,6 +3120,20 @@ websocket '/ws' => sub($c) {
                         comment => $m->{comment} // ''
                     }
                 );
+                return;
+            }
+            if ($t eq 'network_chat_send') {
+                my $channel=$m->{channel}//'';
+                my $text=$m->{text}//'';
+                unless (($clients{$id}{priv}//0)>=9 && !ref($channel) && !ref($text) &&
+                        ($channel eq 'ERROR'||$channel eq 'SYSOP') &&
+                        length($text)>0 && length($text)<=500 && $text !~ /[\r\n\0]/) {
+                    ws_send_guarded($id,encode_json({type=>'network_chat_send_result',status=>'error',error=>'invalid_chat_request'}));
+                    return;
+                }
+                dxs_request($id,'network_chat_send',{
+                    type=>'network_chat_send',call=>$clients{$id}{call},channel=>$channel,text=>$text
+                });
                 return;
             }
             if ( $t eq 'command' ) {

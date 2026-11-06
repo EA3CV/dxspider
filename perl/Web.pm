@@ -1981,6 +1981,42 @@ sub _web_command_session_current
     return 1;
 }
 
+# Explicit PC93 group chat from the authenticated permanent WebChannel.
+# No fabricated DXChannel and no bypass of native PC93 generation.
+sub _network_chat_send_request
+{
+    my ($self,$req)=@_;
+    my $id=$req->{id};
+    unless (($self->{web_role}||'') eq 'dxweb-admin') {
+        $self->_error($id,'network_chat_send','admin_context_required');return;
+    }
+    my ($actor,$call,$err)=$self->_actor_for_call($req->{call});
+    unless ($actor) {$self->_error($id,'network_chat_send',$err);return}
+    my $owned=$self->{web_users}{$call};
+    unless (($owned->{priv}||0)>=9 && $actor->priv>=9 && $actor->isregistered) {
+        $self->_error($id,'network_chat_send','admin_privilege_required');return;
+    }
+    my $target=_wc_text($req->{channel},0);
+    my $message=_wc_text($req->{text},0);
+    unless (defined $target && ($target eq 'ERROR'||$target eq 'SYSOP') &&
+            defined $message && length($message)<=500 && $message =~ /\S/) {
+        $self->_error($id,'network_chat_send','invalid_message');return;
+    }
+    # ERROR is a real group: respect native membership. SYSOP is restricted
+    # to privileged administrators, as it is in the receive-side bridge.
+    unless ($target eq 'SYSOP' || $actor->user->in_group('ERROR')) {
+        $self->_error($id,'network_chat_send','not_in_group');return;
+    }
+    my @bad=BadWords::check("$target $message");
+    if (@bad) {$self->_error($id,'network_chat_send','rejected_by_badwords');return}
+    my $ok=eval {$actor->send_chats($target,$message);1};
+    unless ($ok) {
+        LogDbg('err',"Web network_chat_send failed: $@");
+        $self->_error($id,'network_chat_send','internal_error');return;
+    }
+    $self->_response($id,'ok','network_chat_send',{call=>$call,channel=>$target});
+}
+
 sub _command_request
 {
     my ($self, $req) = @_;
@@ -2248,6 +2284,11 @@ sub normal
 
 	if ($type eq 'profile') {
 		$self->_profile_request($req);
+		return;
+	}
+
+	if ($type eq 'network_chat_send') {
+		$self->_network_chat_send_request($req);
 		return;
 	}
 

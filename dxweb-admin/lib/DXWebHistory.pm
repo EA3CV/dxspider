@@ -16,13 +16,15 @@ use Mojo::IOLoop;
 use Mojo::IOLoop::Subprocess;
 use Mojo::JSON     qw(encode_json decode_json);
 use File::Basename qw(dirname);
+use File::Spec;
 use File::Path     qw(make_path remove_tree);
 use File::Find     qw(find);
 use Time::HiRes    qw(time);
 use Time::Local    qw(timegm);
+use DXHistoryCodec qw(pack_bytes unpack_bytes);
 
-our $VERSION        = '0.16.4';
-our $SCHEMA_VERSION = 1;
+our $VERSION        = '0.40';
+our $SCHEMA_VERSION = 2; # New databases use compressed schema v2
 
 sub new {
     my ( $class, %opt ) = @_;
@@ -31,8 +33,8 @@ sub new {
         local_data_root => $opt{local_data_root}
           // ( $ENV{DXSPIDER_ROOT} ? "$ENV{DXSPIDER_ROOT}/local_data" : undef ),
         max_queue  => $opt{max_queue}         // 256,
-        max_rows   => $opt{max_rows}          // 300000,
-        retention  => $opt{retention_seconds} // 31 * 86400,
+        max_rows   => $opt{max_rows} // (($ENV{DXHISTORY_MAX_ROWS} // '') =~ /\A[1-9][0-9]*\z/ ? 0+$ENV{DXHISTORY_MAX_ROWS} : 10000000),
+        retention  => $opt{retention_seconds} // ((($ENV{DXHISTORY_RETENTION_DAYS} // '') =~ /\A[1-9][0-9]*\z/ ? 0+$ENV{DXHISTORY_RETENTION_DAYS} : 365) * 86400),
         queue      => [],
         busy       => 0,
         enabled    => 1,
@@ -41,13 +43,43 @@ sub new {
         dropped    => 0,
         last_write => undef,
         logger     => $opt{logger},
+        create_v2 => 1,
+        schema_version => 1,
+        rank_shadow => ($opt{rank_shadow} || ($ENV{DXHISTORY_RANK_SHADOW} // q{}) eq q{1}) ? 1 : 0, # opt-in only; default OFF
+        rank_fast => ($opt{rank_fast} || ($ENV{DXHISTORY_RANK_FAST} // q{}) eq q{1}) ? 1 : 0, # separate opt-in
     }, $class;
     unless ( $self->{path} ) {
         $self->{enabled} = 0;
         $self->{error}   = 'no_history_path';
         return $self;
     }
+    # A persisted SYSOP limit overrides the environment/default after validation.
+    $self->{limit_file} = File::Spec->catfile($self->{local_data_root}, 'dxhistory-max-rows.conf');
+    if (open my $fh, '<', $self->{limit_file}) {
+        my $value = <$fh>;
+        close $fh;
+        $self->{max_rows} = 0 + $value if defined $value && $value =~ /\A([1-9][0-9]{0,11})\s*\z/;
+    }
     $self->_prepare_database;
+    # Only explicit opt-in installs shadow tables/triggers. Never required for
+    # normal history operation; installation failure disables shadow alone.
+    if ($self->{enabled} && ($self->{rank_shadow} || $self->{rank_fast})) {
+        my $ok = eval {
+            require DBI;
+            require DXHistoryRankShadow;
+            my $db = DBI->connect('dbi:SQLite:dbname=' . $self->{path}, '', '',
+                { RaiseError => 1, PrintError => 0, AutoCommit => 1,
+                  sqlite_busy_timeout => 1000, sqlite_open_flags => 0x00000002 });
+            DXHistoryRankShadow::install($db);
+            $db->disconnect;
+            1;
+        };
+        unless ($ok) {
+            $self->{rank_shadow} = 0;
+            $self->{rank_fast} = 0;
+            $self->_log_event('error', "rank shadow disabled: $@");
+        }
+    }
     return $self;
 }
 
@@ -57,46 +89,51 @@ sub _log_event {
     eval { $self->{logger}->( $level, $message ) };
 }
 
-sub _database_schema_ok {
-    my ($dbh)     = @_;
+sub _database_schema_version {
+    my ($dbh) = @_;
     my ($version) = $dbh->selectrow_array('PRAGMA user_version');
-    return 0 unless defined $version && 0 + $version == $SCHEMA_VERSION;
-
+    return 0 unless defined $version && ($version == 1 || $version == 2);
     my $cols = $dbh->selectall_arrayref('PRAGMA table_info(samples)');
-    return 0 unless ref($cols) eq 'ARRAY' && @$cols == 4;
-    my @expected = (
-        [ 'id',           'INTEGER', 0, 1 ],
-        [ 'kind',         'TEXT',    1, 0 ],
-        [ 'collected_at', 'REAL',    1, 0 ],
-        [ 'payload_json', 'TEXT',    1, 0 ],
-    );
-    for my $i ( 0 .. $#expected ) {
-        my ( $name, $type, $notnull, $pk ) = @{ $expected[$i] };
-        my $c = $cols->[$i] || return 0;
-        return 0 unless ( $c->[1]   // '' ) eq $name;
-        return 0 unless uc( $c->[2] // '' ) eq $type;
-        return 0 unless 0 + ( $c->[3] || 0 ) == $notnull;
-        return 0 unless 0 + ( $c->[5] || 0 ) == $pk;
+    my @expected = $version == 1
+      ? ([ 'id','INTEGER',0,1 ],['kind','TEXT',1,0],['collected_at','REAL',1,0],['payload_json','TEXT',1,0])
+      : ([ 'id','INTEGER',0,1 ],['kind','TEXT',1,0],['collected_at','REAL',1,0],['payload','BLOB',1,0],['codec','INTEGER',1,0]);
+    return 0 unless ref($cols) eq 'ARRAY' && @$cols == @expected;
+    for my $i (0 .. $#expected) {
+        my $c = $cols->[$i];
+        my ($name,$type,$notnull,$pk) = @{$expected[$i]};
+        return 0 unless ($c->[1] // '') eq $name
+            && uc($c->[2] // '') eq $type
+            && 0 + ($c->[3] || 0) == $notnull
+            && 0 + ($c->[5] || 0) == $pk;
     }
-    my ($idx_sql) = $dbh->selectrow_array(
-q{SELECT sql FROM sqlite_master WHERE type='index' AND name='samples_kind_time'}
-    );
-    return 0
-      unless defined $idx_sql
-      && $idx_sql =~ /ON\s+samples\s*\(\s*kind\s*,\s*collected_at\s*\)/i;
-    return 1;
+    my ($idx_sql) = $dbh->selectrow_array(q{SELECT sql FROM sqlite_master WHERE type='index' AND name='samples_kind_time'});
+    return 0 unless defined $idx_sql && $idx_sql =~ /ON\s+samples\s*\(\s*kind\s*,\s*collected_at\s*\)/i;
+    return 0 if $version == 2 && !defined($dbh->selectrow_array(q{SELECT sql FROM sqlite_master WHERE type='index' AND name='samples_time'}));
+    return $version;
 }
 
+sub _database_schema_ok { return _database_schema_version(@_) ? 1 : 0; }
+
 sub _create_database_schema {
-    my ($dbh) = @_;
+    my ($dbh,$version) = @_;
+    $version ||= 1;
+    die 'invalid_create_schema' unless $version == 1 || $version == 2;
     $dbh->do('PRAGMA journal_mode=WAL');
     $dbh->do('PRAGMA synchronous=NORMAL');
-    $dbh->do(
-'CREATE TABLE samples (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, collected_at REAL NOT NULL, payload_json TEXT NOT NULL)'
-    );
+    if ($version == 1) {
+        $dbh->do('CREATE TABLE samples (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, collected_at REAL NOT NULL, payload_json TEXT NOT NULL)');
+    } else {
+        $dbh->do('CREATE TABLE samples (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, collected_at REAL NOT NULL, payload BLOB NOT NULL, codec INTEGER NOT NULL CHECK(codec IN (0,1)))');
+    }
     $dbh->do('CREATE INDEX samples_kind_time ON samples(kind,collected_at)');
     $dbh->do('CREATE INDEX samples_time ON samples(collected_at)');
-    $dbh->do( 'PRAGMA user_version=' . ( 0 + $SCHEMA_VERSION ) );
+    $dbh->do('PRAGMA user_version=' . $version);
+}
+
+sub _payload_columns { return $_[0] == 2 ? 'payload,codec' : 'payload_json'; }
+sub _payload_decode {
+    my ($schema,$json,$codec) = @_;
+    return $schema == 2 ? unpack_bytes($codec,$json) : $json;
 }
 
 sub _ensure_performance_indexes {
@@ -107,6 +144,41 @@ sub _ensure_performance_indexes {
     $dbh->do(
         'CREATE INDEX IF NOT EXISTS samples_time ON samples(collected_at)');
     return 1;
+}
+
+# Called only on startup before this process opens the history writer.
+# The application must be the only process using the DB. Rename (not copy)
+# preserves the complete SQLite WAL triplet without multi-GB migration.
+sub _archive_old_history {
+    my ($path) = @_;
+    my $parent = dirname($path);
+    my $archive_root = "$parent/dxhistory-archives";
+    make_path($archive_root) unless -d $archive_root;
+    my $stamp = sprintf('%d-%d', time(), $$);
+    my $archive = "$archive_root/dxhistory-v1-$stamp";
+    mkdir($archive, 0700) or die "archive_mkdir_failed: $!";
+    my @moved;
+    my $ok = eval {
+        for my $suffix ('', '-wal', '-shm') {
+            my $from = "$path$suffix";
+            next unless -e $from;
+            my $to = "$archive/dxhistory.db$suffix";
+            rename($from, $to) or die "archive_rename_failed: $from: $!";
+            push @moved, [$from, $to];
+        }
+        die 'archive_empty' unless @moved && $moved[0][0] eq $path;
+        1;
+    };
+    unless ($ok) {
+        my $err = $@;
+        for my $pair (reverse @moved) {
+            rename($pair->[1], $pair->[0])
+              or die "archive_rollback_failed: $pair->[1]: $!; original=$err";
+        }
+        rmdir($archive);
+        die $err;
+    }
+    return $archive;
 }
 
 sub _prepare_database {
@@ -123,6 +195,41 @@ sub _prepare_database {
     require DBI;
     my $exists = -e $path;
 
+    # Archive only a fully recognized older schema. Never treat an I/O failure,
+    # unknown schema or corrupt database as permission to delete history.
+    if ($exists) {
+        my $current = eval {
+            my $dbh = DBI->connect("dbi:SQLite:dbname=$path", '', '', {
+                RaiseError => 1, PrintError => 0, AutoCommit => 1,
+                sqlite_busy_timeout => 1000, sqlite_open_flags => 0x00000001
+            }) or die 'history_read_connect_failed';
+            my $v = _database_schema_version($dbh);
+            $dbh->disconnect;
+            $v;
+        };
+        if ($@) {
+            $self->{enabled} = 0;
+            $self->{error} = "history_schema_read_failed: $@";
+            $self->_log_event('error', $self->{error});
+            return 0;
+        }
+        if ($current == 1) {
+            my $ok = eval { _archive_old_history($path); 1 };
+            unless ($ok) {
+                $self->{enabled} = 0;
+                $self->{error} = "history_archive_failed: $@";
+                $self->_log_event('error', $self->{error});
+                return 0;
+            }
+            $exists = 0;
+        } elsif ($current != $SCHEMA_VERSION) {
+            $self->{enabled} = 0;
+            $self->{error} = 'history_unknown_or_invalid_schema';
+            $self->_log_event('error', $self->{error});
+            return 0;
+        }
+    }
+
     # Existing databases are NEVER opened with SQLite's implicit-create flag.
     # A transient I/O/permission/busy error must not become schema mismatch.
     my $ok = eval {
@@ -136,7 +243,7 @@ sub _prepare_database {
           if $exists;    # SQLITE_OPEN_READONLY
         my $dbh = DBI->connect( "dbi:SQLite:dbname=$path", '', '', \%attrs )
           or die 'history_connect_failed';
-        my $valid = $exists ? _database_schema_ok($dbh) : 0;
+        my $valid = $exists ? _database_schema_version($dbh) : 0;
         $dbh->disconnect;
         if ($exists) {
             die 'history_schema_incompatible' unless $valid;
@@ -155,6 +262,7 @@ sub _prepare_database {
                 }
             ) or die 'history_write_connect_failed';
             _ensure_performance_indexes($writer);
+            $self->{schema_version} = $valid;
             $writer->disconnect;
         }
         else {
@@ -171,12 +279,14 @@ sub _prepare_database {
                     sqlite_busy_timeout => 1000,
                 }
             ) or die 'history_create_connect_failed';
-            _create_database_schema($writer);
+            my $version = $SCHEMA_VERSION;
+            _create_database_schema($writer,$version);
             die 'history_schema_verification_failed'
               unless _database_schema_ok($writer);
             $writer->disconnect;
+            $self->{schema_version} = $version;
             $self->_log_event( 'info',
-                "history database created schema=$SCHEMA_VERSION path=$path" );
+                "history database created schema=$version path=$path" );
         }
         1;
     };
@@ -187,7 +297,7 @@ sub _prepare_database {
         return 0;
     }
     $self->_log_event( 'debug',
-        "history ready schema=$SCHEMA_VERSION path=$path" );
+        "history ready schema=$self->{schema_version} path=$path" );
     return 1;
 }
 
@@ -202,6 +312,7 @@ sub status {
         dropped    => 0 + $self->{dropped},
         last_write => $self->{last_write},
         error      => $self->{error},
+        schema_version => $self->{schema_version},
     };
 }
 
@@ -231,10 +342,12 @@ sub enqueue {
 sub _flush_async {
     my ($self) = @_;
     return unless $self->{enabled};
-    return if $self->{busy};
+    return if $self->{busy} || $self->{limit_busy};
     return unless @{ $self->{queue} };
     my @batch = splice @{ $self->{queue} }, 0, 32;
     my ( $path, $max_rows, $retention ) = @$self{qw(path max_rows retention)};
+    my $schema = $self->{schema_version};
+    my $rank_shadow = ($self->{rank_shadow} || $self->{rank_fast}) ? 1 : 0;
     $self->{busy} = 1;
     my $sp = Mojo::IOLoop::Subprocess->new;
     $sp->run(
@@ -257,12 +370,19 @@ sub _flush_async {
             $dbh->do('PRAGMA synchronous=NORMAL');
             die 'history schema mismatch during flush'
               unless _database_schema_ok($dbh);
-            my $sth = $dbh->prepare(
-'INSERT INTO samples(kind,collected_at,payload_json) VALUES(?,?,?)'
-            );
+            die 'history schema changed during flush' unless _database_schema_version($dbh) == $schema;
+            my $sth = $dbh->prepare($schema == 2
+              ? 'INSERT INTO samples(kind,collected_at,payload,codec) VALUES(?,?,?,?)'
+              : 'INSERT INTO samples(kind,collected_at,payload_json) VALUES(?,?,?)');
             $dbh->begin_work;
-            $sth->execute( $_->{kind}, $_->{collected_at}, $_->{payload_json} )
-              for @batch;
+            for my $sample (@batch) {
+                if ($schema == 2) {
+                    my ($codec,$blob) = pack_bytes($sample->{payload_json});
+                    $sth->execute($sample->{kind},$sample->{collected_at},$blob,$codec);
+                } else {
+                    $sth->execute($sample->{kind},$sample->{collected_at},$sample->{payload_json});
+                }
+            }
             my $cut = time - $retention;
             $dbh->do( 'DELETE FROM samples WHERE collected_at < ?',
                 undef, $cut );
@@ -275,6 +395,15 @@ sub _flush_async {
                 );
             }
             $dbh->commit;
+            # Optional bounded shadow maintenance, strictly after original commit.
+            # Failure cannot roll back or misreport already-committed samples.
+            if ($rank_shadow) {
+                eval {
+                    require DXHistoryRankShadow;
+                    DXHistoryRankShadow::rebuild($dbh, 2);
+                    1;
+                } or warn "rank shadow rebuild failed: $@";
+            }
             $dbh->disconnect;
             return scalar @batch;
         },
@@ -305,6 +434,7 @@ sub latest_snapshots_async {
     my $cb = delete $opt{cb};
     die 'latest_snapshots_async requires cb' unless ref($cb) eq 'CODE';
     my $path = $self->{path};
+    my $schema = $self->{schema_version};
     my $sp   = Mojo::IOLoop::Subprocess->new;
     $sp->run(
         sub {
@@ -323,11 +453,11 @@ sub latest_snapshots_async {
             my %out;
             for my $kind (qw(status connections traffic rbn self_health)) {
                 my $r = $dbh->selectrow_arrayref(
-'SELECT collected_at,payload_json FROM samples WHERE kind=? ORDER BY collected_at DESC,id DESC LIMIT 1',
+'SELECT collected_at,' . ($schema == 2 ? 'payload,codec' : 'payload_json,NULL') . ' FROM samples WHERE kind=? ORDER BY collected_at DESC,id DESC LIMIT 1',
                     undef, $kind
                 );
                 next unless $r;
-                my $payload = eval { decode_json( $r->[1] ) };
+                my $payload = eval { decode_json( _payload_decode($schema,$r->[1],$r->[2]) ) };
                 next unless ref($payload) eq 'HASH';
                 $out{$kind} =
                   { collected_at => 0 + $r->[0], payload => $payload };
@@ -556,6 +686,7 @@ sub semantic_window_async {
     return $cb->( 'invalid_window', undef ) unless exists $windows{$window};
     my $seconds = $windows{$window};
     my $path    = $self->{path};
+    my $schema = $self->{schema_version};
     my $sp      = Mojo::IOLoop::Subprocess->new;
     $sp->run(
         sub {
@@ -574,7 +705,7 @@ sub semantic_window_async {
                 }
             );
             my $rows = $dbh->selectall_arrayref(
-                q{SELECT kind,collected_at,payload_json
+                'SELECT kind,collected_at,' . ($schema == 2 ? 'payload,codec' : 'payload_json,NULL') . q{
                      FROM samples
                     WHERE collected_at >= ?
                       AND kind IN ('status','connections','traffic','rbn','self_health','system')
@@ -586,8 +717,8 @@ sub semantic_window_async {
             $dbh->disconnect;
             my %series;
             for my $r (@$rows) {
-                my ( $kind, $at, $json ) = @$r;
-                my $payload = eval { decode_json($json) };
+                my ( $kind, $at, $json, $codec ) = @$r;
+                my $payload = eval { decode_json(_payload_decode($schema,$json,$codec)) };
                 next unless ref($payload) eq 'HASH';
                 push @{ $series{$kind} },
                   {
@@ -744,6 +875,9 @@ sub metrics_series_async {
       || $selected_peer =~ /[\x00-\x1f]/;
     my $compact = $opt{compact} ? 1 : 0;
     my ( $seconds, $path ) = ( $windows{$window}, $self->{path} );
+    my $schema = $self->{schema_version};
+    my $rank_shadow = $self->{rank_shadow} ? 1 : 0;
+    my $rank_fast = $self->{rank_fast} ? 1 : 0;
     my $sp = Mojo::IOLoop::Subprocess->new;
     $sp->run(
         sub {
@@ -763,8 +897,7 @@ sub metrics_series_async {
                     sqlite_open_flags   => 0x00000001
                 }
             );
-            my $rows = $dbh->selectall_arrayref(
-                q{
+            my $metrics_sql = q{
             SELECT s.kind,s.collected_at,s.payload_json
               FROM samples s
               JOIN (
@@ -779,10 +912,52 @@ sub metrics_series_async {
               FROM samples
              WHERE kind='spot_ranks' AND collected_at>=?
             ORDER BY collected_at
-        }, undef, $from, $bucket, $from, $from
+        };
+            if ($schema == 2) {
+                $metrics_sql =~ s/s\.payload_json/s.payload,s.codec/g;
+                $metrics_sql =~ s/SELECT kind,collected_at,payload_json/SELECT kind,collected_at,payload,codec/g;
+            } else {
+                $metrics_sql =~ s/s\.payload_json/s.payload_json,NULL/g;
+                $metrics_sql =~ s/SELECT kind,collected_at,payload_json/SELECT kind,collected_at,payload_json,NULL/g;
+            }
+            my $fast_sql = $metrics_sql;
+            $fast_sql =~ s/\s+UNION ALL\s+SELECT kind,collected_at,(?:payload_json,NULL|payload,codec)\s+FROM samples\s+WHERE kind='spot_ranks' AND collected_at>=\?//s
+                or die 'rank fast SQL guard failed';
+            my $rows = $dbh->selectall_arrayref(
+                $rank_fast ? $fast_sql : $metrics_sql,
+                undef, $from, $bucket, $from, ($rank_fast ? () : ($from))
             );
+            my $rank_fast_result;
+            if ($rank_fast) {
+                my $ok = eval {
+                    require DXHistoryRankShadow;
+                    # This query uses complete-day rollups and original partial/dirty days.
+                    my ($sum,$used,$fallback,$empty) = DXHistoryRankShadow::query($dbh,$from,$now);
+                    $rank_fast_result = $sum;
+                    warn sprintf("rank fast window=%s rollup_days=%d fallback_days=%d empty_days=%d\n",
+                        $window,$used,$fallback,$empty);
+                    1;
+                };
+                unless ($ok) {
+                    warn "rank fast fallback to original: $@";
+                    my $raw = $dbh->selectall_arrayref(
+                        'SELECT kind,collected_at,' . ($schema == 2 ? 'payload,codec' : 'payload_json,NULL') . q{ FROM samples WHERE kind='spot_ranks' AND collected_at>=?},
+                        undef,$from);
+                    push @$rows,@$raw;
+                }
+            }
             my ( $oldest, $newest ) = $dbh->selectrow_array(
                 'SELECT MIN(collected_at),MAX(collected_at) FROM samples');
+            if ($rank_shadow && !$rank_fast) {
+                eval {
+                    require DXHistoryRankShadow;
+                    my $comparison = DXHistoryRankShadow::compare($dbh, $from, $now);
+                    warn sprintf("rank shadow window=%s equal=%s rollup_days=%d fallback_days=%d\n",
+                        $window, $comparison->{equal} ? 'True' : 'False',
+                        $comparison->{rollup_days}, $comparison->{fallback_days});
+                    1;
+                } or warn "rank shadow compare failed: $@";
+            }
             $dbh->disconnect;
 
           # A metrics request walks the same traffic snapshots for fixed series,
@@ -793,7 +968,7 @@ sub metrics_series_async {
                 my ($r) = @_;
                 my $key = "$r";
                 return $decoded_row{$key} if exists $decoded_row{$key};
-                my $x = eval { decode_json( $r->[2] ) };
+                my $x = eval { decode_json( _payload_decode($schema,$r->[2],$r->[3]) ) };
                 return $decoded_row{$key} = ( ref($x) eq 'HASH' ? $x : undef );
             };
             my @fixed = (
@@ -949,7 +1124,7 @@ sub metrics_series_async {
             my %want = map { ( "$_->[0]\0$_->[1]" => $_ ) } @fixed;
             my ( %raw, %peer, %peers, %boots, %kind_span );
             for my $r (@$rows) {
-                my ( $kind, $at, $json ) = @$r;
+                my ( $kind, $at, $json, $codec ) = @$r;
                 $kind_span{$kind}{first} = $at
                   if !defined( $kind_span{$kind}{first} )
                   || $at < $kind_span{$kind}{first};
@@ -1022,7 +1197,7 @@ sub metrics_series_async {
    # No burst counter is added to DXSpider and logical origin is never inferred.
             my ( %neighbour_samples, %neighbour_rates, @neighbour_summary );
             for my $r (@$rows) {
-                my ( $kind, $at, $json ) = @$r;
+                my ( $kind, $at, $json, $codec ) = @$r;
                 next unless $kind eq 'traffic';
                 my $x = $decode_row->($r);
                 next unless ref($x) eq 'HASH';
@@ -1153,7 +1328,7 @@ sub metrics_series_async {
       # association is invented here.
             my ( %origin_samples, %origin_rates, @origin_summary );
             for my $r (@$rows) {
-                my ( $kind, $at, $json ) = @$r;
+                my ( $kind, $at, $json, $codec ) = @$r;
                 next unless $kind eq 'traffic';
                 my $x = $decode_row->($r);
                 next unless ref($x) eq 'HASH';
@@ -1273,8 +1448,15 @@ sub metrics_series_async {
        # only Top-30 so browser payload size is bounded.
             my ( %rank_dx, %rank_spotter, %rank_origin );
             my ( $rank_total, $rank_overflow ) = ( 0, 0 );
+            if ($rank_fast_result) {
+                $rank_total = 0 + ($rank_fast_result->{total} || 0);
+                $rank_overflow = 0 + ($rank_fast_result->{overflow} || 0);
+                %rank_dx = %{ $rank_fast_result->{by_dx} || {} };
+                %rank_spotter = %{ $rank_fast_result->{by_spotter} || {} };
+                %rank_origin = %{ $rank_fast_result->{by_origin_node} || {} };
+            }
             for my $r (@$rows) {
-                my ( $kind, $at, $json ) = @$r;
+                my ( $kind, $at, $json, $codec ) = @$r;
                 next unless $kind eq 'spot_ranks';
                 my $x = $decode_row->($r);
                 next unless ref($x) eq 'HASH';
@@ -1436,6 +1618,7 @@ sub timeline_async {
     $limit = 1    if $limit < 1;
     $limit = 1000 if $limit > 1000;
     my ( $seconds, $path ) = ( $windows{$window}, $self->{path} );
+    my $schema = $self->{schema_version};
     my $sp = Mojo::IOLoop::Subprocess->new;
     $sp->run(
         sub {
@@ -1454,7 +1637,7 @@ sub timeline_async {
                 }
             );
             my $rows = $dbh->selectall_arrayref(
-"SELECT kind,collected_at,payload_json FROM samples WHERE collected_at>=? AND kind IN ('status','self_health') ORDER BY collected_at,id",
+'SELECT kind,collected_at,' . ($schema == 2 ? 'payload,codec' : 'payload_json,NULL') . q{ FROM samples WHERE collected_at>=? AND kind IN ('status','self_health') ORDER BY collected_at,id},
                 undef, $from
             );
             my ( $oldest, $newest ) = $dbh->selectrow_array(
@@ -1464,8 +1647,8 @@ sub timeline_async {
             my @state = qw(channels users nodes rbn web pending_connects);
 
             for my $r (@$rows) {
-                my ( $kind, $at, $json ) = @$r;
-                my $x = eval { decode_json($json) };
+                my ( $kind, $at, $json, $codec ) = @$r;
+                my $x = eval { decode_json(_payload_decode($schema,$json,$codec)) };
                 next unless ref $x eq 'HASH';
                 my $p = $prev{$kind};
                 if ($p) {
@@ -1836,6 +2019,64 @@ sub _gzip_file_safe {
     return 1;
 }
 
+# Limit changes are serialized with history writes. Destructive operations
+# are never performed until the browser confirms a preview token.
+sub limit_preview_async {
+    my ($self, $limit, $cb) = @_;
+    return $cb->('invalid_limit') unless defined $limit && !ref($limit) && "$limit" =~ /\A[1-9][0-9]{0,11}\z/;
+    return $cb->('history_busy') if $self->{busy} || $self->{limit_busy};
+    my $path = $self->{path};
+    my $sp = Mojo::IOLoop::Subprocess->new;
+    $sp->run(sub {
+        require DBI;
+        my $db = DBI->connect("dbi:SQLite:dbname=$path",'', '', {RaiseError=>1,PrintError=>0,sqlite_open_flags=>1,sqlite_busy_timeout=>1000});
+        my ($count) = $db->selectrow_array('SELECT COUNT(*) FROM samples');
+        $db->disconnect;
+        return {current=>0+$count,limit=>0+$limit,delete_count=>($count>$limit?$count-$limit:0)};
+    },sub {my ($sp,$err,$r)=@_;$cb->($err?"$err":undef,$r)});
+}
+
+sub limit_apply_async {
+    my ($self, $limit, $expected_count, $cb) = @_;
+    return $cb->('invalid_limit') unless defined $limit && !ref($limit) && "$limit" =~ /\A[1-9][0-9]{0,11}\z/;
+    return $cb->('invalid_expected_count') unless defined $expected_count && !ref($expected_count) && "$expected_count" =~ /\A[0-9]{1,12}\z/;
+    return $cb->('history_busy') if $self->{busy} || $self->{limit_busy};
+    $self->{limit_busy}=1;
+    my ($path,$file)=@$self{qw(path limit_file)};
+    my $sp=Mojo::IOLoop::Subprocess->new;
+    $sp->run(sub {
+        require DBI;
+        my $db=DBI->connect("dbi:SQLite:dbname=$path",'','',{RaiseError=>1,PrintError=>0,AutoCommit=>1,sqlite_busy_timeout=>2000});
+        $db->begin_work;
+        my ($count)=$db->selectrow_array('SELECT COUNT(*) FROM samples');
+        die 'history_changed_repreview_required' unless $count == $expected_count;
+        my $remove=$count>$limit?$count-$limit:0;
+        # Persist the limit before committing deletion, using a same-dir atomic rename.
+        # On commit failure, restore the previous setting before reporting failure.
+        my $old;
+        if (open my $in,'<',$file) {local $/;$old=<$in>;close $in}
+        my $temp="$file.$$";
+        open my $fh,'>',$temp or die "limit_config_open: $!";
+        print {$fh} "$limit\n" or die "limit_config_write: $!";
+        close $fh or die "limit_config_close: $!";
+        if ($remove) {
+            $db->do('DELETE FROM samples WHERE id IN (SELECT id FROM samples ORDER BY id ASC LIMIT ?)',undef,$remove);
+        }
+        # Persist config after DB commit; on config failure rollback is impossible,
+        # therefore stage config rename first, then DB commit and restore on failure.
+        rename $temp,$file or die "limit_config_rename: $!";
+        my $ok=eval {$db->commit;1};
+        unless ($ok) {
+            my $err=$@;
+            if (defined $old) {open my $fh,'>',$temp or die $err;print {$fh} $old;close $fh;rename $temp,$file}
+            else {unlink $file}
+            die $err;
+        }
+        $db->disconnect;
+        return {limit=>0+$limit,deleted=>0+$remove};
+    },sub {my ($sp,$err,$r)=@_;$self->{limit_busy}=0;$self->{max_rows}=0+$limit unless $err;$cb->($err?"$err":undef,$r);Mojo::IOLoop->next_tick(sub{$self->_flush_async}) if @{$self->{queue}}});
+}
+
 sub maintenance_async {
     my ( $self, %opt ) = @_;
     my $cb = delete $opt{cb};
@@ -1874,6 +2115,7 @@ sub maintenance_async {
 'SELECT COUNT(*),MIN(collected_at),MAX(collected_at) FROM samples'
             );
             $r{samples}     = 0 + ( $count || 0 );
+            $r{max_rows} = 0 + $self->{max_rows};
             $r{oldest_at}   = defined $oldest ? 0 + $oldest : undef;
             $r{newest_at}   = defined $newest ? 0 + $newest : undef;
             $r{quick_check} = 'not checked'
@@ -1904,6 +2146,30 @@ sub maintenance_async {
             @backups            = sort { $b->{mtime} <=> $a->{mtime} } @backups;
             $r{backup_count}    = scalar @backups;
             $r{latest_backup}   = $backups[0] if @backups;
+            # Bounded inventory, stat-only, no database opens or integrity scans.
+            my @dbs;
+            my @queue = ([$root,0], [dirname($root)."/data",0]);
+            my $visited=0;
+            while (@queue && $visited < 4000 && @dbs < 200) {
+                my ($dir,$depth)=@{shift @queue};
+                my $dh; next unless opendir($dh,$dir);
+                while (defined(my $name=readdir $dh)) {
+                    next if $name eq '.' || $name eq '..';
+                    last if ++$visited > 4000;
+                    my $full="$dir/$name";
+                    next if -l $full;
+                    if (-d $full && $depth < 3) {push @queue,[$full,$depth+1];next}
+                    next unless -f $full && $name =~ /\.(?:db|sqlite|sqlite3)\z/i;
+                    my @st=stat($full);
+                    next unless @st;
+                    my $total=0+$st[7];
+                    for my $suffix ('-wal','-shm') {my @ss=stat($full.$suffix);$total+=0+$ss[7] if @ss}
+                    push @dbs,{name=>$name,path=>$full,bytes=>0+$st[7],total_bytes=>$total,mtime=>0+$st[9]};
+                    last if @dbs >= 200;
+                }
+                closedir $dh;
+            }
+            $r{databases}= [sort {$a->{path} cmp $b->{path}} @dbs];
             $r{history_browser} = _history_tree_snapshot( $root, $parts );
             $r{archive_dir}     = "$root/archives";
             return \%r;
