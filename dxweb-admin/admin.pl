@@ -30,6 +30,8 @@ use Encode      ();
 use JSON::PP    ();         # ASCII-safe JSON on the DXSpider line transport
 use Time::HiRes qw(time);
 use FindBin;
+use File::Temp qw(tempfile);
+use File::Basename qw(dirname);
 
 # Optional local configuration. Default: Linux terminal enabled.
 our $enable_linux_terminal = 1;
@@ -70,6 +72,78 @@ my $DXSPIDER_ROOT = $ENV{DXSPIDER_ROOT}
   // File::Spec->rel2abs( File::Spec->catdir( $FindBin::Bin, '..' ) );
 -d File::Spec->catdir( $DXSPIDER_ROOT, 'perl' )
   or die "Invalid DXSPIDER_ROOT: $DXSPIDER_ROOT\n";
+
+# Session policy configuration only; enforcement is implemented separately.
+# The file is shared read-only with DXWeb. Never accept a path from a client.
+my $SESSION_POLICY_PATH = "$DXSPIDER_ROOT/local_data/dxweb-session-policy.json";
+sub session_policy_default {
+    return { map { $_ => { enabled => \0, minutes => 15 } } qw(dxweb dxweb_admin) };
+}
+sub session_policy_valid($v) {
+    return 0 unless ref($v) eq 'HASH' && keys(%$v) == 2;
+    for my $app (qw(dxweb dxweb_admin)) {
+        my $entry = $v->{$app};
+        return 0 unless ref($entry) eq 'HASH' && keys(%$entry) == 2;
+        return 0 unless exists($entry->{enabled}) &&
+            (ref($entry->{enabled}) eq 'JSON::PP::Boolean' || ref($entry->{enabled}) eq 'Mojo::JSON::_Bool');
+        return 0 unless defined($entry->{minutes}) && !ref($entry->{minutes}) &&
+            "$entry->{minutes}" =~ /\A[0-9]+\z/ && $entry->{minutes} >= 1 && $entry->{minutes} <= 1440;
+    }
+    return 1;
+}
+sub session_policy_read {
+    return session_policy_default() unless -e $SESSION_POLICY_PATH;
+    open my $fh, '<', $SESSION_POLICY_PATH or die "Cannot open session policy: $!";
+    local $/; my $raw = <$fh>; close $fh or die "Cannot close session policy: $!";
+    my $policy = eval { decode_json($raw) };
+    die 'Invalid session policy file' unless session_policy_valid($policy);
+    return $policy;
+}
+sub session_policy_write($policy) {
+    die 'Invalid session policy' unless session_policy_valid($policy);
+    my $dir = dirname($SESSION_POLICY_PATH);
+    my ($fh, $tmp) = tempfile('.dxweb-session-policy-XXXXXXXX', DIR => $dir, UNLINK => 0);
+    eval {
+        chmod 0640, $tmp or die "chmod failed: $!";
+        print {$fh} encode_json($policy), "\n" or die "write failed: $!";
+        close $fh or die "close failed: $!";
+        rename $tmp, $SESSION_POLICY_PATH or die "rename failed: $!";
+        1;
+    } or do { my $err = $@ || 'write failed'; close $fh if fileno($fh); unlink $tmp; die $err };
+    return 1;
+}
+
+# Shared operator-idle policy. Read at most once per process every five seconds.
+# A malformed/unreadable policy is not silently interpreted as disabled.
+my $idle_policy_checked = 0;
+my $idle_policy_cache;
+sub operator_idle_policy($name) {
+    my $now = time;
+    if (!$idle_policy_checked || $now - $idle_policy_checked >= 5) {
+        $idle_policy_checked = $now;
+        my $value = eval { session_policy_read() };
+        if ($@) {
+            warn "DXWEB_SESSION_POLICY_ERROR $@";
+            $idle_policy_cache = undef;
+        } else {
+            $idle_policy_cache = $value;
+        }
+    }
+    return undef unless $idle_policy_cache;
+    return $idle_policy_cache->{$name};
+}
+sub operator_idle_expired($cl, $name) {
+    return 0 unless $cl && $cl->{authenticated};
+    my $p = operator_idle_policy($name);
+    # An unreadable policy must not accidentally grant indefinite access.
+    return 1 unless $p;
+    return 0 unless $p->{enabled};
+    return time - ($cl->{operator_last_activity} // $cl->{authenticated_at} // time)
+        >= $p->{minutes} * 60;
+}
+
+
+
 
 my $DXS_HOST   = '127.0.0.1'; # security boundary: admin transport is local-only
 my $DXS_PORT   = $ENV{DXS_PORT}      // 27754;
@@ -829,6 +903,7 @@ sub handle_response($msg) {
             }
             $cl->{authenticated}    = 1;
             $cl->{authenticated_at} = time;
+            $cl->{operator_last_activity} = time;
             $cl->{call}             = $msg->{call};
             $cl->{generation}       = $msg->{generation};
             $cl->{priv}             = $priv;
@@ -2582,6 +2657,13 @@ websocket '/ws' => sub($c) {
     $clients{$id} = { tx => $tx, ip => $ip, authenticated => 0 };
     $clients{$id}{opened_at} = time;
     $c->inactivity_timeout(0);
+    my $idle_timer = Mojo::IOLoop->recurring(5 => sub {
+        return unless $clients{$id};
+        if (operator_idle_expired($clients{$id}, 'dxweb_admin')) {
+            warn "DXWEB_OPERATOR_IDLE_EXPIRED app=dxweb_admin client=$id\n";
+            $c->finish(1008 => 'operator idle timeout');
+        }
+    });
     my $last_pong = time;
 
     # Mojolicious 9.49 emits 'frame' for control frames, not 'pong'.
@@ -2629,6 +2711,15 @@ websocket '/ws' => sub($c) {
             eval { $m = decode_json $raw };
             return if $@ || ref $m ne 'HASH';
             my $t = lc( $m->{type} // '' );
+            if (operator_idle_expired($clients{$id}, 'dxweb_admin')) {
+                $c->finish(1008 => 'operator idle timeout');
+                return;
+            }
+            if ($t eq 'operator_activity') {
+                $clients{$id}{operator_last_activity} = time
+                    if $clients{$id} && $clients{$id}{authenticated};
+                return;
+            }
             if ( $t eq 'auth' ) {
                 return unless $state{state} eq 'ready';
                 return if $clients{$id}{authenticated};
@@ -3081,6 +3172,22 @@ websocket '/ws' => sub($c) {
                 );
                 return;
             }
+            if ( $t eq 'session_policy_get' || $t eq 'session_policy_set' ) {
+                my $reply = { type => $t . '_result', status => 'ok' };
+                eval {
+                    if ($t eq 'session_policy_set') {
+                        die 'invalid_policy' unless session_policy_valid($m->{policy});
+                        session_policy_write($m->{policy});
+                    }
+                    $reply->{policy} = session_policy_read();
+                    1;
+                } or do {
+                    $reply->{status} = 'error';
+                    $reply->{error} = 'session_policy_unavailable';
+                };
+                ws_send_response($id, encode_json($reply));
+                return;
+            }
             if ( $t eq 'supervisor_system' ) {
                 ws_send_response(
                     $id,
@@ -3168,6 +3275,7 @@ websocket '/ws' => sub($c) {
     );
     $c->on(
         finish => sub {
+            Mojo::IOLoop->remove($idle_timer);
             Mojo::IOLoop->remove($heartbeat);
             release_client( $id, 'browser_finish' );
         }

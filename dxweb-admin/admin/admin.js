@@ -1094,8 +1094,30 @@ function updateSupervisorBanner(r){
  if(supervisorLastCollectedAt){const age=Math.max(0,Date.now()/1000-supervisorLastCollectedAt);$('supervisionAge').textContent=`data age ${age<10?age.toFixed(1)+'s':Math.floor(age)+'s'}`}
 }
 function fmtDuration(v){let s=Math.max(0,Math.floor(Number(v)||0));const d=Math.floor(s/86400);s%=86400;const h=Math.floor(s/3600);s%=3600;const m=Math.floor(s/60);return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m}m`}
+function sessionPolicyRender(policy){
+ const box=$('sessionPolicyRows');if(!box)return;
+ box.replaceChildren();
+ for(const [key,label] of [['dxweb','DXWeb'],['dxweb_admin','DXWeb Admin']]){
+  const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0';
+  const title=document.createElement('strong');title.textContent=label;
+  const toggle=document.createElement('input');toggle.type='checkbox';toggle.id='policy-'+key+'-enabled';toggle.checked=policy[key]?.enabled===true;
+  const toggleLabel=document.createElement('label');toggleLabel.htmlFor=toggle.id;toggleLabel.textContent='Enable idle timeout';
+  const mins=document.createElement('input');mins.type='number';mins.min='1';mins.max='1440';mins.step='1';mins.value=String(policy[key]?.minutes??15);mins.id='policy-'+key+'-minutes';mins.style.width='85px';
+  const minsLabel=document.createElement('label');minsLabel.htmlFor=mins.id;minsLabel.textContent='Minutes';
+  row.append(title,toggle,toggleLabel,minsLabel,mins);box.append(row);
+ }
+}
+function sessionPolicySave(){
+ const policy={};for(const key of ['dxweb','dxweb_admin']){
+  const minutes=Number($('policy-'+key+'-minutes').value);
+  if(!Number.isInteger(minutes)||minutes<1||minutes>1440){setText('sessionPolicyState','Minutes must be 1–1440');return}
+  policy[key]={enabled:$('policy-'+key+'-enabled').checked,minutes};
+ }
+ setText('sessionPolicyState','Saving…');send({type:'session_policy_set',policy});
+}
+$('sessionPolicySave')?.addEventListener('click',sessionPolicySave);
 function supervisorKindsFor(panel){return panel==='neighbours'?['connections','status']:panel==='overview'?['overview']:panel==='diagnostics'?['self_health']:panel==='system'?['system']:panel==='nodes'?['connections','web']:panel==='connections'?['connections','web']:panel==='users'?['connections','web']:panel==='peers'?['connections','traffic']:[panel]}
-function supervisorRequest(panel=activeSupervisionPanel){if(!authenticated||!ws||ws.readyState!==WebSocket.OPEN)return;if(panel==='maintenance'){requestMaintenance();return}const todo=supervisorKindsFor(panel).filter(what=>!supervisorInflight.has(what));if(!todo.length)return;$('supervisionState').textContent='';for(const what of todo){supervisorInflight.add(what);if(!send({type:`supervisor_${what}`}))supervisorInflight.delete(what)}}
+function supervisorRequest(panel=activeSupervisionPanel){if(!authenticated||!ws||ws.readyState!==WebSocket.OPEN)return;if(panel==='maintenance'){requestMaintenance();return}if(panel==='system')send({type:'session_policy_get'});const todo=supervisorKindsFor(panel).filter(what=>!supervisorInflight.has(what));if(!todo.length)return;$('supervisionState').textContent='';for(const what of todo){supervisorInflight.add(what);if(!send({type:`supervisor_${what}`}))supervisorInflight.delete(what)}}
 function selectSupervision(id){if(activeSupervisionPanel!==(id||'overview')&&$('supervisionRefresh'))refreshClear($('supervisionRefresh'));activeSupervisionPanel=id||'overview';if(activeSupervisionPanel==='neighbours')neighboursRender();if(activeSupervisionPanel==='overview')refreshSoftwareVersions();document.querySelectorAll('#supervisionTabs button[data-superpanel]').forEach(b=>b.classList.toggle('active',b.dataset.superpanel===activeSupervisionPanel));document.querySelectorAll('#supervision .superPanel').forEach(p=>p.classList.toggle('active',p.id===activeSupervisionPanel));if(authenticated){supervisorRequest(activeSupervisionPanel);if(activeSupervisionPanel==='diagnostics')requestMetrics()}}
 document.querySelectorAll('#supervisionTabs button[data-superpanel]').forEach(b=>b.onclick=()=>selectSupervision(b.dataset.superpanel));
 if($('supervisionRefresh'))$('supervisionRefresh').onclick=()=>refreshUser('supervisionRefresh');
@@ -1478,6 +1500,10 @@ handle=function(m){
   return;
  }
  if(m.type==='history_limit_apply_result'){pendingLimit=null;setText('maintLimitState',m.status==='ok'?`Saved. Deleted ${Number(m.result?.deleted||0).toLocaleString()} oldest records.`:`Not applied: ${m.error||'unknown'}. Review again.`);requestMaintenance(maintenancePath);return;}
+ if(m.type==='session_policy_get_result'||m.type==='session_policy_set_result'){
+  if(m.status==='ok'){sessionPolicyRender(m.policy);setText('sessionPolicyState',m.type==='session_policy_set_result'?'Configuration saved (not yet enforced).':'');}
+  else setText('sessionPolicyState','Unable to load or save session policy');return;
+ }
  if(m.type==='maintenance_snapshot_result'){maintenanceInflight=false;if(!authenticated)return;if(m.status==='ok')renderMaintenance(m.result||{});else setText('supervisionState',`Maintenance error: ${m.error||'unknown'}`);refreshProcess(m);return;}
  if(m.type==='history_metrics_result'){metricsInflight=false;if(!authenticated)return;if(m.status==='ok')renderMetrics(m.result||{});else setText('metricsState',`History error: ${m.error||'unknown'}`);refreshProcess(m);return;}
  if(m.type==='history_timeline_result'){timelineInflight=false;if(!authenticated)return;if(m.status==='ok')renderTimeline(m.result||{});else setText('timelineState',`History error: ${m.error||'unknown'}`);refreshProcess(m);return;}
@@ -1801,3 +1827,16 @@ document.getElementById('neighboursPlus')?.addEventListener('click',()=>neighbou
 document.getElementById('neighboursReset')?.addEventListener('click',()=>{neighboursZoom=1;neighboursZoomSet(0)});
 
 function neighboursType(r){const sort=String(r.sort||'').toUpperCase();const map={S:'Spider',A:'AK1A',C:'CLX',R:'AR Cluster',L:'CC Cluster',X:'DXNet',N:'RBN',B:'BBS'};return map[sort]||({rbn:'RBN',node:'Node',peer:'Node'}[r.kind]||'Unknown')}
+
+
+// Human interaction only: never refresh session activity from polling or WebSockets.
+let operatorActivitySentAt = 0;
+function reportOperatorActivity(event) {
+ if (!event.isTrusted || !authenticated || !ws || ws.readyState !== WebSocket.OPEN) return;
+ const now = Date.now();
+ if (now - operatorActivitySentAt < 10000) return;
+ operatorActivitySentAt = now;
+ ws.send(JSON.stringify({type:'operator_activity'}));
+}
+for (const name of ['pointerdown','keydown','wheel','touchstart'])
+ document.addEventListener(name, reportOperatorActivity, {passive:true, capture:true});

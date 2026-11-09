@@ -403,7 +403,7 @@ sub _gen_pc92
 	my $s = "PC92^$main::mycall^" . gen_pc9x_t() . "^$sort";
 	# Reserve field 4 explicitly for A/C/D. The origin is in the header.
 	# Omit a duplicate origin object but preserve ordinary route entries.
-	shift if ($sort eq 'A' || $sort eq 'C' || $sort eq 'D') && @_ && $_[0]->call eq $main::mycall;
+	shift if ($sort eq 'A' || $sort eq 'D') && @_ && $_[0]->call eq $main::mycall;
 	$s .= '^' if $sort eq 'A' || $sort eq 'C' || $sort eq 'D';
 	for (@_) {
 		$s .= '^' . _encode_pc92_call($_, $ext);
@@ -422,7 +422,7 @@ sub gen_pc92_with_time
 	my $s = "PC92^$call^$t^$sort";
 	# Reserve field 4 explicitly for A/C/D. The origin is in the header.
 	# Omit a duplicate origin object but preserve ordinary route entries.
-	shift if ($sort eq 'A' || $sort eq 'C' || $sort eq 'D') && @_ && $_[0]->call eq $call;
+	shift if ($sort eq 'A' || $sort eq 'D') && @_ && $_[0]->call eq $call;
 	$s .= '^' if $sort eq 'A' || $sort eq 'C' || $sort eq 'D';
 	for (@_) {
 		$s .= "^" . _encode_pc92_call($_, $ext);

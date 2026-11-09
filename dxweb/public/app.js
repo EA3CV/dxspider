@@ -843,3 +843,16 @@ function spotPresentationBind(){
 }
 
 spotPresentationBind();
+
+
+// Human interaction only: never refresh session activity from polling or WebSockets.
+let operatorActivitySentAt = 0;
+function reportOperatorActivity(event) {
+ if (!event.isTrusted || !authenticated || !ws || ws.readyState !== WebSocket.OPEN) return;
+ const now = Date.now();
+ if (now - operatorActivitySentAt < 10000) return;
+ operatorActivitySentAt = now;
+ ws.send(JSON.stringify({type:'operator_activity'}));
+}
+for (const name of ['pointerdown','keydown','wheel','touchstart'])
+ document.addEventListener(name, reportOperatorActivity, {passive:true, capture:true});

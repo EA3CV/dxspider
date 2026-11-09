@@ -1621,6 +1621,24 @@ sub send_route_pc92
 }
 
 # broadcast only to pc9x nodes
+# Optional, read-only protocol decision tracing.  No changes to routing.
+our $pc92proto_context;
+our $pc92proto_rxseq = 0;
+sub pc92proto_trace
+{
+    return unless isdbg('pc92proto') && $pc92proto_context;
+    my ($decision, $stage, $reason) = @_;
+    my $c = $pc92proto_context;
+    $c->{rejected} = 1 if $decision eq 'REJECT';
+    $reason = '' unless defined $reason;
+    $reason =~ s/[\r\n]+/_/g;
+    my $packet = defined $c->{packet} ? $c->{packet} : '';
+    $packet =~ s/[\r\n]+/_/g;
+    dbg('PC92PROTO rxseq=' . $c->{rxseq} . ' from=' . $c->{ingress}
+        . ' | ' . $packet . ' | decision=' . $decision
+        . ' stage=' . $stage . ' reason=' . $reason);
+}
+
 sub broadcast_route_pc9x
 {
 	my $self = shift;
@@ -1636,20 +1654,49 @@ sub broadcast_route_pc9x
 	}
 
 	my $sent = 0;
-	$line =~ /\^H(\d+)\^\~?$/;
-	unless ($1 > 0 && $self->{isolate}) {
+	# A packet whose hop budget is exhausted must not be forwarded.
+	# Ingress has already decremented the budget before calling this method.
+	unless (defined $line && $line =~ /\^H(\d+)\^\~?$/) {
+        pc92proto_trace('SKIP', 'FORWARD', 'HOP_TRAILER_MISSING');
+        return 0;
+    }
+	my $remaining_hops = $1;
+	if ($remaining_hops == 0) {
+        pc92proto_trace('SKIP', 'FORWARD', 'HOP_BUDGET_EXHAUSTED');
+        return 0;
+    }
+	unless ($self->{isolate}) {
 		foreach $dxchan (@dxchan) {
-			next if $dxchan == $self || $dxchan == $main::me;
-			next if $origin eq $dxchan->{call};	# don't route some from this call back again.
-			next unless $dxchan->isa('DXProt');
-			next unless $dxchan->{do_pc9x};
-			next if $dxchan->is_ccluster;
-
-			$dxchan->send($line);
+            my $dest = $dxchan->{call};
+            if ($dxchan == $self || $dxchan == $main::me) {
+                pc92proto_trace('SKIP', 'DESTINATION', "peer=$dest SELF_OR_LOCAL");
+                next;
+            }
+            if ($origin eq $dest) {
+                pc92proto_trace('SKIP', 'DESTINATION', "peer=$dest ORIGIN_EXCLUDED");
+                next;
+            }
+            unless ($dxchan->isa('DXProt')) {
+                pc92proto_trace('SKIP', 'DESTINATION', "peer=$dest NOT_DXPROT");
+                next;
+            }
+            unless ($dxchan->{do_pc9x}) {
+                pc92proto_trace('SKIP', 'DESTINATION', "peer=$dest PC9X_DISABLED");
+                next;
+            }
+            if ($dxchan->is_ccluster) {
+                pc92proto_trace('SKIP', 'DESTINATION', "peer=$dest CCLUSTER_EXCLUDED");
+                next;
+            }
+            pc92proto_trace('TX', 'DESTINATION', "peer=$dest SEND_ATTEMPT");
+            $dxchan->send($line);
+            pc92proto_trace('TX', 'DESTINATION', "peer=$dest SEND_RETURNED");
 			++$sent;
 		}
-	}
-	return $sent;
+    } else {
+        pc92proto_trace('SKIP', 'FORWARD', 'LOCAL_CHANNEL_ISOLATED');
+    }
+    return $sent;
 }
 
 sub route_pc16

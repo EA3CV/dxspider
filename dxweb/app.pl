@@ -26,6 +26,60 @@ use lib "$FindBin::Bin/../perl";
 use DXWeb::Admission;
 use JSON::PP ();
 
+
+# Session policy shared with DXWeb Admin (read-only in this process).
+my $SESSION_POLICY_PATH = "$FindBin::Bin/../local_data/dxweb-session-policy.json";
+sub session_policy_read {
+    return {map { $_ => {enabled => 0, minutes => 15} } qw(dxweb dxweb_admin)}
+        unless -e $SESSION_POLICY_PATH;
+    open my $fh, '<', $SESSION_POLICY_PATH or die "Cannot read session policy: $!";
+    local $/;
+    my $raw = <$fh>;
+    close $fh or die "Cannot close session policy: $!";
+    my $p = decode_json($raw);
+    die 'Invalid session policy' unless ref($p) eq 'HASH';
+    for my $name (qw(dxweb dxweb_admin)) {
+        my $e = $p->{$name};
+        die 'Invalid session policy entry' unless ref($e) eq 'HASH'
+            && defined($e->{minutes}) && !ref($e->{minutes})
+            && "$e->{minutes}" =~ /\A[0-9]+\z/
+            && $e->{minutes} >= 1 && $e->{minutes} <= 1440
+            && defined($e->{enabled})
+            && (ref($e->{enabled}) eq 'JSON::PP::Boolean' || ref($e->{enabled}) eq 'Mojo::JSON::_Bool');
+    }
+    return $p;
+}
+
+
+# Shared operator-idle policy. Read at most once per process every five seconds.
+# A malformed/unreadable policy is not silently interpreted as disabled.
+my $idle_policy_checked = 0;
+my $idle_policy_cache;
+sub operator_idle_policy($name) {
+    my $now = time;
+    if (!$idle_policy_checked || $now - $idle_policy_checked >= 5) {
+        $idle_policy_checked = $now;
+        my $value = eval { session_policy_read() };
+        if ($@) {
+            warn "DXWEB_SESSION_POLICY_ERROR $@";
+            $idle_policy_cache = undef;
+        } else {
+            $idle_policy_cache = $value;
+        }
+    }
+    return undef unless $idle_policy_cache;
+    return $idle_policy_cache->{$name};
+}
+sub operator_idle_expired($cl, $name) {
+    return 0 unless $cl && $cl->{authenticated};
+    my $p = operator_idle_policy($name);
+    # An unreadable policy must not accidentally grant indefinite access.
+    return 1 unless $p;
+    return 0 unless $p->{enabled};
+    return time - ($cl->{operator_last_activity} // $cl->{authenticated_at} // time)
+        >= $p->{minutes} * 60;
+}
+
 $SIG{HUP} = 'IGNORE';
 
 my $DXS_HOST          = $ENV{DXS_HOST}          // '127.0.0.1';
@@ -518,6 +572,8 @@ sub handle_response($msg) {
     if ( $p->{action} eq 'auth' ) {
         if ( ( $msg->{status} // '' ) eq 'ok' ) {
             $cl->{authenticated} = 1;
+            $cl->{authenticated_at} = time;
+            $cl->{operator_last_activity} = time;
             $cl->{call}          = $msg->{call};
             $cl->{generation}    = $msg->{generation};
             $cl->{registered}    = $msg->{registered}    ? 1 : 0;
@@ -1002,6 +1058,13 @@ websocket '/ws' => sub($c) {
     $clients{$id} = { tx => $tx, ip => $ip, authenticated => 0 };
     $clients{$id}{opened_at} = time;
     $c->inactivity_timeout(0);
+    my $idle_timer = Mojo::IOLoop->recurring(5 => sub {
+        return unless $clients{$id};
+        if (operator_idle_expired($clients{$id}, 'dxweb')) {
+            warn "DXWEB_OPERATOR_IDLE_EXPIRED app=dxweb client=$id\n";
+            $c->finish(1008 => 'operator idle timeout');
+        }
+    });
     my $last_pong = time;
 
     # Mojolicious 9.49 emits 'frame' for control frames, not 'pong'.
@@ -1054,6 +1117,15 @@ websocket '/ws' => sub($c) {
             eval { $m = decode_json $raw };
             return if $@ || ref $m ne 'HASH';
             my $t = lc( $m->{type} // '' );
+            if (operator_idle_expired($clients{$id}, 'dxweb')) {
+                $c->finish(1008 => 'operator idle timeout');
+                return;
+            }
+            if ($t eq 'operator_activity') {
+                $clients{$id}{operator_last_activity} = time
+                    if $clients{$id} && $clients{$id}{authenticated};
+                return;
+            }
             if ( $t eq 'auth' ) {
                 unless ( browser_request_allowed($id) ) {
                     $c->finish( 1013 => 'too many pending requests' );
@@ -1360,6 +1432,7 @@ websocket '/ws' => sub($c) {
     );
     $c->on(
         finish => sub {
+            Mojo::IOLoop->remove($idle_timer);
             Mojo::IOLoop->remove($heartbeat);
             $turnstile_gate->release($id);
             my $cl = delete $clients{$id};
