@@ -2419,7 +2419,7 @@ sub _pc92_prevalidate_acd
     my @raw = @$pc[5 .. $#$pc-1];
     return _pc92proto_fail("EMPTY_OBJECT_LIST") unless @raw;
     my $parse = sub {
-        my ($raw) = @_;
+        my ($raw, $validate_ip) = @_;
         return _pc92proto_fail("OBJECT_SYNTAX_INVALID", $raw) unless defined $raw && $raw =~ /\A([0-7])([^:]+)(?::(.*))?\z/;
         my ($flags, $call, $attrs) = ($1 + 0, $2, $3);
         return _pc92proto_fail("CALLSIGN_INVALID", $raw) unless is_callsign($call);
@@ -2438,11 +2438,14 @@ sub _pc92_prevalidate_acd
             } else {
                 $ip = $a[0];
             }
-            if (length $ip) {
+            if (length $ip && $validate_ip) {
                 return _pc92proto_fail("IP_ENCODING_INVALID", $raw)
                     unless $ip =~ /\A[0-9a-fA-F.,]+\z/;
                 $ip =~ s/,/:/g;
                 return _pc92proto_fail("IP_ADDRESS_INVALID", $raw) unless is_ipaddr($ip);
+            } elsif (length $ip) {
+                # Preserve legacy comma-to-colon decoding without validating ordinary OBJECT IPs.
+                $ip =~ s/,/:/g;
             }
         }
         return [$call, ($flags & 4) ? 1 : 0, ($flags & 2) ? 1 : 0,
@@ -2452,7 +2455,7 @@ sub _pc92_prevalidate_acd
     my $relay;
     my $self_relay = 0;
     if (length $relay_raw) {
-        $relay = $parse->($relay_raw) or return;
+        $relay = $parse->($relay_raw, 1) or return;
         return _pc92proto_fail("RELAY_NOT_NODE", $relay_raw) unless $relay->[1];
         if ($relay->[0] eq $origin) {
             # Historical PC92 C: slot 4 may contain the origin's own
@@ -2473,7 +2476,12 @@ sub _pc92_prevalidate_acd
     }
     my (%seen, @objects);
     for my $i (0 .. $#raw) {
-        my $slot = $parse->($raw[$i]) or return;
+        # Only the exact ORIGIN node self-description is IP-validated
+        # among OBJECTs; all other OBJECT IP attributes are opaque.
+        my $origin_self = $type eq 'C' && !$relay
+            && $raw[$i] =~ /\A([0-7])([^:]+)(?::|\z)/
+            && ($1 & 4) && $2 eq $origin;
+        my $slot = $parse->($raw[$i], $origin_self) or return;
         my ($call, $is_node) = @$slot;
         return _pc92proto_fail("DUPLICATE_OBJECT", $raw[$i]) if $seen{($is_node ? 5 : 1) . $call}++;
         return _pc92proto_fail("RELAY_IN_OWN_OBJECT_LIST", $call) if $relay && $call eq $owner;
@@ -2483,12 +2491,8 @@ sub _pc92_prevalidate_acd
         # The object type is part of the protocol identity. An existing
         # opposite-type Route entry or DXUser administrative sort does not
         # invalidate this advertisement. D is always scoped to ORIGIN.
-        # A full C is a replacement snapshot. Reject an inconsistent
-        # advertised identity rather than silently filtering it and then
-        # deleting previously valid children in calc_config_changes().
-        if ($type ne 'D' && $is_node && DXChannel::get($call) && $call ne $origin) {
-            return _pc92proto_fail("DIRECT_NODE_IN_SNAPSHOT", $call);
-        }
+        # Multiple direct links are valid; direct presence is not a reason
+        # to reject an advertised node in another origin's snapshot.
         # v0.12: only the explicitly advertised ORIGIN self-description
         # in a C without RELAY is subject to global IP classification.
         if ($type eq 'C' && !$relay && $call eq $origin && $is_node && length($slot->[6])) {
@@ -2496,13 +2500,8 @@ sub _pc92_prevalidate_acd
         }
         push @objects, $slot;
     }
-    # The self-description may occur at any OBJECT position.  Preserve
-    # the existing requirement for own C without a relay, but do not
-    # impose an ordering on user and node OBJECTs.
-    if ($type eq 'C' && !$relay && !$self_relay) {
-        return _pc92proto_fail("ORIGIN_NODE_NOT_ADVERTISED", $origin)
-            unless grep { $_->[1] && $_->[0] eq $origin } @objects;
-    }
+    # Empty RELAY means the header ORIGIN owns the snapshot; repeating
+    # ORIGIN as a node OBJECT is optional. Explicit objects are validated above.
     return ($owner, $relay, \@objects);
 }
 
