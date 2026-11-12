@@ -67,6 +67,7 @@ sub pc61
 	my $t = time;
 	$text = ' ' if !$text;
 	$text =~ s/\^/~/g;
+	$ipaddr = alias_localhost($ipaddr) if defined $ipaddr;
 	return sprintf "PC61^%.1f^$dxcall^%s^%s^$text^$mycall^$main::mycall^$ipaddr^$hops^~", $freq, cldate($t), ztime($t);
 }
 
@@ -400,10 +401,18 @@ sub _gen_pc92
 {
 	my $sort = shift;
 	my $ext = shift;
-	my $s = "PC92^$main::mycall^" . gen_pc9x_t() . "^$sort";
+	my $id = gen_pc9x_t();
+	# The common generator also serves other PC families. A/C/D must never
+	# emit an invalid .100+ suffix. Drop excess local announcements without
+	# delaying the real-time event loop; do not fabricate a future timestamp.
+	return undef if $sort =~ /\A[ACD]\z/ && $id =~ /\.(\d+)\z/ && $1 > 99;
+	my $s = "PC92^$main::mycall^$id^$sort";
 	# Reserve field 4 explicitly for A/C/D. The origin is in the header.
-	# Omit a duplicate origin object but preserve ordinary route entries.
+	# Preserve ORIGIN as OBJECT1 in C; omit redundant ORIGIN in A/D.
 	shift if ($sort eq 'A' || $sort eq 'D') && @_ && $_[0]->call eq $main::mycall;
+	# Never emit an empty A/D, or a C without ORIGIN as OBJECT1.
+	return undef if ($sort eq 'A' || $sort eq 'D') && !@_;
+	return undef if $sort eq 'C' && (!@_ || !ref($_[0]) || $_[0]->call ne $main::mycall);
 	$s .= '^' if $sort eq 'A' || $sort eq 'C' || $sort eq 'D';
 	for (@_) {
 		$s .= '^' . _encode_pc92_call($_, $ext);
@@ -418,11 +427,14 @@ sub gen_pc92_with_time
 	my $call = shift;
 	my $sort = shift;
 	my $t = shift;
+	return undef unless defined $t && $t =~ /\A(?:0|[1-9][0-9]{0,4})(?:\.0[1-9]|\.[1-9][0-9])?\z/ && $t < 86400;
 	my $ext = 1;
 	my $s = "PC92^$call^$t^$sort";
 	# Reserve field 4 explicitly for A/C/D. The origin is in the header.
-	# Omit a duplicate origin object but preserve ordinary route entries.
+	# Preserve ORIGIN as OBJECT1 in C; omit redundant ORIGIN in A/D.
 	shift if ($sort eq 'A' || $sort eq 'D') && @_ && $_[0]->call eq $call;
+	return undef if ($sort eq 'A' || $sort eq 'D') && !@_;
+	return undef if $sort eq 'C' && (!@_ || !ref($_[0]) || $_[0]->call ne $call);
 	$s .= '^' if $sort eq 'A' || $sort eq 'C' || $sort eq 'D';
 	for (@_) {
 		$s .= "^" . _encode_pc92_call($_, $ext);
@@ -434,6 +446,7 @@ sub gen_pc92_with_time
 sub pc92a
 {
 	my $l = _gen_pc92('A', 2, @_);
+	return undef unless defined $l;
 	DXHealth::pc92_generated_line($l);
 	return $l;
 }
@@ -442,6 +455,7 @@ sub pc92a
 sub pc92d
 {
 	my $l = _gen_pc92('D', 0, @_);
+	return undef unless defined $l;
 	DXHealth::pc92_generated_line($l);
 	return $l;
 }
@@ -450,6 +464,7 @@ sub pc92d
 sub pc92c
 {
 	my $l = _gen_pc92('C', $pc92c_ipaddr_enable ? 2 : 1, @_);
+	return undef unless defined $l;
 	DXHealth::pc92_generated_line($l);
 	return $l;
 }
@@ -514,8 +529,8 @@ sub pc93
 
 sub _encode_maybe_rfc1918_ip
 {
-	my $ipaddr = shift;
-	return is_rfc1918($ipaddr) ? $main::me->hostname : $ipaddr;
+    my $ipaddr = shift;
+    return alias_localhost($ipaddr);
 }
 1;
 __END__

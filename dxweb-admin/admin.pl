@@ -84,10 +84,15 @@ sub session_policy_valid($v) {
     for my $app (qw(dxweb dxweb_admin)) {
         my $entry = $v->{$app};
         return 0 unless ref($entry) eq 'HASH' && keys(%$entry) == 2;
-        return 0 unless exists($entry->{enabled}) &&
-            (ref($entry->{enabled}) eq 'JSON::PP::Boolean' || ref($entry->{enabled}) eq 'Mojo::JSON::_Bool');
+        return 0 unless exists($entry->{enabled});
+        # JSON decoders may use different boolean classes (including
+        # Types::Serialiser::Boolean). Validate the JSON value itself rather
+        # than requiring a particular Perl implementation class.
+        my $encoded_bool = eval { encode_json($entry->{enabled}) };
+        return 0 unless defined($encoded_bool) &&
+            ($encoded_bool eq 'true' || $encoded_bool eq 'false');
         return 0 unless defined($entry->{minutes}) && !ref($entry->{minutes}) &&
-            "$entry->{minutes}" =~ /\A[0-9]+\z/ && $entry->{minutes} >= 1 && $entry->{minutes} <= 1440;
+            "$entry->{minutes}" =~ /\A[0-9]+\z/ && $entry->{minutes} >= 1 && $entry->{minutes} <= 2147483647;
     }
     return 1;
 }
@@ -112,6 +117,36 @@ sub session_policy_write($policy) {
     } or do { my $err = $@ || 'write failed'; close $fh if fileno($fh); unlink $tmp; die $err };
     return 1;
 }
+
+# Persistent metrics collection switch, independent of session policy.
+# Missing configuration means disabled; malformed configuration fails closed.
+my $METRICS_POLICY_PATH = "$DXSPIDER_ROOT/local_data/dxweb-metrics-policy.json";
+sub metrics_policy_read {
+    return 0 unless -e $METRICS_POLICY_PATH;
+    open my $fh, '<', $METRICS_POLICY_PATH or die "Cannot open metrics policy: $!";
+    local $/; my $raw = <$fh>; close $fh or die "Cannot close metrics policy: $!";
+    my $v = decode_json($raw);
+    die 'Invalid metrics policy' unless ref($v) eq 'HASH' && keys(%$v) == 1
+        && exists($v->{enabled}) && (ref($v->{enabled}) eq 'JSON::PP::Boolean'
+        || ref($v->{enabled}) eq 'Mojo::JSON::_Bool');
+    return $v->{enabled} ? 1 : 0;
+}
+sub metrics_policy_write($enabled) {
+    die 'Invalid metrics policy value' unless defined($enabled)
+        && (ref($enabled) eq 'JSON::PP::Boolean' || ref($enabled) eq 'Mojo::JSON::_Bool');
+    my ($fh, $tmp) = tempfile('.dxweb-metrics-policy-XXXXXXXX',
+        DIR => dirname($METRICS_POLICY_PATH), UNLINK => 0);
+    eval {
+        chmod 0640, $tmp or die "chmod failed: $!";
+        print {$fh} encode_json({enabled => $enabled}), "\n" or die "write failed: $!";
+        close $fh or die "close failed: $!";
+        rename $tmp, $METRICS_POLICY_PATH or die "rename failed: $!";
+        1;
+    } or do { my $err = $@ || 'write failed'; close $fh if fileno($fh); unlink $tmp; die $err };
+    return 1;
+}
+my $metrics_enabled = eval { metrics_policy_read() } || 0;
+warn "DXWEB_METRICS_POLICY_ERROR $@" if $@;
 
 # Shared operator-idle policy. Read at most once per process every five seconds.
 # A malformed/unreadable policy is not silently interpreted as disabled.
@@ -735,6 +770,7 @@ sub dxs_request( $cid, $action, $o ) {
 
 sub history_next( $idx = 0 ) {
     $history_inflight = 0;
+    return unless $metrics_enabled;
     return history_schedule()
       unless $state{state} eq 'ready' && $stream && $state{web_call};
     if ( $idx > $#HISTORY_KINDS ) {
@@ -763,6 +799,8 @@ sub history_next( $idx = 0 ) {
 
 sub history_schedule( $delay = $HISTORY_INTERVAL ) {
     Mojo::IOLoop->remove($history_timer) if $history_timer;
+    $history_timer = undef;
+    return unless $metrics_enabled;
     $history_timer = Mojo::IOLoop->timer(
         $delay => sub { undef $history_timer; history_next(0) } );
 }
@@ -838,6 +876,7 @@ sub handle_response($msg) {
     Mojo::IOLoop->remove( $p->{timer} ) if $p->{timer};
     if ( $p->{internal_history} ) {
         $history_inflight = 0;
+        return unless $metrics_enabled;
         my $result = $msg->{result};
         if ( ( ( $msg->{status} // '' ) eq 'ok' ) && ref($result) eq 'HASH' ) {
             my $ok = $history_store->enqueue( $p->{history_kind}, $result );
@@ -1775,7 +1814,7 @@ hook before_server_start => sub( $server, $app ) {
     $SIG{TERM} = sub { admin_shutdown_request() };
     $SIG{INT}  = sub { admin_shutdown_request() };
     v040_warm_caches();
-    Mojo::IOLoop->next_tick( sub { connect_dxs(); $burst_snapshot->start } );
+    Mojo::IOLoop->next_tick( sub { connect_dxs(); $burst_snapshot->start if $metrics_enabled } );
 };
 get '/' => sub($c) { $c->reply->static('index.html') };
 
@@ -2977,6 +3016,11 @@ websocket '/ws' => sub($c) {
                 return;
             }
             if ( $t eq 'history_metrics' ) {
+                unless ($metrics_enabled) {
+                    ws_send_response($id, encode_json({type => 'history_metrics_result',
+                        status => 'error', error => 'metrics_disabled'}));
+                    return;
+                }
                 my $window = $m->{window} // '15m';
                 v040_metrics_async(
                     $window,
@@ -3172,6 +3216,34 @@ websocket '/ws' => sub($c) {
                 );
                 return;
             }
+            if ( $t eq 'metrics_policy_get' || $t eq 'metrics_policy_set' ) {
+                my $reply = { type => $t . '_result', status => 'ok' };
+                eval {
+                    if ($t eq 'metrics_policy_set') {
+                        metrics_policy_write($m->{enabled});
+                        my $new = metrics_policy_read();
+                        if ($new != $metrics_enabled) {
+                            $metrics_enabled = $new;
+                            if ($metrics_enabled) {
+                                $burst_snapshot->start;
+                                history_schedule(1) if $state{state} eq 'ready';
+                            } else {
+                                Mojo::IOLoop->remove($history_timer) if $history_timer;
+                                $history_timer = undef;
+                                $burst_snapshot->stop;
+                            }
+                        }
+                    }
+                    $reply->{enabled} = $metrics_enabled ? JSON::PP::true : JSON::PP::false;
+                    1;
+                } or do {
+                    $reply->{status} = 'error';
+                    $reply->{error} = 'metrics_policy_unavailable';
+                    app->log->error("metrics policy error: $@");
+                };
+                ws_send_response($id, encode_json($reply));
+                return;
+            }
             if ( $t eq 'session_policy_get' || $t eq 'session_policy_set' ) {
                 my $reply = { type => $t . '_result', status => 'ok' };
                 eval {
@@ -3184,6 +3256,7 @@ websocket '/ws' => sub($c) {
                 } or do {
                     $reply->{status} = 'error';
                     $reply->{error} = 'session_policy_unavailable';
+                    app->log->error('session policy ' . $t . ' failed: ' . ($@ || 'unknown error'));
                 };
                 ws_send_response($id, encode_json($reply));
                 return;

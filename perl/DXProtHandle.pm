@@ -1899,21 +1899,36 @@ sub _decode_pc92_call
 	my $build = $part[2] || 0;
 	my $ip = $part[3] || '';
 
-	# remember that, at this stage, IPV6 addresses have : replaced by ,
-	if (length $version > 4 && $version =~ /[,\.][\da-f]{1,4}/i) {
-		$ip = $version;
-		$version = 0;
+	# A/C/D wire format is CALL[:VERSION][:IP].  The legacy K format
+	# CALL:VERSION:BUILD is still supported; distinguish by actual IP
+	# syntax rather than by the presence of a dot or comma alone.
+	if (defined $part[1] && length $part[1]) {
+		my $candidate = $part[1];
+		$candidate =~ tr/,/:/;
+		if (is_ipaddr($candidate)) {
+			$ip = $candidate;
+			$version = 0;
+			$build = 0;
+		}
+	}
+	if (defined $part[2] && length $part[2]) {
+		my $candidate = $part[2];
+		$candidate =~ tr/,/:/;
+		if (is_ipaddr($candidate)) {
+			$ip = $candidate;
+			$build = 0;
+		}
 	}
 	$version =~ s/\D//g;
 	$version = 0 unless $version && $version =~ /^[0-9]+$/;
 	$build =~ s/^0\.//;
 	$build =~ s/\D//g;
-	$build = 0 unless $build &&  $build =~ /^[0-9]+$/;
+	$build = 0 unless $build && $build =~ /^[0-9]+$/;
 	if ($ip) {
-        $ip =~ s/,/:/g;
-        $ip =~ s/^::ffff://i;
+		$ip =~ s/,/:/g;
+		$ip =~ s/^::ffff://i;
 		$ip = '' unless is_ipaddr($ip);
-    }
+	}
 	dbg("'$icall' = '" . join("', '", $call, $is_node, $is_extnode, $here, $version, $build, $ip) . "'") if isdbg('pc92');
 	return ($call, $is_node, $is_extnode, $here, $version+0, $build+0, $ip);
 }
@@ -1942,9 +1957,22 @@ sub _encode_pc92_call
 		}
 	}
 	if (($ext & 2) && $ref->ip) {
-		my $ip = is_rfc1918($ref->ip) ? $main::me->hostname : $ref->ip;
-		$ip =~ s/:/,/g;
-		$extra .= ':' . $ip;
+		my $ip = $ref->ip;
+		# Normalize only locally owned objects; preserve remote routing data.
+		my $local = $call eq $main::mycall;
+		unless ($local) {
+			my $chan = DXChannel::get($call);
+			$local = $chan && $chan->is_user && $chan->hostname;
+		}
+		if ($local) {
+			require DXPublicIP;
+			$ip = DXPublicIP::normalize_owned($ip);
+		}
+		# Do not publish private/loopback addresses for our own origin.
+		if ($call ne $main::mycall || is_public_ip($ip)) {
+			$ip =~ s/:/,/g;
+			$extra .= ':' . $ip;
+		}
 	}
 
 	return "$flag$call$extra";
@@ -1952,6 +1980,25 @@ sub _encode_pc92_call
 
 my %things_add;
 my %things_del;
+
+# A PC92 user advertisement must not shadow a known node identity.
+# Use the same two authoritative sources as the PC16 admission guard.
+sub _pc92_user_is_known_node
+{
+	my ($call, $parent, $dxchan, $sort) = @_;
+	return 0 unless $call;
+	# Match the identity that _add_thingy will actually use. In particular,
+	# prefix/suffix decoration and SSID 0 must not bypass the node guard.
+	my $normcall = normalise_call($call);
+	return 0 unless $normcall;
+	my $node = Route::Node::get($normcall);
+	my $user = DXUser::get_current($normcall) unless $node;
+	return 0 unless $node || ($user && $user->is_node);
+	my $from = $parent ? $parent->call : '-';
+	my $peer = $dxchan ? $dxchan->call : '-';
+	dbg("PCPROT: PC92$sort rejected user $call (node identity $normcall): known node; parent=$from; peer=$peer") if isdbg('chanerr') || isdbg('routelow');
+	return 1;
+}
 
 # The external-node bit is an attribute of a node entry, not a user type.
 # A flag with extnode set but node clear is inconsistent: never admit it
@@ -1967,20 +2014,36 @@ sub _pc92_invalid_extnode_user
     return 1;
 }
 
-our $pc92_c_external_pending;
-
-# A PC92 C must not publish external effects until its route/SQL changes
-# have committed. Capture immutable call arguments while the graph is live.
-# Non-C traffic retains the original synchronous dispatch.
-sub _pc92_c_external
+# Side-effectful file logs and logical acceptance metrics must not be emitted
+# until a guarded A/C/D transaction has committed. Physical RX metrics remain
+# physical observations and are intentionally not part of the transaction.
+our $pc92_acd_deferred_logs;
+our $pc92_acd_deferred_metrics;
+sub _pc92_acd_log
 {
-    my ($target, $method, @args) = @_;
-    if ($DXProt::pc92_c_external_pending) {
-        push @$DXProt::pc92_c_external_pending, [$target, $method, \@args];
-        return;
+    my (@args) = @_;
+    if ($pc92_acd_deferred_logs) { push @{$pc92_acd_deferred_logs}, \@args; }
+    else { Log(@args); }
+}
+sub _pc92_acd_metric
+{
+    my ($method, @args) = @_;
+    if ($pc92_acd_deferred_metrics) { push @{$pc92_acd_deferred_metrics}, [$method, @args]; }
+    else { my $cb = DXHealth->can($method) or die "Unknown DXHealth metric $method"; $cb->(@args); }
+}
+
+# Defer buddy notifications until the SQL and Route changes are committed.
+# Scoped dynamically to this A/C/D handler only; other protocol paths unchanged.
+our $pc92_acd_deferred_buddies;
+sub _pc92_acd_tell_buddies
+{
+    my ($dxchan, @args) = @_;
+    return unless $dxchan;
+    if ($pc92_acd_deferred_buddies) {
+        push @$pc92_acd_deferred_buddies, [$dxchan, @args];
+    } else {
+        $dxchan->tell_buddies(@args);
     }
-    return Log(@args) if $method eq 'pc92_committed_log';
-    return $target->$method(@args);
 }
 
 sub _add_thingy
@@ -1996,11 +2059,11 @@ sub _add_thingy
 
 	dbg("DXProt::_add_thingy $parent->{call}: $call $is_node $is_extnode $ip") if isdbg('routelow');
 
-	# Protocol identity is (type, full callsign including SSID). A DXUser
-	# administrative sort is not a veto on a Route::User advertisement.
-	# Validate flags, but do not conflate Route::Node and Route::User.
+	# Reject invalid user advertisements before any DXUser normalization cleanup.
+	# The cleanup below may delete an existing DXUser record.
 	if (!$is_node && $dxchan) {
 		return if _pc92_invalid_extnode_user($s, $parent, $dxchan, $pc92sort);
+		return if _pc92_user_is_known_node($call, $parent, $dxchan, $pc92sort);
 	}
 
 	# remove spurious IPV6 prefix on IPV4 addresses
@@ -2015,17 +2078,14 @@ sub _add_thingy
 
 			# normalise call, delete any unnormalised calls in the users file.
 			# then ignore this thingy
-            # Preserve the exact callsign advertised by PC92, including
-            # portable suffixes such as ZF1A/4.  normalise_call() strips
-            # these suffixes and would silently change routing identity.
-            my $normcall = $call;
-            unless ($normcall) {
+			my $normcall = normalise_call($call);
+			unless ($normcall) {
 				LogDbg('err', "ROUTE: $call normalised as $normcall is not considered a valid callsign");
 				dbgprintring(3) if isdbg('nologchan');
 				return;
 			}
 			if ($normcall ne $call) {
-				return if DXChannel::get($call); # direct connection must not be normalized here
+				next if DXChannel::get($call);
 				$user = DXUser::get($call);
 				dbg("DXProt::_add_thingy call $call normalised to $normcall, deleting spurious user $call");
 				$user->del if $user;
@@ -2083,16 +2143,17 @@ sub _add_thingy
 			} else {
 				if ($dxchan) {
 					return if _pc92_invalid_extnode_user($s, $parent, $dxchan, $pc92sort);
+					return if _pc92_user_is_known_node($call, $parent, $dxchan, $pc92sort);
 				}
 				dbg("ROUTE: added user $call to $ncall") if isdbg('routelow');
 				$user = check_add_user($call, 'U', $parent->call);
 				@rout = $parent->add_user($call, Route::here($here), $ip);
-				_pc92_c_external($dxchan, 'tell_buddies', 'loginb', $call, $ncall) if $dxchan;
+				_pc92_acd_tell_buddies($dxchan, 'loginb', $call, $ncall);
 				$r = Route::User::get($call);
 			}
 			if ($ip) {
 				$r->ip($ip);
-				_pc92_c_external(undef, 'pc92_committed_log', 'DXProt', "PC92A $call -> $ip on $ncall");
+				_pc92_acd_log('DXProt', "PC92A $call -> $ip on $ncall");
 			}
 			if ($r && $pc92_slug_changes && $parent == $main::routeroot) {
 				dbg("add_thingy: $call in add($things_del{$call})") if isdbg('routelow');
@@ -2120,21 +2181,15 @@ sub _del_thingy
 	if ($call) {
 		my $ref;
 		if ($is_node) {
-			# PC92 D may only remove this ORIGIN's existing edge.
-			# A globally known node is not necessarily this ORIGIN's child.
-			if (grep { $_ eq $call } @{$parent->{nodes} || []}) {
-				$ref = Route::Node::get($call);
-			}
-			if ($ref) {
+			if ($ref = Route::Node::get($call)) {
 				dbg("ROUTE: deleting node $call from " . $parent->call) if isdbg('routelow');
 				@rout = $ref->del($parent);
 			}
 		} else {
-			# Never send logout notifications or delete another ORIGIN's user.
-			$ref = Route::User::get($call) if $parent->is_user($call);
+			$ref = Route::User::get($call);
 			if ($ref) {
 				dbg("ROUTE: deleting user $call from " . $parent->call) if isdbg('routelow');
-				_pc92_c_external($dxchan, 'tell_buddies', 'logoutb', $call, $parent->call) if $dxchan;
+				_pc92_acd_tell_buddies($dxchan, 'logoutb', $call, $parent->call);
 				@rout = $parent->del_user($ref);
 			}
 		}
@@ -2178,23 +2233,14 @@ sub last_pc9x_id
 
 sub gen_pc9x_t
 {
-    # A single second has exactly 100 representable IDs: plain + .01 .. .99.
-    # On saturation use the next logical second, never a suffix above .99.
-    # No sleeps or blocking in the cluster event loop.
-    my $now = int($main::systime);
-    if (!defined $_last_time || $_last_time < $now) {
-        $_last_time = $now;
-        $_last_occurs = 0;
-    } elsif ($_last_occurs >= 99) {
-        ++$_last_time;
-        $_last_occurs = 0;
-    } else {
-        ++$_last_occurs;
-    }
-    my $seconds = ($_last_time - $main::systime_daystart) % 86400;
-    $seconds += 86400 if $seconds < 0;
-    return $_last_pc9x_id = $_last_occurs
-        ? sprintf('%d.%02d', $seconds, $_last_occurs) : $seconds;
+	if (!$_last_time || $_last_time != $main::systime) {
+		$_last_time = $main::systime;
+		$_last_occurs = 0;
+		return $_last_pc9x_id = $_last_time - $main::systime_daystart;
+	} else {
+		$_last_occurs++;
+		return $_last_pc9x_id = sprintf "%d.%02d", $_last_time - $main::systime_daystart, $_last_occurs;
+	}
 }
 
 sub check_pc9x_t
@@ -2203,30 +2249,24 @@ sub check_pc9x_t
 	my $t = shift;
 	my $pc = shift;
 	my $create = shift;
-	my $missing_ok = shift; # optional scalar ref, D only: valid but absent ORIGIN
-
-    # Reject noncanonical or unrepresentable suffixes before touching lastid.
-    unless (defined $t && $t =~ /\A(?:0|[1-9][0-9]{0,4})(?:\.[0-9]{2})?\z/
-            && (split(/\./, $t))[0] < 86400) {
-        dbg("PC9XERR: noncanonical id '$t' rejected") if isdbg('chanerr') || isdbg('pc92dedupe');
-        DXProt::pc92proto_trace("REJECT", "SEQUENCE", "NONCANONICAL_ID");
-		return undef;
-    }
+	my $acd_midnight_cutoff = shift;
 
 	# check that the time is between 0 >= $t < 86400
 	unless ($t >= 0 && $t < 86400) {
 		dbg("PCPROT: time invalid t: $t, ignored") if isdbg('chanerr') || isdbg('routelow');
-		DXProt::pc92proto_trace("REJECT", "SEQUENCE", "TIME_OUT_OF_RANGE");
 		return undef;
 	}
 
 	# check that the time of this pc9x is within tolerance (default 15 mins either way)
 	my $now = $main::systime - $main::systime_daystart ;
 	my $diff = abs($now - $t);
+	if ($acd_midnight_cutoff && $t > $now
+	    && $t > 86400 - $pc9x_time_tolerance && $now > 3) {
+		return undef;
+	}
 	unless ($diff < $pc9x_time_tolerance || 86400 - $diff < $pc9x_time_tolerance) {
 		my $c = ref $call ? $call->call : $call;
 		dbg("PC9XERR: $c time out of range t: $t now: $now diff: $diff > $pc9x_time_tolerance, ignored") if isdbg('chan');
-		DXProt::pc92proto_trace("REJECT", "SEQUENCE", "TIME_OUTSIDE_TOLERANCE");
 		return undef;
 	}
 
@@ -2253,20 +2293,17 @@ sub check_pc9x_t
 					#
 					if ($t+86400-$lastid > $pc9x_past_age) {
 						dbg("PCPROT: dup id on $t <= lastid $lastid, ignored") if isdbg('chanerr') || isdbg('pc92dedupe');
-						DXProt::pc92proto_trace("REJECT", "SEQUENCE", "DUPLICATE_OLD_ID lastid=$lastid");
-		return undef;
+						return undef;
 					}
 				} elsif ($t == $lastid) {
 					dbg("PCPROT: dup id on $t == lastid $lastid, ignored") if isdbg('chanerr') || isdbg('pc92dedupe');
-					DXProt::pc92proto_trace("REJECT", "SEQUENCE", "DUPLICATE_SAME_ID lastid=$lastid");
-		return undef;
+					return undef;
 				} else {
 					# check that if we have a low number in lastid that yesterday's numbers
 					# (likely in the 85000+ area) don't override them, thus causing flip flopping
 					if ($lastid+86400-$t < $pc9x_past_age) {
 						dbg("PCPROT: dup id on $t in yesterday, lastid $lastid, ignored") if isdbg('chanerr') || isdbg('pc92dedupe');
-						DXProt::pc92proto_trace("REJECT", "SEQUENCE", "DUPLICATE_PREVIOUS_DAY lastid=$lastid");
-		return undef;
+						return undef;
 					}
 				}
 			}
@@ -2289,12 +2326,7 @@ sub check_pc9x_t
 			}
 		}
 	} else {
-		if (ref($missing_ok) eq 'SCALAR') {
-			$$missing_ok = 1;
-			return undef;
-		}
 		dbg("PCPROT: $call does not exist, ignored") if isdbg('pc92dedupe');
-		DXProt::pc92proto_trace("REJECT", "SEQUENCE", "ORIGIN_NODE_MISSING");
 		return undef;
 	}
 	# A Route::Node may already exist with constructor defaults while its
@@ -2385,149 +2417,598 @@ sub pc92_handle_first_slot
 	return ($parent, @radd);
 }
 
-# Validate the entire A/C/D frame before check_pc9x_t (which writes lastid).
-# Returns (owner callsign, relay tuple or undef, object tuples arrayref).
-# This routine must remain read-only.
-our $pc92proto_prevalidate_reason;
-sub _pc92proto_fail
+# DXSpider routing entries
+# Pure A/C/D wire-format preflight. No routing, lastid or SQLite writes.
+# This is intentionally separate from the mutating legacy decoder.
+# Read-only wire validation. Must run before check_pc9x_t and routing changes.
+# K has a separate optional IP field; A/C/D have CALL[:VERSION][:IP].
+sub _pc92_k_preflight
 {
-    if (isdbg('pc92proto')) {
-        my ($reason, $detail) = @_;
-        $detail = '' unless defined $detail;
-        $detail =~ s/[\r\n\s]+/_/g;
-        $pc92proto_prevalidate_reason = "$reason" . (length($detail) ? " detail=$detail" : '');
+    my ($pc) = @_;
+    return 'missing fields' unless $pc && ref($pc) eq 'ARRAY' && @$pc >= 8;
+    return 'invalid hops' unless defined $pc->[-1] && $pc->[-1] =~ /\AH[0-9]{2}\z/;
+    return 'invalid origin' unless defined $pc->[1] && is_callsign($pc->[1])
+        && normalise_call($pc->[1]) eq $pc->[1];
+    return 'invalid id' unless defined $pc->[2]
+        && $pc->[2] =~ /\A(?:0|[1-9][0-9]{0,4})(?:\.0[1-9]|\.[1-9][0-9])?\z/
+        && $pc->[2] < 86400;
+    my $node = $pc->[4];
+    # Version/build components can contain dots (e.g. 5455:0.92).
+    return 'invalid node' unless defined $node
+        && $node =~ /\A[4-7][^:]+:[0-9]+:[0-9]+(?:\.[0-9]+)*\z/;
+    my ($call) = $node =~ /\A[4-7]([^:]+)/;
+    return 'invalid node callsign' unless is_callsign($call)
+        && normalise_call($call) eq $call;
+    return 'invalid node count' unless defined $pc->[5] && $pc->[5] =~ /\A[0-9]+\z/;
+    return 'invalid user count' unless defined $pc->[6] && $pc->[6] =~ /\A[0-9]+\z/;
+    # The K address field is optional. When present, allow any syntactically
+    # valid IPv4/IPv6 or a conventional localhost name; do not impose public-IP
+    # policy. A trailing branch/build descriptor is optional.
+    return 'invalid field count' if @$pc > 10;
+    if (@$pc >= 9) {
+        my $ip = $pc->[7];
+        # Empty IP is legitimate in historical K packets, even with branch metadata.
+        return 'invalid K IP' if defined($ip) && length($ip)
+            && !(is_ipaddr($ip) || $ip =~ /\A(?:localhost|localhost\.localdomain)\z/i);
+    }
+    if (@$pc == 10) {
+        return 'invalid K metadata' unless defined $pc->[8]
+            && length $pc->[8] && $pc->[8] !~ /\s/;
+    }
+    return '';
+}
+
+sub _pc92_malformed_reject
+{
+    my ($self, $pc, $reason) = @_;
+    my ($origin, $id, $type) = map { defined $_ ? $_ : '?' } @$pc[1,2,3];
+    my $peer = defined $self->{call} ? $self->{call} : '?';
+    # Single-line escaped wire representation, preserving every field.
+    my $wire = join('^', map { defined $_ ? $_ : '' } @$pc);
+    $wire =~ s/([^\x20-\x7e])/sprintf('\\x%02X', ord($1))/ge;
+    dbg("PC92_MALFORMED drop peer=$peer origin=$origin id=$id type=$type reason=$reason packet=$wire");
+    return;
+}
+
+sub _pc92_acd_preflight
+{
+    my ($pc) = @_;
+    return 'missing fields' unless $pc && ref($pc) eq 'ARRAY' && @$pc >= 7;
+    my ($origin, $id, $sort, $relay) = @$pc[1,2,3,4];
+    return 'invalid origin' unless defined $origin && length $origin
+        && is_callsign($origin) && normalise_call($origin) eq $origin;
+    return 'invalid id' unless defined $id
+        && $id =~ /\A(?:0|[1-9][0-9]{0,4})(?:\.0[1-9]|\.[1-9][0-9])?\z/
+        && $id < 86400;
+    return 'invalid type' unless defined $sort && $sort =~ /\A[ACD]\z/;
+    return 'missing relay' unless defined $relay;
+    return 'invalid hops' unless defined $pc->[-1] && $pc->[-1] =~ /\AH[0-9]{2}\z/;
+    for my $i (1 .. $#$pc) {
+        return 'undefined field' unless defined $pc->[$i];
+        return 'space in field' if $pc->[$i] =~ /\s/;
+    }
+    # RELAY is a node, or the empty string; historical ORIGIN repetition
+    # is accepted, but a different RELAY must still be a valid node.
+    if (length $relay) {
+        # v0.15: all A/C/D types may announce a classical node via RELAY.
+        # Historic origin repetition is also admitted on reception only.
+        my $err = _pc92_acd_wire_object($relay, 1);
+        return "invalid relay: $err" if $err;
+    }
+    my %seen;
+    for my $i (5 .. $#$pc - 1) {
+        my $obj = $pc->[$i];
+        my $err = _pc92_acd_wire_object($obj, 0);
+        return "invalid object: $err" if $err;
+        my ($flag, $call) = $obj =~ /\A([0-7])([^:]+)/;
+        # An explicit ORIGIN node IP must be globally reachable.  Reuse
+        # DXUtil::is_public_ip (also used by PC61); other OBJECT IPs may
+        # legitimately be private.  Missing IP is historical and accepted.
+        if (($flag & 4) && $call eq $origin) {
+            my (undef, @meta) = split /:/, $obj, -1;
+            my $ip = @meta && $meta[0] =~ /\A[0-9]{4}\z/
+                ? $meta[1] : $meta[0];
+            if (defined $ip && $ip =~ /[.,]/) {
+                return 'non-public origin IP' unless is_public_ip(_pc92_acd_ip($ip));
+            }
+        }
+        my $key = (($flag & 4) ? 'N' : 'U') . ':' . $call;
+        return 'duplicate identity' if $seen{$key}++;
+    }
+    return '';
+}
+
+sub _pc92_acd_wire_object
+{
+    my ($wire, $must_node) = @_;
+    return 'empty' unless defined $wire && length $wire;
+    my ($flag, @meta) = split /:/, $wire, -1;
+    my $call;
+    return 'flag' unless $flag =~ /\A[0-7]/;
+    $call = substr($flag, 1);
+    $flag = substr($flag, 0, 1);
+    return 'relay must be node' if $must_node && !($flag & 4);
+    # A badspotter entry is a policy decision, not malformed wire syntax.
+    # Only exempt user objects (flag 1); retain metadata/IP and all other checks.
+    my $badlisted_user = $flag eq '1' && defined($badspotter)
+        && $badspotter->in($call);
+    return 'callsign' unless length $call
+        && ($badlisted_user || (is_callsign($call)
+            && normalise_call($call) eq $call && $call !~ /-0\z/));
+    return 'metadata count' if @meta > 2;
+    for (@meta) { return 'empty metadata' unless length $_; }
+    if (@meta) {
+        my $first = $meta[0];
+        if ($first =~ /\A[0-9]{4}\z/) {
+            if (@meta == 2) {
+                return 'ip' unless ($meta[1] =~ /[.,]/ && is_ipaddr(_pc92_acd_ip($meta[1])));
+            }
+        } else {
+            return 'metadata count' if @meta > 1;
+            return 'ip' unless ($first =~ /[.,]/ && is_ipaddr(_pc92_acd_ip($first)));
+        }
+    }
+    return '';
+}
+
+sub _pc92_acd_ip { my $ip = shift; $ip =~ tr/,/:/; return $ip; }
+
+# Cheap, read-only time window gate before scanning A/C/D OBJECTs.
+# Same day-wrap/tolerance formula as check_pc9x_t.
+sub _pc92_acd_early_time_invalid
+{
+    my ($t) = @_;
+    return 1 unless defined $t && $t =~ /\A(?:0|[1-9][0-9]{0,4})(?:\.0[1-9]|\.[1-9][0-9])?\z/ && $t < 86400;
+    my $now = $main::systime - $main::systime_daystart;
+    my $diff = abs($now - $t);
+    # An ID close to the end of yesterday is only admissible during the
+    # first three seconds after UTC midnight, never for the whole tolerance.
+    return 1 if $t > $now && $t > 86400 - $pc9x_time_tolerance
+        && $now > 3;
+    return ($diff < $pc9x_time_tolerance || 86400 - $diff < $pc9x_time_tolerance) ? 0 : 1;
+}
+
+# Read-only, constant-cost PC92 A/C/D sequence gate. No Route/DXUser mutation.
+# Preserve the exact modulo-day comparison used by check_pc9x_t.
+sub _pc92_acd_early_duplicate
+{
+    my ($origin, $t) = @_;
+    return 0 unless defined $origin && length $origin;
+    return 0 unless defined $t && $t =~ /\A\d+(?:\.\d+)?\z/ && $t >= 0 && $t < 86400;
+    return 0 if $origin eq $main::mycall;
+    my $node = Route::Node::get($origin);
+    return 0 unless $node;
+    my $lastid = $node->lastid;
+    return 0 unless defined $lastid;
+    if ($t < $lastid) {
+        return $t + 86400 - $lastid > $pc9x_past_age ? 1 : 0;
+    }
+    return 1 if $t == $lastid;
+    return $lastid + 86400 - $t < $pc9x_past_age ? 1 : 0;
+}
+
+use Scalar::Util ();
+
+# Queue externally visible route events until the SQL savepoint has been released.
+# The queue is dynamically scoped to the guarded A/C/D handler.
+our $pc92_acd_deferred_routes;
+our $pc92_acd_accepted;
+sub _pc92_acd_route_event
+{
+    my ($chan, $method, @args) = @_;
+    if ($pc92_acd_deferred_routes) {
+        push @$pc92_acd_deferred_routes, [$chan, $method, @args];
+        return;
+    }
+    return $chan->$method(@args);
+}
+
+sub _pc92_acd_broadcast
+{
+    my ($chan, $sort, $pcall, $line) = @_;
+    if ($pc92_acd_deferred_routes) {
+        push @$pc92_acd_deferred_routes, [$chan, 'broadcast_route_pc9x', $pcall, undef, $line, 0,
+                                          '__pc92_broadcast_metrics__', $sort, length($line)];
+        return 0;
+    }
+    return $chan->broadcast_route_pc9x($pcall, undef, $line, 0);
+}
+
+sub _pc92_snapshot_value
+{
+    my ($value, $seen) = @_;
+    my $kind = ref($value);
+    # Route objects are shared graph identities, not value containers.
+    # Keep blessed references intact; their fields are snapshotted separately.
+    return $value if Scalar::Util::blessed($value);
+    return $value unless $kind eq 'HASH' || $kind eq 'ARRAY';
+    my $id = "$value";
+    return $seen->{$id} if exists $seen->{$id};
+    if ($kind eq 'HASH') {
+        my $copy = {};
+        $seen->{$id} = $copy;
+        $copy->{$_} = _pc92_snapshot_value($value->{$_}, $seen) for keys %$value;
+        return $copy;
+    }
+    my $copy = [];
+    $seen->{$id} = $copy;
+    push @$copy, _pc92_snapshot_value($_, $seen) for @$value;
+    return $copy;
+}
+
+sub _pc92_route_object_snapshot
+{
+    my ($obj) = @_;
+    my %fields;
+    my %seen;
+    $fields{$_} = _pc92_snapshot_value($obj->{$_}, \%seen) for keys %$obj;
+    return \%fields;
+}
+
+# C updates can persist DXUser rows before a later route operation fails.
+# Use a nested SQL SAVEPOINT on the existing DXUser connection (do not commit
+# DXSpider's outer transaction). This is only enabled for SQLite; fail closed
+# on unsupported persistence rather than falsely promising an atomic C.
+
+sub _pc92_c_graph_checkpoint
+{
+    my ($pc, $owner_call) = @_;
+    my (%node_calls, %user_calls);
+    my @pending = ($pc->[1], $owner_call);
+    for my $entry (@$pc[5 .. $#$pc - 1]) {
+        my ($call, $is_node) = _decode_pc92_call($entry);
+        next unless $call;
+        if ($is_node) { push @pending, $call; }
+        else { $user_calls{$call} = 1; }
+    }
+    # Only deleted node branches can recursively mutate descendants. For a C,
+    # compare the existing owner's immediate node children with the advertised
+    # node identities, then traverse branches being removed. Existing children
+    # retained by the C are not recursively changed by calc_config_changes.
+    # D with node OBJECTs likewise traverses only the deleted node branches.
+    my $sort = $pc->[3] || '';
+    my @recursive_roots;
+    my %advertised_users;
+    if ($sort eq 'C') {
+        my %advertised;
+        for my $entry (@$pc[5 .. $#$pc - 1]) {
+            my ($call, $is_node) = _decode_pc92_call($entry);
+            $advertised{$call} = 1 if $call && $is_node;
+            $advertised_users{$call} = 1 if $call && !$is_node;
+        }
+        my $owner = Route::Node::get($owner_call);
+        if ($owner) {
+            push @recursive_roots, grep { !$advertised{$_} } $owner->nodes;
+            $user_calls{$_} = 1 for grep { !$advertised_users{$_} } $owner->users;
+        }
+    } elsif ($sort eq 'D') {
+        for my $entry (@$pc[5 .. $#$pc - 1]) {
+            my ($call, $is_node) = _decode_pc92_call($entry);
+            push @recursive_roots, $call if $call && $is_node;
+        }
+    }
+    $node_calls{$_} = 1 for grep { defined $_ && length $_ } @pending;
+    @pending = @recursive_roots;
+    my %visited;
+    while (@pending) {
+        my $call = pop @pending;
+        next unless $call && !$visited{$call}++;
+        $node_calls{$call} = 1;
+        my $node = Route::Node::get($call) or next;
+        push @pending, $node->nodes;
+        $user_calls{$_} = 1 for $node->users;
+    }
+    my (%nodes, %users, @saved);
+    for my $call (keys %node_calls) {
+        my $node = $Route::Node::list{$call};
+        $nodes{$call} = $node;
+        push @saved, [$node, _pc92_route_object_snapshot($node)] if $node;
+    }
+    for my $call (keys %user_calls) {
+        my $user = $Route::User::list{$call};
+        $users{$call} = $user;
+        push @saved, [$user, _pc92_route_object_snapshot($user)] if $user;
+    }
+    return { nodes => \%nodes, users => \%users, saved => \@saved };
+}
+# Snapshot only DXUser identities reachable from this PC92 transaction.
+# Restore original blessed objects in place to preserve DXChannel references.
+sub _pc92_acd_user_checkpoint
+{
+    my ($pc, $graph) = @_;
+    # DXUser writes in the A/C/D handler are confined to advertised OBJECTs:
+    # _add_thingy calls check_add_user/close/put for each added OBJECT;
+    # the C metadata reconciliation also touches only advertised nodes.
+    # _del_thingy changes routing but does not write DXUser.  In contrast,
+    # graph->{nodes/users} contains *all reachable descendants*, whose
+    # DXUser records are not mutated by this packet.  Do not fetch/cache
+    # thousands of unrelated DXUser records before every small PC92 update.
+    my %calls;
+    for my $entry (@$pc[5 .. $#$pc - 1]) {
+        my ($call) = _decode_pc92_call($entry);
+        $calls{$call} = 1 if $call;
+    }
+    my %saved;
+    for my $call (keys %calls) {
+        my $user = DXUser::get_current($call);
+        $saved{$call} = [$user, $user ? _pc92_route_object_snapshot($user) : undef];
+    }
+    return \%saved;
+}
+
+sub _pc92_acd_user_restore
+{
+    my ($saved) = @_;
+    for my $call (keys %$saved) {
+        my ($original, $fields) = @{$saved->{$call}};
+        if ($original) {
+            %$original = %{_pc92_route_object_snapshot($fields)};
+            $DXUser::lru->put($call, $original) if $DXUser::lru;
+        } else {
+            $DXUser::lru->remove($call) if $DXUser::lru;
+        }
+    }
+}
+
+sub _pc92_c_graph_restore
+{
+    my ($snapshot) = @_;
+    for my $entry (@{$snapshot->{saved}}) {
+        my ($obj, $fields) = @$entry;
+        %$obj = %{_pc92_route_object_snapshot($fields)};
+    }
+    for my $call (keys %{$snapshot->{nodes}}) {
+        my $original = $snapshot->{nodes}{$call};
+        if ($original) { $Route::Node::list{$call} = $original; }
+        else { delete $Route::Node::list{$call}; }
+    }
+    for my $call (keys %{$snapshot->{users}}) {
+        my $original = $snapshot->{users}{$call};
+        if ($original) { $Route::User::list{$call} = $original; }
+        else { delete $Route::User::list{$call}; }
+    }
+}
+
+
+
+# Experimental failure recovery: A/C/D only. Graph checkpoint is constructed
+# after the read-only duplicate/time gate, but this candidate is LAB ONLY.
+# Diagnostic-only PC92 D relationship verification. Opt-in at process start.
+# No SQL queries or file I/O on the packet path beyond bounded diagnostic logs.
+our $pc92_d_audit_enabled = -e '/spider/local_data/pc92_d_audit.enable' ? 1 : 0;
+our $pc92_d_audit_count = 0;
+our $pc92_d_audit_limit = 200;
+our $pc92_d_audit_reject_count = 0;
+our $pc92_d_audit_reject_limit = 200;
+sub _pc92_d_audit_snapshot
+{
+    my ($parent, $pc) = @_;
+    my (%nodes, %users);
+    if ($parent) {
+        %nodes = map { $_ => 1 } $parent->nodes;
+        %users = map { $_ => 1 } $parent->users;
+    }
+    my @items;
+    for my $i (5 .. $#$pc - 1) {
+        my ($flag, $call) = $pc->[$i] =~ /\A([0-7])([^:]+)/;
+        next unless defined $flag && defined $call;
+        my $kind = ($flag & 4) ? 'N' : 'U';
+        my $present = ($kind eq 'N' ? $nodes{$call} : $users{$call}) ? 1 : 0;
+        push @items, [$kind, $call, $present];
+    }
+    return \@items;
+}
+sub _pc92_d_audit_result
+{
+    my ($pc, $owner, $before, $parent) = @_;
+    return unless $before;
+    my $after = _pc92_d_audit_snapshot($parent, $pc);
+    for my $i (0 .. $#$before) {
+        my ($kind, $call, $was) = @{$before->[$i]};
+        my $now = $after->[$i][2] ? 1 : 0;
+        my $status = !$was && !$now ? 'NOOP_ABSENT' :
+                     $was && !$now ? 'REMOVED' :
+                     $was && $now ? 'STILL_LINKED' : 'UNEXPECTED_ADDED';
+        LogDbg('audit', "PC92D_AUDIT origin=$pc->[1] id=$pc->[2] owner=$owner object=$kind$call before=$was after=$now status=$status committed=1");
+    }
+}
+
+sub _pc92_acd_guarded
+{
+    our ($pc92_d_audit_enabled, $pc92_d_audit_count, $pc92_d_audit_limit, $pc92_d_audit_reject_count, $pc92_d_audit_reject_limit);
+    my ($self, $pcno, $line, $origin, $pc) = @_;
+    return _pc92_handle_92_original(@_) unless $pc && ($pc->[3] || '') =~ /\A[ACDK]\z/;
+    if (($pc->[3] || '') eq 'K') {
+        my $reason = _pc92_k_preflight($pc);
+        return _pc92_malformed_reject($self, $pc, $reason) if $reason;
+        return _pc92_handle_92_original(@_);
+    }
+    # Validate malformed A/C/D before duplicate/time gates, with a reason.
+    my $format_reason = _pc92_acd_preflight($pc);
+    return _pc92_malformed_reject($self, $pc, $format_reason) if $format_reason;
+    my $audit_reject = sub {
+        my ($pc, $reason) = @_;
+        return unless $pc92_d_audit_enabled && ($pc->[3] || q{}) eq q{D};
+        return if $pc92_d_audit_reject_count >= $pc92_d_audit_reject_limit;
+        ++$pc92_d_audit_reject_count;
+        LogDbg(q{audit}, "PC92D_AUDIT origin=$pc->[1] id=$pc->[2] status=PRECHECK_REJECT reason=$reason committed=0");
+    };
+    my $pcall = $pc->[1];
+    my $t = $pc->[2];
+    # Every D admission gate reports its exact reason, independently of the
+    # bounded post-commit audit counter. No routing or SQLite mutation here.
+    if (_pc92_acd_early_duplicate($pcall, $t)) {
+        $audit_reject->($pc, 'duplicate'); return;
+    }
+    if (_pc92_acd_early_time_invalid($t)) {
+        $audit_reject->($pc, 'time'); return;
+    }
+    if (_pc92_acd_preflight($pc)) {
+        $audit_reject->($pc, 'preflight'); return;
+    }
+    my $owner = $pcall;
+    if (length($pc->[4] || '')) {
+        my ($call) = _decode_pc92_call($pc->[4]);
+        $owner = $call if $call;
+    }
+    if ($owner ne $pcall && !Route::Node::get($owner)) {
+        $audit_reject->($pc, 'owner_absent'); return;
+    }
+    if ($pcall eq $main::mycall || $pcall eq $main::myalias) {
+        $audit_reject->($pc, 'local_origin'); return;
+    }
+    if ($self->{state} ne 'init' && !$self->{do_pc9x}) {
+        $audit_reject->($pc, 'channel_not_pc9x'); return;
+    }
+    for my $i (5 .. $#$pc - 1) {
+        my ($flag, $call) = $pc->[$i] =~ /\A([0-7])([^:]+)/;
+        unless (defined $flag && defined $call) {
+            $audit_reject->($pc, 'object_decode'); return;
+        }
+        if ($call eq $main::mycall
+            || ($call eq $main::myalias && ($flag & 4))
+            || (!($flag & 4) && ($flag & 2))
+            || (!($flag & 4) && _pc92_user_is_known_node($call, undef, $self, $pc->[3]))) {
+            $audit_reject->($pc, 'object_conflict'); return;
+        }
+    }
+    my $pc92_d_audit_before;
+    my $pc92_d_audit_parent;
+    if ($pc92_d_audit_enabled && $pc->[3] eq 'D' && $pc92_d_audit_count < $pc92_d_audit_limit) {
+        ++$pc92_d_audit_count;
+        $pc92_d_audit_parent = Route::Node::get($owner);
+        $pc92_d_audit_before = _pc92_d_audit_snapshot($pc92_d_audit_parent, $pc);
+    }
+    # A D for an absent ORIGIN has no parent from which any advertised OBJECT
+    # can be removed. Treat each removal as a successful no-op, not a rejection:
+    # count the admitted packet and forward it under the ordinary A/D policy.
+    # No Route::Node or DXUser record is created merely to process a deletion.
+    if ($pc->[3] eq 'D' && !Route::Node::get($pcall)) {
+        DXHealth::pc92_physical_in($self->{call}, 'D', length($line));
+        _pc92_acd_metric('pc92_received', 'D', length($line));
+        _pc92_acd_metric('protocol_origin_inc', 'accepted', $pcall, 92, length($line));
+        if ($pc92_ad_enabled) {
+            my $sent = _pc92_acd_broadcast($self, 'D', $pcall, $line);
+            if ($sent) {
+                DXHealth::pc92_forwarded('D', length($line));
+                DXHealth::protocol_origin_inc('forwarded', $pcall, 92, length($line));
+            }
+        }
+        _pc92_d_audit_result($pc, $owner, $pc92_d_audit_before, undef) if $pc92_d_audit_before;
+        return;
+    }
+    # SQLite writes made by DXUser::put() are protected by a nested SAVEPOINT.
+    # Fail closed for unsupported storage; do not claim graph+SQL atomicity there.
+    my $dbh = $DXUser::dbh;
+    unless ($dbh && ($main::userdsn || '') =~ /:sqlite:/i) {
+        $audit_reject->($pc, 'sqlite_unavailable'); return;
+    }
+    my $sp = 'pc92_acd_guard';
+    my $started = eval {
+        my $rv = $dbh->do("SAVEPOINT $sp");
+        die "SAVEPOINT failed: " . ($dbh->errstr // "unknown DBI error") unless defined $rv;
+        1;
+    };
+    unless ($started) {
+        $audit_reject->($pc, 'savepoint_failed');
+        LogDbg('err', "PC92 A/C/D SQL savepoint failed: $@");
+        return;
+    }
+    my ($graph, $users);
+    my $saved_channel_state = $self->{state};
+    my $saved_channel_do_pc9x = $self->{do_pc9x};
+    local $pc92_acd_accepted = 0;
+    my @deferred_logs;
+    local $pc92_acd_deferred_logs = \@deferred_logs;
+    my @deferred_metrics;
+    local $pc92_acd_deferred_metrics = \@deferred_metrics;
+    my @deferred_buddies;
+    local $pc92_acd_deferred_buddies = \@deferred_buddies;
+    my @deferred_routes;
+    local $pc92_acd_deferred_routes = \@deferred_routes;
+    # Slugging tables are mutable global side effects, restore on failure.
+    my %saved_things_add = %things_add;
+    my %saved_things_del = %things_del;
+    my $ok = eval {
+        $graph = _pc92_c_graph_checkpoint($pc, $owner);
+        $users = _pc92_acd_user_checkpoint($pc, $graph);
+        _pc92_handle_92_original(@_);
+        die "PC92 A/C/D rejected after admission checkpoint" unless $pc92_acd_accepted;
+        my $rv = $dbh->do("RELEASE SAVEPOINT $sp");
+        die "RELEASE failed: " . ($dbh->errstr // "unknown DBI error") unless defined $rv;
+        1;
+    };
+    unless ($ok) {
+        my $err = $@;
+        $self->{state} = $saved_channel_state;
+        $self->{do_pc9x} = $saved_channel_do_pc9x;
+        %things_add = %saved_things_add;
+        %things_del = %saved_things_del;
+        my $sql_ok = eval {
+            my $rollback = $dbh->do("ROLLBACK TO SAVEPOINT $sp");
+            die "ROLLBACK failed: " . ($dbh->errstr // "unknown DBI error") unless defined $rollback;
+            my $release = $dbh->do("RELEASE SAVEPOINT $sp");
+            die "rollback RELEASE failed: " . ($dbh->errstr // "unknown DBI error") unless defined $release;
+            1;
+        };
+        my $sql_err = $@;
+        my $graph_ok = eval { _pc92_c_graph_restore($graph) if $graph; 1 };
+        my $graph_err = $@;
+        my $users_ok = eval { _pc92_acd_user_restore($users) if $users; 1 };
+        my $users_err = $@;
+        $audit_reject->($pc, 'transaction_failed');
+        LogDbg('err', "PC92 A/C/D failure: $err; sql_rollback=" . ($sql_ok ? 'OK' : $sql_err) .
+                      '; graph_rollback=' . ($graph_ok ? 'OK' : $graph_err) .
+                      '; user_cache_rollback=' . ($users_ok ? 'OK' : $users_err));
+        return;
+    }
+    # This is after successful RELEASE; compare exact owner->OBJECT links.
+    _pc92_d_audit_result($pc, $owner, $pc92_d_audit_before,
+                         Route::Node::get($owner)) if $pc92_d_audit_before;
+    # Post-commit callbacks may themselves invoke PC92 routing/notifications.
+    # Disable the dynamically scoped queues before dispatch: otherwise nested
+    # callbacks append to a queue that is already being flushed (or lose events).
+    $pc92_acd_deferred_routes = undef;
+    $pc92_acd_deferred_buddies = undef;
+    $pc92_acd_deferred_logs = undef;
+    $pc92_acd_deferred_metrics = undef;
+    for my $event (@deferred_logs) {
+        eval { Log(@$event); 1 }
+            or LogDbg('err', "PC92 post-commit Log failed: $@");
+    }
+    for my $event (@deferred_metrics) {
+        my ($method, @args) = @$event;
+        eval { my $cb = DXHealth->can($method) or die "Unknown DXHealth metric $method"; $cb->(@args); 1 }
+            or LogDbg('err', "PC92 post-commit metric $method failed: $@");
+    }
+    # Dispatch only after successful SQL RELEASE. Errors here are logged,
+    # never used to attempt an impossible rollback of already sent messages.
+    for my $event (@deferred_routes) {
+        my ($chan, $method, @args) = @$event;
+        if ($method eq 'broadcast_route_pc9x') {
+            my ($pcall, $unused, $line, $zero, $marker, $sort, $len) = @args;
+            my $sent = eval { $chan->broadcast_route_pc9x($pcall, undef, $line, 0) };
+            if ($@) { LogDbg('err', "PC92 post-commit broadcast failed: $@"); }
+            elsif ($sent) {
+                DXHealth::pc92_forwarded($sort, $len);
+                DXHealth::protocol_origin_inc('forwarded', $pcall, 92, $len);
+            }
+        } else {
+            eval { $chan->$method(@args); 1 }
+                or LogDbg('err', "PC92 post-commit $method failed: $@");
+        }
+    }
+    for my $event (@deferred_buddies) {
+        my ($chan, @args) = @$event;
+        eval { $chan->tell_buddies(@args); 1 }
+            or LogDbg('err', "PC92 buddy notification failed after commit: $@");
     }
     return;
 }
 
-sub _pc92_prevalidate_acd
-{
-    my ($pc, $origin, $type) = @_;
-    return _pc92proto_fail("TYPE_NOT_ACD") unless $type =~ /\A[ACD]\z/;
-    return _pc92proto_fail("FRAME_TOO_SHORT") unless @$pc >= 7;
-    # A malformed hop trailer must not consume a valid origin sequence.
-    return _pc92proto_fail("HOP_TRAILER_INVALID") unless defined $pc->[-1] && $pc->[-1] =~ /\AH(?:00|0|[1-9][0-9]?)\z/;
-    for my $field (@$pc) {
-        return _pc92proto_fail("FIELD_UNDEFINED_OR_WHITESPACE") unless defined $field && $field !~ /\s/;
-    }
-    my $relay_raw = $pc->[4];
-    # PC92 A/D are deltas on ORIGIN only. Slot 4 may be empty or
-    # exactly the origin node identity (5 + full ORIGIN including SSID).
-    # This is a self-description, never an external relay or OBJECT.
-    return _pc92proto_fail("AD_NONEMPTY_RESERVED_FIELD")
-        if $type ne 'C' && length($relay_raw) && $relay_raw ne "5$origin";
-    my @raw = @$pc[5 .. $#$pc-1];
-    return _pc92proto_fail("EMPTY_OBJECT_LIST") unless @raw;
-    my $parse = sub {
-        my ($raw, $validate_ip) = @_;
-        return _pc92proto_fail("OBJECT_SYNTAX_INVALID", $raw) unless defined $raw && $raw =~ /\A([0-7])([^:]+)(?::(.*))?\z/;
-        my ($flags, $call, $attrs) = ($1 + 0, $2, $3);
-        return _pc92proto_fail("CALLSIGN_INVALID", $raw) unless is_callsign($call);
-        return _pc92proto_fail("SSID_ZERO", $raw) if $call =~ /-0\z/;
-        return _pc92proto_fail("FLAGS_INCONSISTENT", $raw) if ($flags & 2) && !($flags & 4);
-        my ($version, $ip) = (0, '');
-        if (defined $attrs) {
-            my @a = split /:/, $attrs, -1;
-            return _pc92proto_fail("ATTRIBUTE_COUNT_INVALID", $raw) unless @a >= 1 && @a <= 2;
-            return _pc92proto_fail("ATTRIBUTE_EMPTY", $raw) if grep { !length($_) } @a;
-            if (@a == 2) {
-                return _pc92proto_fail("VERSION_INVALID", $raw) unless $a[0] =~ /\A[0-9]{4}\z/;
-                ($version, $ip) = ($a[0], $a[1]);
-            } elsif ($a[0] =~ /\A[0-9]{4}\z/) {
-                $version = $a[0];
-            } else {
-                $ip = $a[0];
-            }
-            if (length $ip && $validate_ip) {
-                return _pc92proto_fail("IP_ENCODING_INVALID", $raw)
-                    unless $ip =~ /\A[0-9a-fA-F.,]+\z/;
-                $ip =~ s/,/:/g;
-                return _pc92proto_fail("IP_ADDRESS_INVALID", $raw) unless is_ipaddr($ip);
-            } elsif (length $ip) {
-                # Preserve legacy comma-to-colon decoding without validating ordinary OBJECT IPs.
-                $ip =~ s/,/:/g;
-            }
-        }
-        return [$call, ($flags & 4) ? 1 : 0, ($flags & 2) ? 1 : 0,
-                ($flags & 1) ? 1 : 0, $version+0, 0, $ip];
-    };
-    my $owner = $origin;
-    my $relay;
-    my $self_relay = 0;
-    if (length $relay_raw) {
-        $relay = $parse->($relay_raw, 1) or return;
-        return _pc92proto_fail("RELAY_NOT_NODE", $relay_raw) unless $relay->[1];
-        if ($relay->[0] eq $origin) {
-            # Historical PC92 C: slot 4 may contain the origin's own
-            # node identity (e.g. C^5GB7MBC^1USER...).  It is not an
-            # external relay, and must not attach ORIGIN beneath itself.
-            return _pc92proto_fail("SELF_RELAY_EXTERNAL", $relay_raw) if $relay->[2];
-            $self_relay = 1;
-            $relay = undef;
-        } else {
-            return _pc92proto_fail("RELAY_NOT_NODE_OR_EXTERNAL", $relay_raw) unless $relay->[2];
-            return _pc92proto_fail("RELAY_IDENTITY_CONFLICT", $relay_raw) if $relay->[0] eq $main::mycall;
-            $owner = $relay->[0];
-            return _pc92proto_fail("RELAY_IS_KNOWN_USER", $owner) if Route::User::get($owner);
-            my $known = DXUser::get_current($owner);
-            return _pc92proto_fail("RELAY_DXUSER_NOT_NODE", $owner) if $known && !$known->is_node;
-            return _pc92proto_fail("RELAY_DIRECT_CHANNEL_CONFLICT", $owner) if DXChannel::get($owner);
-        }
-    }
-    my (%seen, @objects);
-    for my $i (0 .. $#raw) {
-        # Only the exact ORIGIN node self-description is IP-validated
-        # among OBJECTs; all other OBJECT IP attributes are opaque.
-        my $origin_self = $type eq 'C' && !$relay
-            && $raw[$i] =~ /\A([0-7])([^:]+)(?::|\z)/
-            && ($1 & 4) && $2 eq $origin;
-        my $slot = $parse->($raw[$i], $origin_self) or return;
-        my ($call, $is_node) = @$slot;
-        return _pc92proto_fail("DUPLICATE_OBJECT", $raw[$i]) if $seen{($is_node ? 5 : 1) . $call}++;
-        return _pc92proto_fail("RELAY_IN_OWN_OBJECT_LIST", $call) if $relay && $call eq $owner;
-        return _pc92proto_fail("LOCAL_NODE_IDENTITY_CONFLICT", $call) if $call eq $main::mycall;
-        return _pc92proto_fail("LOCAL_ALIAS_IDENTITY_CONFLICT", $call) if $call eq $main::myalias;
-        return _pc92proto_fail("LOCAL_ALIAS_NODE_CONFLICT", $call) if $call eq $main::myalias && $is_node;
-        # The object type is part of the protocol identity. An existing
-        # opposite-type Route entry or DXUser administrative sort does not
-        # invalidate this advertisement. D is always scoped to ORIGIN.
-        # Multiple direct links are valid; direct presence is not a reason
-        # to reject an advertised node in another origin's snapshot.
-        # v0.12: only the explicitly advertised ORIGIN self-description
-        # in a C without RELAY is subject to global IP classification.
-        if ($type eq 'C' && !$relay && $call eq $origin && $is_node && length($slot->[6])) {
-            return _pc92proto_fail("ORIGIN_IP_NOT_PUBLIC", $call) unless is_public_ip($slot->[6]);
-        }
-        push @objects, $slot;
-    }
-    # Empty RELAY means the header ORIGIN owns the snapshot; repeating
-    # ORIGIN as a node OBJECT is optional. Explicit objects are validated above.
-    return ($owner, $relay, \@objects);
-}
+sub handle_92 { return _pc92_acd_guarded(@_); }
 
-# Validate the K identity and counters without invoking the permissive
-# legacy decoder.  In particular, a malformed K must not advance lastid.
-sub _pc92_prevalidate_k
-{
-    my ($pc, $origin) = @_;
-    # K has exactly one object, two counts, IP, Git and the hop trailer.
-    return unless @$pc == 10;
-    return unless defined $pc->[-1] && $pc->[-1] =~ /\AH(?:0|[1-9][0-9]?)\z/;
-    my $raw = $pc->[4];
-    return unless defined $raw && $raw =~ /\A([4-7])([^:]+)(?::([0-9]+))?(?::([0-9]+))?\z/;
-    my ($flags, $call) = ($1, $2);
-    return unless $call eq $origin && is_callsign($call)
-                  && normalise_call($call) eq $call && $call !~ /-0\z/;
-    return unless defined $pc->[5] && $pc->[5] =~ /\A[0-9]+\z/
-                  && defined $pc->[6] && $pc->[6] =~ /\A[0-9]+\z/;
-    return if defined $pc->[7] && length($pc->[7]) && !is_ipaddr($pc->[7]);
-    return if defined $pc->[8] && length($pc->[8])
-              && $pc->[8] !~ m{\A[^/\s]+/[^/\s]+\z};
-    return 1;
-}
-
-# DXSpider routing entries
-sub _handle_92_unprotected
+sub _pc92_handle_92_original
 {
 	my $self = shift;
 	my $pcno = shift;
@@ -2542,9 +3023,32 @@ sub _handle_92_unprotected
 	my $sort = $pc->[3];
 	my $hops = $pc->[-1];
 
-	# Physical transport accounting is deliberately before logical validation:
-	# it records an A/D/C/K PC92 that really arrived on this direct channel.
+	# Physical transport accounting precedes duplicate rejection; it does not
+	# inspect RELAY or OBJECTs.
 	DXHealth::pc92_physical_in($self->{call}, $sort, length($line));
+
+	# Cheap read-only duplicate/old-ID rejection before RELAY or OBJECT work.
+	# check_pc9x_t remains the authoritative admission/update after validation.
+	if (($sort eq 'A' || $sort eq 'C' || $sort eq 'D')
+	    && _pc92_acd_early_duplicate($pcall, $t)) {
+		return;
+	}
+
+	# Reject stale/out-of-window IDs before walking potentially large OBJECT arrays.
+	# The authoritative check_pc9x_t retains its own time check.
+	if (($sort eq 'A' || $sort eq 'C' || $sort eq 'D')
+	    && _pc92_acd_early_time_invalid($t)) {
+		return;
+	}
+
+	# A/C/D preflight precedes sequence and route mutations.
+	if ($sort eq 'A' || $sort eq 'C' || $sort eq 'D') {
+		my $reason = _pc92_acd_preflight($pc);
+		if ($reason) {
+			dbg("PCPROT: rejected PC92$sort from $pcall: $reason") if isdbg('chanerr') || isdbg('routelow');
+			return;
+		}
+	}
 
 	# this catches loops of A/Ds
 #	if (eph_dup($line, $pc9x_dupe_age)) {
@@ -2553,55 +3057,20 @@ sub _handle_92_unprotected
 
 	if ($pcall eq $main::mycall) {
 		LogDbg('err', "PCPROT: looped back, ignored");
-        DXProt::pc92proto_trace("REJECT", "ORIGIN", "LOCAL_ORIGIN_LOOP");
 		return;
 	}
 
 	if ($pcall eq $main::myalias) {
 		LogDbg('err', "PCPROT: looped back to \$myalias ($main::myalias), misconfiguration ignored");
-        DXProt::pc92proto_trace("REJECT", "ORIGIN", "LOCAL_ALIAS_LOOP");
 		return;
 	}
 
-    # K also must be structurally valid before check_pc9x_t writes lastid.
-    # In particular a malformed keepalive must not suppress a subsequent
-    # correctly formed frame with the same origin and a newer sequence.
-    if ($sort eq 'K' && !_pc92_prevalidate_k($pc, $pcall)) {
-        dbg("PCPROT: rejected invalid PC92 K from $pcall") if isdbg('chanerr') || isdbg('routelow');
-        return;
-    }
-
-    # Full structural and identity validation is read-only and precedes
-    # check_pc9x_t, routing changes and forwarding.
-    my ($pc92_owner, $pc92_relay, $pc92_objects);
-    if ($sort eq 'A' || $sort eq 'C' || $sort eq 'D') {
-        local $pc92proto_prevalidate_reason;
-        ($pc92_owner, $pc92_relay, $pc92_objects) =
-            _pc92_prevalidate_acd($pc, $pcall, $sort);
-        if (!defined $pc92_owner) {
-            DXProt::pc92proto_trace('REJECT', 'PREVALIDATE', $pc92proto_prevalidate_reason || 'UNKNOWN_PREVALIDATE_FAILURE');
-        }
-        unless (defined $pc92_owner) {
-            dbg("PCPROT: rejected invalid PC92 $sort from $pcall") if isdbg('chanerr') || isdbg('routelow');
-            return;
-        }
-        if ($pc92_relay && $sort ne 'C' && !Route::Node::get($pc92_owner)) {
-            dbg("PCPROT: rejected PC92 $sort for unknown relay $pc92_owner") if isdbg('chanerr');
-            return;
-        }
-    }
-
-    # Only a structurally valid PC92 may negotiate the session.  The
-    # previous order promoted an init channel on malformed frames, even
-    # though those frames were rejected before routing/lastid updates.
 	if ($pcall eq $self->{call} && $self->{state} eq 'init') {
 		if ($self->{isolate}) {
 			dbg("DXPROT: PC9x received, but $pcall is isolated, ignored");
-            DXProt::pc92proto_trace("REJECT", "SESSION", "ISOLATED");
 			return;
 		} elsif (!$self->user->wantpc9x) {
 			dbg("DXPROT: PC9x explicitly switched off on $pcall, ignored");
-            DXProt::pc92proto_trace("REJECT", "SESSION", "PC9X_DISABLED_BY_USER");
 			return;
 		} else {
 			$self->state('init92');
@@ -2611,66 +3080,66 @@ sub _handle_92_unprotected
 	}
 	unless ($self->{do_pc9x}) {
 		dbg("PCPROT: PC9x come in from non-PC9x node, ignored") if isdbg('chanerr') || isdbg('routelow');
-        DXProt::pc92proto_trace("REJECT", "SESSION", "NOT_PC9X_CHANNEL");
 		return;
 	}
 
-
-	# D is a delta against ORIGIN's local children. If ORIGIN is absent,
-	# there is nothing to delete locally; the valid D must still reach
-	# other peers that may have that ORIGIN. Never manufacture a route.
-	my $missing_d_origin = 0;
-	my $parent = check_pc9x_t($pcall, $t, 92, $sort ne 'D',
-		$sort eq 'D' ? \$missing_d_origin : undef);
-	if ($missing_d_origin) {
-		# A valid D with unknown ORIGIN is a local no-op, not an error.
-		# Forward its first copy; suppress later copies to prevent loops.
-		# An absent Route::Node has no lastid. Track the protocol identity
-		# (exact ORIGIN including SSID + canonical ID), not OBJECT membership,
-		# payload bytes, hop count or the ingress peer. Distinct IDs must pass
-		# even when they delete the same OBJECT or the origin remains absent.
-		my $key = join('^', $pcall, $t);
-		if (eph_dup("PC92_D_MISSING^$key", $pc9x_dupe_age)) {
-			DXProt::pc92proto_trace('SKIP', 'SEQUENCE', 'DUPLICATE_SAME_ID_ORIGIN_NOT_IN_ROUTING');
+	# ORIGIN owns the sequence; RELAY, when different, owns configuration.
+	my $pc92_owner_call = $pcall;
+	if ($sort eq 'A' || $sort eq 'C' || $sort eq 'D') {
+		my $relay = $pc->[4];
+		if (length $relay) {
+			my ($relay_call) = _decode_pc92_call($relay);
+			$pc92_owner_call = $relay_call;
+		}
+		# Fail closed if a new RELAY would need a mutating admission step.
+		if ($pc92_owner_call ne $pcall && !Route::Node::get($pc92_owner_call)) {
+			dbg("PCPROT: PC92$sort unknown RELAY $pc92_owner_call, ignored") if isdbg('routelow');
 			return;
 		}
-		DXProt::pc92proto_trace('PASS', 'SEQUENCE', 'ACCEPTED');
-		DXProt::pc92proto_trace('PASS', 'ROUTING', 'D_ORIGIN_NOT_IN_ROUTING');
-		${$DXProt::pc92_c_applied} = 1 if ref($DXProt::pc92_c_applied) eq 'SCALAR';
-		if ($DXProt::pc92_c_external_pending) {
-			push @$DXProt::pc92_c_external_pending,
-				[undef, 'pc92_health_accepted', ['D', $pcall, length($line)]];
-			push @$DXProt::pc92_c_external_pending,
-				[$self, 'pc92_broadcast_committed', [$pcall, $line, 'D']]
-					if $pc92_ad_enabled;
-		} else {
-			DXHealth::pc92_received('D', length($line));
-			DXHealth::protocol_origin_inc('accepted', $pcall, 92, length($line));
-			$self->pc92_broadcast_committed($pcall, $line, 'D') if $pc92_ad_enabled;
-		}
-		return;
 	}
-	return unless $parent;
-    DXProt::pc92proto_trace("PASS", "SEQUENCE", "ACCEPTED");
+
+	# A/C/D: reject the entire packet before lastid, Route or DXUser changes.
+	# Do not silently filter conflicting identities from a full C snapshot.
+	if ($sort eq 'A' || $sort eq 'C' || $sort eq 'D') {
+		for my $i (5 .. $#$pc - 1) {
+			my ($flag, $call) = $pc->[$i] =~ /\A([0-7])([^:]+)/;
+			return unless defined $flag && defined $call;
+			if ($call eq $main::mycall ||
+			    ($call eq $main::myalias && ($flag & 4)) ||
+			    (!($flag & 4) && ($flag & 2)) ||
+			    (!($flag & 4) && _pc92_user_is_known_node($call, undef, $self, $sort))) {
+				dbg("PCPROT: PC92$sort rejected conflicting OBJECT $call") if isdbg('routelow');
+				return;
+			}
+		}
+	}
+
+	# Decode all advertised OBJECTs before check_pc9x_t can mutate lastid.
+	# A failed decode must reject the entire A/C/D message, never silently
+	# remove an OBJECT from a C snapshot after sequence admission.
+	my @pc92_acd_decoded;
+	if ($sort eq 'A' || $sort eq 'C' || $sort eq 'D') {
+		for my $i (5 .. $#$pc - 1) {
+			my @slot = _decode_pc92_call($pc->[$i]);
+			unless (@slot && defined $slot[0] && length $slot[0]) {
+				dbg("PCPROT: PC92$sort undecodable OBJECT at index $i, rejected") if isdbg('chanerr') || isdbg('routelow');
+				return;
+			}
+			push @pc92_acd_decoded, \@slot;
+		}
+	}
+
+	# don't create routing entries for D records that don't already exist
+	# this is what causes all those PC92 loops!
+	my $parent = check_pc9x_t($pcall, $t, 92, $sort ne 'D', 1) || return;
 	my $oparent = $parent;
 
-    # For a legacy relay the header origin is still the PC9x sender,
-    # but all advertised child objects belong to the relay node.
-    if ($pc92_relay) {
-        my $owner_ref = Route::Node::get($pc92_owner);
-        if ($sort eq 'C') {
-            # Route::Node::add() attaches an additional parent even when the
-            # relay node already exists.  Reusing the node without this call
-            # silently loses the independent ORIGIN -> RELAY connection.
-            _add_thingy($parent, $pc92_relay, $self, $hops, 'C');
-            $owner_ref = Route::Node::get($pc92_owner);
-        }
-        return unless $owner_ref;
-        $parent = $owner_ref;
-    }
-
-	$parent->do_pc9x(1) unless $pc92_relay;
+	$parent->do_pc9x(1);
 	$parent->via_pc92(1);
+	if (($sort eq 'A' || $sort eq 'C' || $sort eq 'D') && $pc92_owner_call ne $pcall) {
+		$parent = Route::Node::get($pc92_owner_call);
+		return unless $parent;
+	}
 
 	if ($sort eq 'F' || $sort eq 'R') {
 
@@ -2743,9 +3212,7 @@ sub _handle_92_unprotected
 			my $oldversion = $parent->version || 0;
 			my $user = check_add_user($parent->call, 'S');
 			my $oldsort = $user->sort // '';
-			# The IP advertised by K is a separate protocol field (field 7).
-			# The decoded object has seven elements, not ten.
-			my $ipaddr = defined $pc->[7] && is_ipaddr($pc->[7]) ? $pc->[7] : '';
+			my $ipaddr = @ent > 10 ? $ent[9] : '';
 			my ($gitbranch, $gitversion);
 			if (defined $pc->[8] && length $pc->[8] && $pc->[8] =~ m{^(.+)/([^/]+)$}) {
 				($gitbranch, $gitversion) = ($1, $2);
@@ -2774,10 +3241,8 @@ sub _handle_92_unprotected
 
 				# PC92 K already carries gitbranch/gitversion in field 8. Keep it
 				# as live route metadata; do not persist it into DXUser.
-				if (defined $gitbranch && defined $gitversion) {
-					$parent->gitbranch($gitbranch);
-					$parent->gitversion($gitversion);
-				}
+				$parent->gitbranch($gitbranch);
+				$parent->gitversion($gitversion);
 
 				unless ($user->is_spider || $user->is_ccluster) {
 					$user->sort('S');
@@ -2820,10 +3285,13 @@ sub _handle_92_unprotected
 		# this is the main route section
 		# here is where all the routes are created and destroyed
 
-        # The frame was decoded as a whole before any routing mutation.
-        # For own C, OBJECT1 is the origin's identity; it is not a child.
-        my @ent = @$pc92_objects;
-        @ent = grep { !($_->[1] && $_->[0] eq $pcall) } @ent if $sort eq 'C' && !$pc92_relay;
+		# The header origin owns every advertised connection. Field 4 may
+		# be empty, a redundant origin, or an ordinary legacy user entry.
+		# The old relay-node case was rejected before check_pc9x_t.
+		my @ent = @pc92_acd_decoded;
+		# Only the owner NODE self-description is redundant. A USER with
+		# the identical full CALL is a different typed routing identity.
+		@ent = grep { !($_->[0] eq $parent->call && $_->[1]) } @ent;
 
 		# do a pass through removing any references to either mycall
 		my @nent;
@@ -2850,24 +3318,10 @@ sub _handle_92_unprotected
 			}
 		} elsif ($sort eq 'D') {
 			for (@nent) {
-				# Routing diagnostics are read-only and preserve exact type + CALL/SSID.
-				# They do not change the existing deletion or forwarding semantics.
-				if (isdbg('pc92proto')) {
-					my ($call, $is_node) = @$_;
-					my $ref = $is_node ? Route::Node::get($call) : Route::User::get($call);
-					my $owned = $is_node
-						? scalar(grep { $_ eq $call } @{$parent->{nodes} || []})
-						: $parent->is_user($call);
-					my $reason = !$ref ? 'D_OBJECT_NOT_IN_ROUTING'
-						: !$owned ? 'D_OBJECT_NOT_CHILD_OF_ORIGIN' : 'D_OBJECT_REMOVED';
-					DXProt::pc92proto_trace('PASS', 'ROUTING',
-						"$reason object=" . ($is_node ? '5' : '1') . $call);
-				}
 				push @rdel, _del_thingy($parent, $_, $self);
 			}
 		} elsif ($sort eq 'C') {
 			my (@nodes, @users);
-			my %invalid_pc92_users;
 			my @accepted_pc92c_nodes;
 
 			# we reset obscounts on config records as well as K records
@@ -2875,12 +3329,9 @@ sub _handle_92_unprotected
 			dbg("ROUTE: reset obscount on $parent->{call} now " . $parent->obscount) if isdbg('obscount');
 
 			#
+			# All OBJECT identities were validated before check_pc9x_t.
+			# Never turn an invalid full snapshot into a partial snapshot.
 			foreach my $r (@nent) {
-                if (_pc92_invalid_extnode_user($r, $parent, $self, 'C')) {
-                    die "PC92 C rejected: invalid external-node user $r->[0]";
-                }
-				# A Route::User and Route::Node with the same complete callsign
-				# are distinct protocol objects; do not reject one due to the other.
 				#			my ($call, $is_node, $is_extnode, $here, $version, $build) = _decode_pc92_call($_);
 				if ($r->[0]) {
 					if ($r->[1]) {
@@ -2951,12 +3402,14 @@ sub _handle_92_unprotected
 			}
 
 			my ($dnodes, $dusers, $nnodes, $nusers) = $parent->calc_config_changes(\@nodes, \@users);
+			my %pc92c_new_node = map { $_ => 1 } @$nnodes;
+			my %pc92c_new_user = map { $_ => 1 } @$nusers;
 
 			# add users here
 			foreach my $r (@nent) {
 				my $call = $r->[0];
-				if ($call && !(!$r->[1] && $invalid_pc92_users{$call})) {
-					push @radd,_add_thingy($parent, $r, $self, $hops, 'C') if grep { $call eq $_ } @{$r->[1] ? $nnodes : $nusers};
+				if ($call) {
+					push @radd,_add_thingy($parent, $r, $self, $hops, 'C') if ($r->[1] ? $pc92c_new_node{$call} : $pc92c_new_user{$call});
 				}
 			}
 			# del users here
@@ -2977,326 +3430,34 @@ sub _handle_92_unprotected
 		foreach my $r (@rdel) {
 			next unless $r;
 
-			_pc92_c_external($self, 'route_pc21', $pcall, undef, $r) if $r->isa('Route::Node');
-			_pc92_c_external($self, 'route_pc17', $pcall, undef, $parent, $r) if $r->isa('Route::User');
+			_pc92_acd_route_event($self, 'route_pc21', $pcall, undef, $r) if $r->isa('Route::Node');
+			_pc92_acd_route_event($self, 'route_pc17', $pcall, undef, $parent, $r) if $r->isa('Route::User');
 		}
 		my @pc19 = grep { $_ && $_->isa('Route::Node') } @radd;
 		my @pc16 = grep { $_ && $_->isa('Route::User') } @radd;
 		unshift @pc19, $parent if $self->{state} eq 'init92' && $oparent == $parent;
-		_pc92_c_external($self, 'route_pc19', $pcall, undef, @pc19) if @pc19;
-		_pc92_c_external($self, 'route_pc16', $pcall, undef, $parent, @pc16) if @pc16;
+		_pc92_acd_route_event($self, 'route_pc19', $pcall, undef, @pc19) if @pc19;
+		_pc92_acd_route_event($self, 'route_pc16', $pcall, undef, $parent, @pc16) if @pc16;
 	}
 
-	# Explicit success marker: a normal early return is a rejected C, not a commit.
-	${$DXProt::pc92_c_applied} = 1 if ($sort eq 'A' || $sort eq 'C' || $sort eq 'D') && ref($DXProt::pc92_c_applied) eq 'SCALAR';
+	# Mark successful A/C/D admission only after all routing operations.
+	$pc92_acd_accepted = 1 if $sort eq 'A' || $sort eq 'C' || $sort eq 'D';
 	# Reaching here means an A/D/C/K survived the logical handling above.
-	if (($sort eq 'A' || $sort eq 'C' || $sort eq 'D') && $DXProt::pc92_c_external_pending) {
-		push @$DXProt::pc92_c_external_pending, [undef, 'pc92_health_accepted', [$sort, $pcall, length($line)]];
-	} else {
-		DXHealth::pc92_received($sort, length($line));
-		DXHealth::protocol_origin_inc('accepted', $pcall, 92, length($line));
-	}
+	_pc92_acd_metric('pc92_received', $sort, length($line));
+	# For A/C/D/K the first PC92 field is the protocol-defined originating
+	# node (pcall). Forwarding preserves the original line, so this is a
+	# logical origin and must not be replaced by the direct neighbour.
+	_pc92_acd_metric('protocol_origin_inc', 'accepted', $pcall, 92, length($line));
 
 	# broadcast it if we get here (but not if it's an A or D record and pc92_ad_enabled isn't set;
 	if ($sort eq 'A' || $sort eq 'D') {
 		return unless $pc92_ad_enabled;
 	}
-	if (($sort eq 'A' || $sort eq 'C' || $sort eq 'D') && $DXProt::pc92_c_external_pending) {
-		DXProt::pc92proto_trace('PASS', 'FORWARD', 'QUEUED_UNTIL_COMMIT');
-		push @$DXProt::pc92_c_external_pending, [$self, 'pc92_broadcast_committed', [$pcall, $line, $sort]];
-	} else {
-		my $sent = $self->broadcast_route_pc9x($pcall, undef, $line, 0);
-		if ($sent) {
-			DXHealth::pc92_forwarded($sort, length($line));
-			DXHealth::protocol_origin_inc('forwarded', $pcall, 92, length($line));
-		}
+	my $sent = _pc92_acd_broadcast($self, $sort, $pcall, $line);
+	if ($sent) {
+		DXHealth::pc92_forwarded($sort, length($line));
+		DXHealth::protocol_origin_inc('forwarded', $pcall, 92, length($line));
 	}
-}
-
-# PC92 C changes the live routing graph in multiple operations.  A runtime
-# exception in a later operation must not leave earlier graph changes or a
-# consumed PC9x ID behind.  This journal restores the live Route registries
-# and the existing route objects *in place* (so external references remain
-# valid).  It is deliberately not described as a DXUser/SQL transaction:
-# DXUser persistence and external callbacks have their own side effects.
-# Copy nested mutable state, while preserving identity of blessed objects.
-# PC92C_dxchan and DXUser's nested collections must not share mutable
-# references with the live object after checkpoint creation.
-sub _pc92_snapshot_value
-{
-    my ($value, $seen) = @_;
-    my $kind = ref($value);
-    return $value unless $kind eq 'HASH' || $kind eq 'ARRAY';
-    my $id = "$value";
-    return $seen->{$id} if exists $seen->{$id};
-    if ($kind eq 'HASH') {
-        my $copy = {};
-        $seen->{$id} = $copy;
-        $copy->{$_} = _pc92_snapshot_value($value->{$_}, $seen) for keys %$value;
-        return $copy;
-    }
-    my $copy = [];
-    $seen->{$id} = $copy;
-    push @$copy, _pc92_snapshot_value($_, $seen) for @$value;
-    return $copy;
-}
-
-sub _pc92_route_object_snapshot
-{
-    my ($obj) = @_;
-    my %fields;
-    my %seen;
-    $fields{$_} = _pc92_snapshot_value($obj->{$_}, \%seen) for keys %$obj;
-    return \%fields;
-}
-
-# C updates can persist DXUser rows before a later route operation fails.
-# Use a nested SQL SAVEPOINT on the existing DXUser connection (do not commit
-# DXSpider's outer transaction). This is only enabled for SQLite; fail closed
-# on unsupported persistence rather than falsely promising an atomic C.
-sub _pc92_c_sql_begin
-{
-    # A configured persistent DXUser backend must be transactional.  Never
-    # silently process a C against MySQL, or against a disconnected SQLite
-    # handle: in either case a later routing failure could leave durable
-    # user state partially updated.  The unconfigured mock/in-memory mode
-    # remains available for isolated protocol tests.
-    my $dsn = $main::userdsn || '';
-    return unless length $dsn;
-    die 'PC92 A/C/D requires SQLite DXUser persistence' unless $dsn =~ /:sqlite:/i;
-    die 'PC92 A/C/D SQLite connection unavailable' unless $DXUser::dbh;
-    my $db = $DXUser::dbh;
-    $db->do('SAVEPOINT pc92_c_route') or die 'PC92 C SAVEPOINT failed';
-    return $db;
-}
-
-sub _pc92_c_sql_end
-{
-    my ($db, $commit) = @_;
-    return unless $db;
-    if ($commit) {
-        $db->do('RELEASE SAVEPOINT pc92_c_route') or die 'PC92 C RELEASE failed';
-    } else {
-        $db->do('ROLLBACK TO SAVEPOINT pc92_c_route') or die 'PC92 C SQL rollback failed';
-        $db->do('RELEASE SAVEPOINT pc92_c_route') or die 'PC92 C SQL release after rollback failed';
-    }
-}
-
-# Keep the identity of cached DXUser objects, since channels and other code
-# may hold direct references. The SQL rollback alone does not restore the LRU.
-sub _pc92_c_user_checkpoint
-{
-    my ($pc, $graph) = @_;
-    my %calls;
-    # Any descendant of a removed node can have its DXUser record updated.
-    # Reuse the bounded route checkpoint rather than walking the network again.
-    if ($graph) {
-        $calls{$_} = 1 for (keys %{$graph->{nodes}}, keys %{$graph->{users}});
-    }
-    # Include every advertised identity even when absent from the route graph.
-    for my $entry (@$pc[4 .. $#$pc - 1]) {
-        my ($call) = _decode_pc92_call($entry);
-        $calls{$call} = 1 if $call;
-    }
-    my $origin = $pc->[1];
-    $calls{$origin} = 1 if $origin;
-    my %saved;
-    for my $call (keys %calls) {
-        my $u = DXUser::get_current($call);
-        $saved{$call} = [$u, $u ? _pc92_route_object_snapshot($u) : undef];
-    }
-    return \%saved;
-}
-
-sub _pc92_c_user_restore
-{
-    my ($saved) = @_;
-    for my $call (keys %$saved) {
-        my ($original, $fields) = @{$saved->{$call}};
-        if ($original) {
-            %$original = %{_pc92_route_object_snapshot($fields)};
-        } else {
-            # An entry created by the failed C must not remain in the LRU.
-            DXUser::pc92_cache_evict($call);
-        }
-    }
-}
-
-# A C may modify its owner, descendants removed by recursive del(), and
-# existing advertised objects attached to another parent.  Journal exactly
-# those objects and registry keys, not every node/user on the network.
-# The closure is walked BEFORE any routing mutation.
-sub _pc92_c_graph_checkpoint
-{
-    my ($pc) = @_;
-    my %node_calls;
-    my %user_calls;
-    my @pending = ($pc->[1]);
-    # A/D advertise objects starting at slot 4; C slot 4 is the owner/relay.
-    # Including it for every type is safe and ensures A/D first-slot rollback.
-    for my $entry (@$pc[4 .. $#$pc - 1]) {
-        my ($call, $is_node) = _decode_pc92_call($entry);
-        next unless $call;
-        if ($is_node) { push @pending, $call; }
-        else { $user_calls{$call} = 1; }
-    }
-    while (@pending) {
-        my $call = pop @pending;
-        next unless $call && !$node_calls{$call}++;
-        my $node = Route::Node::get($call) or next;
-        push @pending, $node->nodes;
-        $user_calls{$_} = 1 for $node->users;
-    }
-    my (%nodes, %users, @saved);
-    for my $call (keys %node_calls) {
-        my $node = $Route::Node::list{$call};
-        $nodes{$call} = $node;
-        push @saved, [$node, _pc92_route_object_snapshot($node)] if $node;
-    }
-    for my $call (keys %user_calls) {
-        my $user = $Route::User::list{$call};
-        $users{$call} = $user;
-        push @saved, [$user, _pc92_route_object_snapshot($user)] if $user;
-    }
-    return { nodes => \%nodes, users => \%users, saved => \@saved };
-}
-
-sub _pc92_c_graph_restore
-{
-    my ($snapshot) = @_;
-    for my $entry (@{$snapshot->{saved}}) {
-        my ($obj, $fields) = @$entry;
-        %$obj = %{_pc92_route_object_snapshot($fields)};
-    }
-    for my $call (keys %{$snapshot->{nodes}}) {
-        my $original = $snapshot->{nodes}{$call};
-        if ($original) { $Route::Node::list{$call} = $original; }
-        else { delete $Route::Node::list{$call}; }
-    }
-    for my $call (keys %{$snapshot->{users}}) {
-        my $original = $snapshot->{users}{$call};
-        if ($original) { $Route::User::list{$call} = $original; }
-        else { delete $Route::User::list{$call}; }
-    }
-}
-
-sub pc92_broadcast_committed
-{
-    my ($self, $pcall, $line, $sort) = @_;
-    my $sent = $self->broadcast_route_pc9x($pcall, undef, $line, 0);
-    DXProt::pc92proto_trace('RESULT', 'FORWARD', "SENT_COUNT=$sent");
-    if ($sent) {
-        DXHealth::pc92_forwarded($sort, length($line));
-        DXHealth::protocol_origin_inc('forwarded', $pcall, 92, length($line));
-    }
-}
-
-sub handle_92
-{
-    my ($self, $pcno, $line, $origin, $pc) = @_;
-    return _handle_92_unprotected(@_) unless $pc && defined $pc->[3] && $pc->[3] =~ /\A[ACD]\z/;
-    local $DXProt::pc92proto_context = isdbg('pc92proto')
-        ? { origin => $pc->[1], id => $pc->[2], type => $pc->[3], ingress => ($self->{call} || ''),
-            hop => ($pc->[-1] || ''), packet => $line, rxseq => ++$DXProt::pc92proto_rxseq }
-        : undef;
-    DXProt::pc92proto_trace('RX', 'RECEIVED');
-
-    my $checkpoint;
-    my $wantarray = wantarray;
-    my (@result, $result, $sql, $users);
-    # DXUser::put normally refreshes live channels immediately. That is not
-    # reversible if a later mutation fails, so stage those notifications.
-    # Dynamic scope also prevents leakage across nested calls and exceptions.
-    my %refresh_pending;
-    my @external_pending;
-    my $ok;
-    my $applied = 0;
-    my $saved_state = $self->{state};
-    my $saved_pc9x = $self->{do_pc9x};
-    # PC92 C may change the pending PC92 A/D slug queues through
-    # _add_thingy/_del_thingy. They are not part of Route::Node or SQL.
-    # Keep their pre-frame membership and object references on failure.
-    my %saved_things_add = %things_add;
-    my %saved_things_del = %things_del;
-    {
-        local $DXProt::pc92_c_applied = \$applied;
-        local $DXUser::pc92_refresh_deferred = \%refresh_pending;
-        local $DXProt::pc92_c_external_pending = \@external_pending;
-        $ok = eval {
-            $sql = _pc92_c_sql_begin();
-            $checkpoint = _pc92_c_graph_checkpoint($pc);
-            $users = _pc92_c_user_checkpoint($pc, $checkpoint) if $sql;
-            if ($wantarray) { @result = _handle_92_unprotected(@_); }
-            else { $result = _handle_92_unprotected(@_); }
-            # A normal protocol rejection is not an exception. Roll it back
-            # silently below; only actual exceptions are logged as failures.
-            _pc92_c_sql_end($sql, 1) if $applied;
-            1;
-        };
-        unless ($ok && $applied) {
-            my $normal_reject = $ok && !$applied;
-            my $failure = $@ || 'unknown PC92 C exception';
-            my $sql_ok = eval { _pc92_c_sql_end($sql, 0); 1 };
-            my $sql_error = $@;
-            # A failed graph restoration must not skip DXUser cache recovery.
-            # Both rollback operations are best-effort and independently guarded:
-            # never let a secondary exception escape the protocol handler.
-            my $graph_ok = eval {
-                _pc92_c_graph_restore($checkpoint) if $checkpoint;
-                1;
-            };
-            my $graph_error = $@;
-            my $users_ok = eval {
-                _pc92_c_user_restore($users) if $users;
-                1;
-            };
-            my $users_error = $@;
-            # A rejected C must not leak changes into later outbound PC92.
-            %things_add = %saved_things_add;
-            %things_del = %saved_things_del;
-            $self->{state} = $saved_state;
-            if (defined $saved_pc9x) { $self->{do_pc9x} = $saved_pc9x; }
-            else { delete $self->{do_pc9x}; }
-            LogDbg('err', "PCPROT: PC92 A/C/D failure; graph and SQL rollback attempted: $failure"
-                . ($sql_ok ? '' : " SQL rollback error: $sql_error")
-                . ($graph_ok ? '' : " graph restore error: $graph_error")
-                . ($users_ok ? '' : " DXUser cache restore error: $users_error")) unless $normal_reject && $sql_ok && $graph_ok && $users_ok;
-            DXProt::pc92proto_trace($normal_reject ? 'SKIP' : 'REJECT', 'TRANSACTION',
-                $normal_reject ? 'NO_COMMIT_NORMAL_SKIP' : 'ROLLBACK_EXCEPTION');
-            return;
-        }
-    }
-    if ($DXProt::pc92proto_context && $DXProt::pc92proto_context->{rejected}) {
-        DXProt::pc92proto_trace('RESULT', 'TRANSACTION', 'SAVEPOINT_RELEASED_AFTER_REJECT');
-    } else {
-        DXProt::pc92proto_trace('PASS', 'TRANSACTION', 'SAVEPOINT_RELEASED');
-    }
-    # After successful SQL RELEASE, notify channels of the final persisted
-    # state. A refresh failure must not masquerade as a transaction failure.
-    for my $call (sort keys %refresh_pending) {
-        eval { DXChannel::refresh_user($call, $refresh_pending{$call}); 1 }
-            or LogDbg('err', "PCPROT: PC92 C post-commit refresh failed for $call: $@");
-    }
-    # Outbound effects occur only after the SQLite savepoint was released.
-    # A post-commit transport failure is logged, never treated as a reason
-    # to roll back state that has already been published.
-    for my $event (@external_pending) {
-        my ($target, $method, $args) = @$event;
-        my $sent = eval {
-            if ($method eq 'pc92_committed_log') {
-                Log(@$args);
-            } elsif ($method eq 'pc92_health_accepted') {
-                my ($sort, $origin, $bytes) = @$args;
-                DXHealth::pc92_received($sort, $bytes);
-                DXHealth::protocol_origin_inc('accepted', $origin, 92, $bytes);
-            } else {
-                $target->$method(@$args);
-            }
-            1;
-        };
-        LogDbg('err', "PCPROT: PC92 C post-commit $method failed: $@") unless $sent;
-    }
-    return $wantarray ? @result : $result;
 }
 
 # get all the routes for a thing, bearing in mind that the thing (e.g. a user)

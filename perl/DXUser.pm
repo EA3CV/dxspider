@@ -47,8 +47,6 @@ our $sync_interval = 5;	    # no of secs between commit / begin_work syncs
 my $json;
 my $dsn;
 our $dbh;
-# During a PC92 C savepoint, delay channel refresh until SQL and route state commit.
-our $pc92_refresh_deferred;
 
 
 # hash of valid elements and a simple prompt
@@ -405,13 +403,6 @@ sub get
 # over the place willy nilly!)
 #
 
-# Evict an entry created by a failed PC92 C after its SQL savepoint rollback.
-sub pc92_cache_evict
-{
-    my ($call) = @_;
-    $lru->remove($call) if $lru && defined $call;
-}
-
 sub get_current
 {
 	my $call = uc shift;
@@ -485,11 +476,7 @@ sub put
 	}
 
 	$lru->put($call, $self);
-	if ($pc92_refresh_deferred) {
-        $pc92_refresh_deferred->{$call} = $js;
-    } else {
-        DXChannel::refresh_user($call, $js);
-    }
+	DXChannel::refresh_user($call, $js);
 
 	return $self;
 }

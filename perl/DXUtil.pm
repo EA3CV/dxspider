@@ -732,22 +732,9 @@ sub is_numeric
 # internal interfaces to a fixed (outside) IPv4 or IPV6 address
 sub alias_localhost
 {
-	my $hostname = shift;
-
-	# a band aid
-	$hostname = '127.0.0.1' if $hostname eq 'localhost';
-
-	if ($hostname =~ /\./) {
-		return $hostname unless $main::localhost_alias_ipv4;
-		return (grep $hostname eq $_, @main::localhost_names) ? $main::localhost_alias_ipv4 : $hostname;
-	} elsif ($hostname =~ /:/) {
-		return $hostname unless $main::localhost_alias_ipv6;
-		return (grep $hostname eq $_, @main::localhost_names) ? $main::localhost_alias_ipv6 : $hostname;
-	}
-
-	$hostname = $main::me->hostname if is_rfc1918($hostname);
-	
-	return $hostname;
+    my $hostname = shift;
+    require DXPublicIP;
+    return DXPublicIP::normalize($hostname);
 }
 
 sub find_external_ipaddr

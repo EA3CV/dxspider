@@ -888,6 +888,11 @@ sub setup_start
 	# read any route cache there might be
 	Route::read_cache() if $save_route_cache;
 	
+	# Resolve the public address before any listener or routing announcement.
+	# A failed HTTPS lookup retains the configured public address.
+	require DXPublicIP;
+	DXPublicIP::init_startup() unless $DXProt::disable_set_external_ip;
+
 	# start listening for incoming messages/connects
 	dbg("starting listeners ...");
 	my $conn = IntMsg->new_server($clusteraddr, $clusterport, \&login);

@@ -134,15 +134,9 @@ sub delete
 	# get rid of users and parents
 	$self->_del_users;
 	if (@{$self->{parent}}) {
-		# Detach this node from its parents without deleting the parents.
-		# A parent->del(self) reverses the del() contract and can destroy
-		# unrelated routing subtrees. Copy the list before changing edges.
 		foreach my $call (@{$self->{parent}}) {
 			my $parent = Route::Node::get($call);
-			if ($parent) {
-				$parent->_delnode($self);
-				$self->_delparent($parent);
-			}
+			push @out, $parent->del($self) if $parent;
 		}
 	}
 	# get rid of my nodes

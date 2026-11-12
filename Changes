@@ -1,3 +1,23 @@
+12Nov26======================================================================
+1. Modified the automatic discovery of public IPv4 and IPv6 addresses.
+2. Added the DXPublicIP.pm module to centralize IP address discovery, 
+   validation, and normalization.
+3. Updated the startup sequence to detect the public IP address before opening
+   network services.
+4. Users connecting via localhost or private networks are advertised using the 
+   node's public IP address in PC92 and PC61, while preserving their actual 
+   connection IP internally.
+5. Added support for asynchronous public IP updates through DXSpider's native
+   crontab using set/external_ip.
+6. Added timeouts to prevent indefinite startup blocking when HTTPS providers
+   are unavailable.
+10Nov26======================================================================
+1. Adaptation of v2 of the PC92 protocol
+09Nov26======================================================================
+1. Updated DXWeb Admin version to 2.0.13 and DXWeb version to 4.0.5.
+2. Added persistent Metrics enable/disable control in Supervision > System.
+3. Fixed Registration initialization to avoid displaying the
+   registration-disabled notification until the Registration tab is opened.
 06Nov26======================================================================
 1. DXHistory v2: new SQLite schema, data compression, and 365-day retention.
 2. DXWeb Admin 2.0.9: Maintenance improvements, database information, 

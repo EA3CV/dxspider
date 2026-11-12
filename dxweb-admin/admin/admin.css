@@ -1889,3 +1889,10 @@ body.v2-shell .v2Topbar::before{content:"BETA";position:absolute;left:20px;top:5
 
 /* Refresh feedback only while an actual request is pending. At rest the original theme wins. */
 body.v2-shell #supervisionTabs .supervisionRefresh.refreshAwaiting{background:#d59b22!important;color:#171717!important;box-shadow:0 0 0 2px #f2c75b!important}
+
+/* System policy controls: match the existing navigation button dimensions. */
+.policyHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:7px}
+.policyHead h3{margin:0}
+.policyHead button{font-size:15px;font-weight:700;padding:9px 14px;border-radius:8px;cursor:pointer}
+.policyToggle{display:flex;align-items:center;gap:9px;margin:12px 0}
+#sessionPolicyState,#metricsPolicyState{display:block;margin-top:8px;font-size:13px}

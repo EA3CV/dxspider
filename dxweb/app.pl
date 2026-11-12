@@ -43,7 +43,7 @@ sub session_policy_read {
         die 'Invalid session policy entry' unless ref($e) eq 'HASH'
             && defined($e->{minutes}) && !ref($e->{minutes})
             && "$e->{minutes}" =~ /\A[0-9]+\z/
-            && $e->{minutes} >= 1 && $e->{minutes} <= 1440
+            && $e->{minutes} >= 1 && $e->{minutes} <= 2147483647
             && defined($e->{enabled})
             && (ref($e->{enabled}) eq 'JSON::PP::Boolean' || ref($e->{enabled}) eq 'Mojo::JSON::_Bool');
     }
