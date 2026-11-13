@@ -136,7 +136,7 @@ sub delete
 	if (@{$self->{parent}}) {
 		foreach my $call (@{$self->{parent}}) {
 			my $parent = Route::Node::get($call);
-			push @out, $parent->del($self) if $parent;
+			push @out, $self->del($parent) if $parent;
 		}
 	}
 	# get rid of my nodes

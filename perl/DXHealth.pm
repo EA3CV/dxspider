@@ -12,6 +12,28 @@ package DXHealth;
 use strict;
 
 our $VERSION = '0.9';
+# DXWeb Admin opt-in: no DXHealth telemetry work when collection is OFF.
+# Policy is shared by both native processes. No timer, subprocess or DB I/O.
+# At most one policy-file read per five seconds, even on busy protocol paths.
+our $METRICS_POLICY_FILE = '/spider/local_data/dxweb-metrics-policy.json';
+our $metrics_policy_next_check = 0;
+our $metrics_policy_enabled = 0;
+sub metrics_collection_enabled {
+    my $now = time();
+    return $metrics_policy_enabled if $now < $metrics_policy_next_check;
+    $metrics_policy_next_check = $now + 5;
+    $metrics_policy_enabled = 0; # Fail closed on missing/malformed policy.
+    if (open my $fh, '<', $METRICS_POLICY_FILE) {
+        local $/;
+        my $raw = <$fh>;
+        close $fh;
+        if (defined $raw && $raw =~ /\A\s*\{\s*"enabled"\s*:\s*true\s*\}\s*\z/s) {
+            $metrics_policy_enabled = 1;
+        }
+    }
+    return $metrics_policy_enabled;
+}
+
 our @SORTS = qw(A D C K);
 our %VALID = map { $_ => 1 } @SORTS;
 our %logical;
@@ -49,6 +71,7 @@ sub _bounded_inc {
 }
 
 sub operator_event {
+    return 0 unless metrics_collection_enabled();
     my ($family, $reason, $peer, $origin, $pc) = @_;
     return 0 unless defined $family && $family =~ /^(?:badlist|pc61_drop)$/;
     return 0 unless defined $reason && $reason =~ /^[a-z0-9_]+$/;
@@ -61,6 +84,7 @@ sub operator_event {
 }
 
 sub local_duplicate_spot {
+    return 0 unless metrics_collection_enabled();
     my ($call) = @_;
     my $e = ($operator_events{spots}{duplicate_local_user} ||= { total => 0 });
     $e->{total}++;
@@ -69,6 +93,7 @@ sub local_duplicate_spot {
 }
 
 sub connection_badip {
+    return 0 unless metrics_collection_enabled();
     my ($call) = @_;
     my $e = ($operator_events{connections}{badip} ||= { total => 0 });
     $e->{total}++;
@@ -121,6 +146,7 @@ sub operator_snapshot {
 # a syntactically valid duplicate remains part of physical IN and is handled
 # later by the normal DXSpider duplicate logic.
 sub protocol_reject_unknown {
+    return 0 unless metrics_collection_enabled();
     my ($peer, $line) = @_;
     my $bytes = defined($line) && !ref($line) ? length($line) : 0;
     $protocol_reject{unknown_protocol}{packets}++;
@@ -133,6 +159,7 @@ sub protocol_reject_unknown {
 }
 
 sub protocol_reject_malformed {
+    return 0 unless metrics_collection_enabled();
     my ($peer, $pc, $field, $line) = @_;
     return 0 unless defined $pc && $pc >= 10 && $pc <= 99;
     my $bytes = defined($line) && !ref($line) ? length($line) : 0;
@@ -204,6 +231,7 @@ sub _connection_kind {
 our %logical_web_history;
 our $MAX_LOGICAL_WEB_HISTORY = 4096;
 sub logical_web_up {
+    return 0 unless metrics_collection_enabled();
     my ($call, $ip, $channel) = @_;
     return 0 unless defined $call && $call =~ /\A[A-Z0-9\/-]+\z/i;
     $call = uc $call;
@@ -218,6 +246,7 @@ sub logical_web_up {
     return 1;
 }
 sub logical_web_down {
+    return 0 unless metrics_collection_enabled();
     my ($call, $channel) = @_;
     return 0 unless defined $call && length $call;
     $call = uc $call;
@@ -249,6 +278,7 @@ sub logical_web_snapshot {
 }
 
 sub connection_attempt {
+    return 0 unless metrics_collection_enabled();
     my ($call) = @_;
     $incoming_login_totals{attempts}++;
     _bounded_inc(\%incoming_login_by_call, $call);
@@ -256,18 +286,21 @@ sub connection_attempt {
 }
 
 sub connection_rapid_throttled {
+    return 0 unless metrics_collection_enabled();
     my ($call) = @_;
     $incoming_login_totals{rapid_throttled}++;
     return 1;
 }
 
 sub connection_incoming_success {
+    return 0 unless metrics_collection_enabled();
     my ($call) = @_;
     $incoming_login_totals{successful}++;
     return 1;
 }
 
 sub connection_up {
+    return 0 unless metrics_collection_enabled();
     my ($c, $kind) = @_;
     return 0 unless ref $c && defined $c->{call} && length $c->{call};
     my $e = _connection_touch($c->{call}) or return 0;
@@ -287,6 +320,7 @@ sub connection_up {
 }
 
 sub connection_down {
+    return 0 unless metrics_collection_enabled();
     my ($c, $kind) = @_;
     return 0 unless ref $c && defined $c->{call} && length $c->{call};
     return 1 if $c->{_dxhealth_connection_down};
@@ -304,6 +338,7 @@ sub connection_down {
 }
 
 sub connection_too_many {
+    return 0 unless metrics_collection_enabled();
     my ($call, $host, $limit, $parents) = @_;
     my $e = _connection_touch($call) or return 0;
     my $now = time();
@@ -408,6 +443,7 @@ sub _protocol_inc {
 }
 
 sub protocol_physical_in_line {
+    return 0 unless metrics_collection_enabled();
     my ($peer, $line) = @_;
     my $pc = _pc_from_line($line);
     return 0 unless defined $pc;
@@ -415,6 +451,7 @@ sub protocol_physical_in_line {
 }
 
 sub protocol_physical_out_line {
+    return 0 unless metrics_collection_enabled();
     my ($peer, $line) = @_;
     my $pc = _pc_from_line($line);
     return 0 unless defined $pc;
@@ -422,11 +459,13 @@ sub protocol_physical_out_line {
 }
 
 sub local_spot_generated {
+    return 0 unless metrics_collection_enabled();
     $local_spots_generated++;
     return 1;
 }
 
 sub protocol_logical_inc {
+    return 0 unless metrics_collection_enabled();
     my ($pc, $kind, $bytes) = @_;
     return 0 unless defined $pc && $pc >= 10 && $pc <= 99;
     return 0 unless defined $kind && $PROTOCOL_LOGICAL_CAPS{$pc}{$kind};
@@ -437,6 +476,7 @@ sub protocol_logical_inc {
 }
 
 sub protocol_logical_line {
+    return 0 unless metrics_collection_enabled();
     my ($kind, $line) = @_;
     my $pc = _pc_from_line($line);
     return 0 unless defined $pc;
@@ -444,6 +484,7 @@ sub protocol_logical_line {
 }
 
 sub protocol_logical_origin_line {
+    return 0 unless metrics_collection_enabled();
     my ($kind, $origin, $line) = @_;
     my $pc = _pc_from_line($line);
     return 0 unless defined $pc;
@@ -456,6 +497,7 @@ sub protocol_logical_origin_line {
 }
 
 sub protocol_origin_inc {
+    return 0 unless metrics_collection_enabled();
     my ($kind, $origin, $pc, $bytes) = @_;
     return 0 unless defined $origin && !ref($origin) && length($origin);
     return 0 unless defined $pc && $pc >= 10 && $pc <= 99;
@@ -553,6 +595,7 @@ sub _inc {
 }
 
 sub pc92_generated {
+    return 0 unless metrics_collection_enabled();
     my ($sort, $bytes) = @_;
     $sort = _sort($sort) or return 0;
     _inc(\$logical{generated}, $sort, $bytes);
@@ -560,12 +603,14 @@ sub pc92_generated {
 }
 
 sub pc92_generated_line {
+    return 0 unless metrics_collection_enabled();
     my ($line) = @_;
     my $sort = _line_sort($line) or return 0;
     return pc92_generated($sort, length($line));
 }
 
 sub pc92_received {
+    return 0 unless metrics_collection_enabled();
     my ($sort, $bytes) = @_;
     $sort = _sort($sort) or return 0;
     _inc(\$logical{received}, $sort, $bytes);
@@ -573,6 +618,7 @@ sub pc92_received {
 }
 
 sub pc92_forwarded {
+    return 0 unless metrics_collection_enabled();
     my ($sort, $bytes) = @_;
     $sort = _sort($sort) or return 0;
     _inc(\$logical{forwarded}, $sort, $bytes);
@@ -580,6 +626,7 @@ sub pc92_forwarded {
 }
 
 sub pc92_physical_in {
+    return 0 unless metrics_collection_enabled();
     my ($neighbour, $sort, $bytes) = @_;
     $sort = _sort($sort) or return 0;
     return 0 unless defined $neighbour && length $neighbour;
@@ -588,6 +635,7 @@ sub pc92_physical_in {
 }
 
 sub pc92_physical_out {
+    return 0 unless metrics_collection_enabled();
     my ($neighbour, $sort, $bytes) = @_;
     $sort = _sort($sort) or return 0;
     return 0 unless defined $neighbour && length $neighbour;
@@ -596,6 +644,7 @@ sub pc92_physical_out {
 }
 
 sub pc92_physical_out_line {
+    return 0 unless metrics_collection_enabled();
     my ($neighbour, $line) = @_;
     my $sort = _line_sort($line) or return 0;
     return pc92_physical_out($neighbour, $sort, length($line));
@@ -615,6 +664,7 @@ sub _copy_bucket {
 
 
 sub pc92k_advertised {
+    return 0 unless metrics_collection_enabled();
     my ($call, $nodes, $users) = @_;
     return 0 unless defined $call && length $call;
     return 0 unless defined $nodes && $nodes =~ /^\d+$/;
@@ -690,6 +740,7 @@ sub _spot_rank_inc {
     $h->{$key}++; return 1;
 }
 sub accepted_spot_rank {
+    return 0 unless metrics_collection_enabled();
     my ($dx,$spotter,$origin)=@_;
     $spot_rank_interval{total}=0+($spot_rank_interval{total}||0)+1;
     _spot_rank_inc('dx',$dx); _spot_rank_inc('spotter',$spotter); _spot_rank_inc('origin_node',$origin);

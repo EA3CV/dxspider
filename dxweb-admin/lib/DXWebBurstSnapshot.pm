@@ -63,10 +63,11 @@ sub status {
         path       => $s->{path}
     };
 }
-sub start { my ($s) = @_; $s->_schedule(1); return $s }
+sub start { my ($s) = @_; $s->{active} = 1; $s->_schedule(1); return $s }
 
 sub stop {
     my ($s) = @_;
+    $s->{active} = 0;
     Mojo::IOLoop->remove( $s->{timer} ) if $s->{timer};
     $s->{timer} = undef;
     return $s;
@@ -74,6 +75,7 @@ sub stop {
 
 sub _schedule {
     my ( $s, $delay ) = @_;
+    return unless $s->{active};
     Mojo::IOLoop->remove( $s->{timer} ) if $s->{timer};
     $s->{timer} =
       Mojo::IOLoop->timer( $delay => sub { $s->{timer} = undef; $s->refresh } );
@@ -81,6 +83,7 @@ sub _schedule {
 
 sub refresh {
     my ($s) = @_;
+    return unless $s->{active};
     return $s->_schedule( $s->{interval} ) if $s->{inflight};
     $s->{inflight} = 1;
     $s->{history}->metrics_series_async(
@@ -88,6 +91,7 @@ sub refresh {
         cb     => sub {
             my ( $err, $r ) = @_;
             $s->{inflight} = 0;
+            return unless $s->{active};
             if ( $err || ref($r) ne 'HASH' ) {
                 $s->{error} = $err || 'invalid_metrics_result';
                 $s->_log_failure_once( 'warn',

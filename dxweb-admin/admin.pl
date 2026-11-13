@@ -358,7 +358,8 @@ app->log->debug(
 my $history_store = DXWebHistory->new(
     path            => $HISTORY_DB,
     logger          => $persistence_logger,
-    local_data_root => ( $DXSPIDER_ROOT . '/local_data' )
+    local_data_root => ( $DXSPIDER_ROOT . '/local_data' ),
+    suspended       => !$metrics_enabled,
 );
 my $burst_snapshot = DXWebBurstSnapshot->new(
     history  => $history_store,
@@ -1366,6 +1367,7 @@ sub history_summary_compact($r) {
 }
 
 sub send_overview_snapshot($id) {
+    return ws_send_guarded($id, encode_json({type => 'supervisor_overview_result', status => 'error', error => 'metrics_disabled'})) unless $metrics_enabled;
     $history_store->latest_snapshots_async(
         cb => sub( $err, $latest ) {
             return unless $clients{$id} && $clients{$id}{authenticated};
@@ -1439,6 +1441,7 @@ sub send_overview_snapshot($id) {
 }
 
 sub send_history_summary( $id, $window = '15m' ) {
+    return ws_send_guarded($id, encode_json({type => 'supervisor_history_result', status => 'error', error => 'metrics_disabled'})) unless $metrics_enabled;
     $window = '15m' unless $window =~ /^(?:5m|15m|1h|6h|24h)$/;
     $history_store->semantic_window_async(
         window => $window,
@@ -1813,7 +1816,7 @@ sub admin_shutdown_request() {
 hook before_server_start => sub( $server, $app ) {
     $SIG{TERM} = sub { admin_shutdown_request() };
     $SIG{INT}  = sub { admin_shutdown_request() };
-    v040_warm_caches();
+    v040_warm_caches() if $metrics_enabled;
     Mojo::IOLoop->next_tick( sub { connect_dxs(); $burst_snapshot->start if $metrics_enabled } );
 };
 get '/' => sub($c) { $c->reply->static('index.html') };
@@ -1938,6 +1941,7 @@ sub v040_cached_async( $key, $ttl, $producer, $cb ) {
 }
 
 sub v040_metrics_async( $window, $peer, $cb ) {
+    return $cb->('metrics_disabled', undef) unless $metrics_enabled;
     $window ||= '24h';
     $peer //= '';
     my $key = "metrics:$window:$peer";
@@ -1956,6 +1960,7 @@ sub v040_metrics_async( $window, $peer, $cb ) {
 }
 
 sub v040_timeline_async( $window, $cb ) {
+    return $cb->('metrics_disabled', undef) unless $metrics_enabled;
     $window ||= '15m';
     my $key = "timeline:$window";
     v040_cached_async(
@@ -1972,6 +1977,7 @@ sub v040_timeline_async( $window, $cb ) {
 }
 
 sub v040_maintenance_async( $path, $cb ) {
+    return $cb->('metrics_disabled', undef) unless $metrics_enabled;
     my $p   = ref($path) eq 'ARRAY' ? $path : [];
     my $key = 'maintenance:' . join( '/', @$p );
     v040_cached_async(
@@ -1987,6 +1993,7 @@ sub v040_maintenance_async( $path, $cb ) {
 }
 
 sub v040_warm_caches() {
+    return unless $metrics_enabled;
     # Warm one historical window at a time. Starting all six within a few
     # seconds can cause competing cold SQLite reads on a multi-GB database.
     # This only affects startup prewarming; live requests still coalesce via
@@ -1994,6 +2001,7 @@ sub v040_warm_caches() {
     my @windows = qw(1h 6h 24h 7d 30d 1y);
     my $next;
     $next = sub {
+        return unless $metrics_enabled;
         my $window = shift @windows;
         return unless defined $window;
         v040_metrics_async( $window, '', sub {
@@ -2004,7 +2012,7 @@ sub v040_warm_caches() {
     };
     Mojo::IOLoop->timer( 0.5 => $next );
     Mojo::IOLoop->timer( 5.5 => sub {
-        v040_timeline_async( '15m', sub { } );
+        v040_timeline_async( '15m', sub { } ) if $metrics_enabled;
     } );
     # Maintenance and SQLite quick_check remain explicit-request only.
 }
@@ -3057,6 +3065,7 @@ websocket '/ws' => sub($c) {
                 return;
             }
             if ( $t eq 'history_timeline' ) {
+                unless ($metrics_enabled) { ws_send_response($id, encode_json({type => 'history_timeline_result', status => 'error', error => 'metrics_disabled'})); return; }
                 my $window = $m->{window} // '15m';
                 v040_timeline_async(
                     $window,
@@ -3096,6 +3105,7 @@ websocket '/ws' => sub($c) {
                 return;
             }
             if ( $t eq 'maintenance_history_action' ) {
+                unless ($metrics_enabled) { ws_send_response($id, encode_json({type => 'maintenance_history_action_result', status => 'error', error => 'metrics_disabled'})); return; }
                 my $action = lc( $m->{action} // '' );
                 my $ids    = $m->{ids};
                 if ($maintenance_action_inflight) {
@@ -3165,6 +3175,7 @@ websocket '/ws' => sub($c) {
                 return;
             }
             if ($t eq 'history_limit_preview' || $t eq 'history_limit_apply') {
+                unless ($metrics_enabled) { ws_send_response($id, encode_json({type => $t.'_result', status => 'error', error => 'metrics_disabled'})); return; }
                 unless (($clients{$id}{priv} // 0) >= 9) {return}
                 my $action=$t;
                 my $cb=sub {
@@ -3180,6 +3191,7 @@ websocket '/ws' => sub($c) {
                 return;
             }
             if ( $t eq 'maintenance_snapshot' ) {
+                unless ($metrics_enabled) { ws_send_response($id, encode_json({type => 'maintenance_snapshot_result', status => 'error', error => 'metrics_disabled'})); return; }
                 v040_maintenance_async(
                     $m->{history_path},
                     sub {
@@ -3225,12 +3237,20 @@ websocket '/ws' => sub($c) {
                         if ($new != $metrics_enabled) {
                             $metrics_enabled = $new;
                             if ($metrics_enabled) {
+                                unless ($history_store->activate) {
+                                    $metrics_enabled = 0;
+                                    metrics_policy_write(JSON::PP::false);
+                                    die 'history_activation_failed';
+                                }
                                 $burst_snapshot->start;
                                 history_schedule(1) if $state{state} eq 'ready';
                             } else {
                                 Mojo::IOLoop->remove($history_timer) if $history_timer;
                                 $history_timer = undef;
                                 $burst_snapshot->stop;
+                                $history_store->suspend;
+                                %v040_cache = ();
+                                %v040_cache_at = ();
                             }
                         }
                     }

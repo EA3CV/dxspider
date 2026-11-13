@@ -26,6 +26,8 @@ my $ipv6;
 my $count4 = 0;
 my $count6 = 0;
 my @blocked_intervals;
+# Temporary per-file parse results; never retained after _load returns.
+our $reload_parse_cache;
 
 sub _fn
 {
@@ -72,6 +74,7 @@ sub _load
 {
 	return unless $active;
 	my $suffix = shift;
+	local $reload_parse_cache = {};
 	my @in = _read($suffix);
 	return 0 unless @in;
 	return scalar add(@in);
@@ -118,41 +121,40 @@ sub append
 
 sub add
 {
-	return 0 unless $active;
-	my $count = 0;
-	my @out;
-	
-	for my $ip (@_) {
-		# protect against stupid or malicious
-		next unless valid_spec($ip);
-#		next if $ip =~ /^127\./;
-#		next if $ip =~ /^::1$/;
-#		next if find($ip);
-		if ($ip !~ /:/) {
-			eval { $ipv4->add_any($_) for _interval_cidrs(_spec_interval($ip)) };
-			if ($@) {
-				push @out, $@;
-			} else {
-				++$count;
-				my ($f, $bits, $lo, $hi) = _spec_interval($ip);
-                push @blocked_intervals, [$f, $lo, $hi];
-                ++$count4;
-			}
-		} elsif ($ip =~ /:/) {
-			eval { $ipv6->add_any($_) for _interval_cidrs(_spec_interval($ip)) };
-			if ($@) {
-				push @out, $@;
-			} else {
-				++$count;
-				my ($f, $bits, $lo, $hi) = _spec_interval($ip);
-                push @blocked_intervals, [$f, $lo, $hi];
-                ++$count6;
-			}
-		} else {
-			LogDbg('err', "DXCIDR::add non-ip address '$ip' read");
-		}
-	}
-	return $count;
+    return 0 unless $active;
+    my $count = 0;
+    my @out;
+    for my $ip (@_) {
+        my ($f, $bits, $lo, $hi) =
+            $reload_parse_cache && exists $reload_parse_cache->{$ip}
+            ? @{$reload_parse_cache->{$ip}} : _spec_interval($ip);
+        next unless defined $f;
+        my @cidrs;
+        # The already validated interval gives the canonical network start.
+        # For a single address or CIDR there is exactly one block; ranges
+        # retain the original generic decomposition.
+        if ($ip !~ /-/) {
+            my $prefix = $bits;
+            $prefix = $1 if $ip =~ m{/([0-9]+)$};
+            my $hex = $lo->as_hex();
+            $hex =~ s/^0x//;
+            $hex = substr(('0' x ($bits / 4)) . $hex, -$bits / 4);
+            my $network = inet_ntop($f, pack('H*', $hex));
+            @cidrs = ("$network/$prefix");
+        } else {
+            @cidrs = _interval_cidrs($f, $bits, $lo, $hi);
+        }
+        if ($ip !~ /:/) {
+            eval { $ipv4->add_any($_) for @cidrs };
+            if ($@) { push @out, $@; }
+            else { ++$count; push @blocked_intervals, [$f, $lo, $hi]; ++$count4; }
+        } elsif ($ip =~ /:/) {
+            eval { $ipv6->add_any($_) for @cidrs };
+            if ($@) { push @out, $@; }
+            else { ++$count; push @blocked_intervals, [$f, $lo, $hi]; ++$count6; }
+        } else { LogDbg('err', "DXCIDR::add non-ip address '$ip' read"); }
+    }
+    return $count;
 }
 
 sub clean_prep
@@ -337,6 +339,8 @@ sub covered_suffix
 sub valid_spec
 {
     my @parts = _spec_interval($_[0]);
+    $reload_parse_cache->{$_[0]} = \@parts
+        if $reload_parse_cache && @parts == 4;
     return @parts == 4 ? 1 : 0;
 }
 

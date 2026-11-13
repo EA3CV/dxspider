@@ -2,6 +2,8 @@ package DXHistoryRankShadow;
 use strict;
 use warnings;
 use JSON::PP qw(encode_json decode_json);
+use JSON::XS ();
+my $rank_json_decoder = JSON::XS->new->utf8;
 use Exporter 'import';
 use DXHistoryCodec qw(unpack_bytes);
 our @EXPORT_OK = qw(install rebuild query compare);
@@ -33,7 +35,7 @@ sub _merge {
 sub _aggregate {
  my ($rows)=@_; my $out=_empty();
  for my $r (@$rows) {
-  my $p=eval {decode_json($r->[0])};
+  my $p=eval {$rank_json_decoder->decode($r->[0])};
   next unless ref($p) eq 'HASH';
   my $sr=ref($p->{spot_ranks}) eq 'HASH' ? $p->{spot_ranks} : $p;
   _merge($out,$sr);
@@ -48,9 +50,11 @@ sub _raw {
    : q{SELECT payload_json FROM samples WHERE kind='spot_ranks' AND collected_at>=? AND collected_at<?},undef,$from,$to);
  if ($version == 2) {
    my @decoded=map { [unpack_bytes($_->[1],$_->[0])] } @$rows;
-   return (_aggregate(\@decoded),scalar @$rows);
+   my $aggregate=_aggregate(\@decoded);
+   return ($aggregate,scalar @$rows);
  }
- return (_aggregate($rows),scalar @$rows);
+ my $aggregate=_aggregate($rows);
+ return ($aggregate,scalar @$rows);
 }
 sub rebuild {
  my ($db,$limit)=@_; $limit ||= 100;
@@ -64,7 +68,8 @@ sub rebuild {
     $db->do(q{INSERT INTO dxh_rank_daily(day,payload,sample_count) VALUES(?,?,?) ON CONFLICT(day) DO UPDATE SET payload=excluded.payload,sample_count=excluded.sample_count},undef,$day,encode_json($sum),$count);
    } else {$db->do('DELETE FROM dxh_rank_daily WHERE day=?',undef,$day)}
    $db->do('DELETE FROM dxh_rank_dirty WHERE day=?',undef,$day);
-   $db->commit; 1;
+   $db->commit;
+   1;
   } or do {my $e=$@; eval {$db->rollback}; die $e};
   $n++;
  }

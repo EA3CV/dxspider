@@ -37,7 +37,8 @@ sub new {
         retention  => $opt{retention_seconds} // ((($ENV{DXHISTORY_RETENTION_DAYS} // '') =~ /\A[1-9][0-9]*\z/ ? 0+$ENV{DXHISTORY_RETENTION_DAYS} : 365) * 86400),
         queue      => [],
         busy       => 0,
-        enabled    => 1,
+        enabled    => 0,
+        suspended  => $opt{suspended} ? 1 : 0,
         error      => undef,
         written    => 0,
         dropped    => 0,
@@ -60,6 +61,16 @@ sub new {
         close $fh;
         $self->{max_rows} = 0 + $value if defined $value && $value =~ /\A([1-9][0-9]{0,11})\s*\z/;
     }
+    return $self if $self->{suspended};
+    $self->activate;
+    return $self;
+}
+
+sub activate {
+    my ($self) = @_;
+    return 1 if $self->{enabled} && !$self->{suspended};
+    $self->{suspended} = 0;
+    $self->{enabled} = 1;
     $self->_prepare_database;
     # Only explicit opt-in installs shadow tables/triggers. Never required for
     # normal history operation; installation failure disables shadow alone.
@@ -80,7 +91,16 @@ sub new {
             $self->_log_event('error', "rank shadow disabled: $@");
         }
     }
-    return $self;
+    return $self->{enabled} ? 1 : 0;
+}
+
+sub suspend {
+    my ($self) = @_;
+    $self->{suspended} = 1;
+    $self->{enabled} = 0;
+    $self->{dropped} += scalar @{$self->{queue}};
+    $self->{queue} = [];
+    return 1;
 }
 
 sub _log_event {
@@ -424,7 +444,7 @@ sub _flush_async {
                 $self->{last_write} = time;
             }
             Mojo::IOLoop->next_tick( sub { $self->_flush_async } )
-              if @{ $self->{queue} };
+              if $self->{enabled} && @{ $self->{queue} };
         }
     );
 }

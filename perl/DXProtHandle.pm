@@ -2773,49 +2773,8 @@ sub _pc92_c_graph_restore
 
 # Experimental failure recovery: A/C/D only. Graph checkpoint is constructed
 # after the read-only duplicate/time gate, but this candidate is LAB ONLY.
-# Diagnostic-only PC92 D relationship verification. Opt-in at process start.
-# No SQL queries or file I/O on the packet path beyond bounded diagnostic logs.
-our $pc92_d_audit_enabled = -e '/spider/local_data/pc92_d_audit.enable' ? 1 : 0;
-our $pc92_d_audit_count = 0;
-our $pc92_d_audit_limit = 200;
-our $pc92_d_audit_reject_count = 0;
-our $pc92_d_audit_reject_limit = 200;
-sub _pc92_d_audit_snapshot
-{
-    my ($parent, $pc) = @_;
-    my (%nodes, %users);
-    if ($parent) {
-        %nodes = map { $_ => 1 } $parent->nodes;
-        %users = map { $_ => 1 } $parent->users;
-    }
-    my @items;
-    for my $i (5 .. $#$pc - 1) {
-        my ($flag, $call) = $pc->[$i] =~ /\A([0-7])([^:]+)/;
-        next unless defined $flag && defined $call;
-        my $kind = ($flag & 4) ? 'N' : 'U';
-        my $present = ($kind eq 'N' ? $nodes{$call} : $users{$call}) ? 1 : 0;
-        push @items, [$kind, $call, $present];
-    }
-    return \@items;
-}
-sub _pc92_d_audit_result
-{
-    my ($pc, $owner, $before, $parent) = @_;
-    return unless $before;
-    my $after = _pc92_d_audit_snapshot($parent, $pc);
-    for my $i (0 .. $#$before) {
-        my ($kind, $call, $was) = @{$before->[$i]};
-        my $now = $after->[$i][2] ? 1 : 0;
-        my $status = !$was && !$now ? 'NOOP_ABSENT' :
-                     $was && !$now ? 'REMOVED' :
-                     $was && $now ? 'STILL_LINKED' : 'UNEXPECTED_ADDED';
-        LogDbg('audit', "PC92D_AUDIT origin=$pc->[1] id=$pc->[2] owner=$owner object=$kind$call before=$was after=$now status=$status committed=1");
-    }
-}
-
 sub _pc92_acd_guarded
 {
-    our ($pc92_d_audit_enabled, $pc92_d_audit_count, $pc92_d_audit_limit, $pc92_d_audit_reject_count, $pc92_d_audit_reject_limit);
     my ($self, $pcno, $line, $origin, $pc) = @_;
     return _pc92_handle_92_original(@_) unless $pc && ($pc->[3] || '') =~ /\A[ACDK]\z/;
     if (($pc->[3] || '') eq 'K') {
@@ -2826,25 +2785,18 @@ sub _pc92_acd_guarded
     # Validate malformed A/C/D before duplicate/time gates, with a reason.
     my $format_reason = _pc92_acd_preflight($pc);
     return _pc92_malformed_reject($self, $pc, $format_reason) if $format_reason;
-    my $audit_reject = sub {
-        my ($pc, $reason) = @_;
-        return unless $pc92_d_audit_enabled && ($pc->[3] || q{}) eq q{D};
-        return if $pc92_d_audit_reject_count >= $pc92_d_audit_reject_limit;
-        ++$pc92_d_audit_reject_count;
-        LogDbg(q{audit}, "PC92D_AUDIT origin=$pc->[1] id=$pc->[2] status=PRECHECK_REJECT reason=$reason committed=0");
-    };
     my $pcall = $pc->[1];
     my $t = $pc->[2];
     # Every D admission gate reports its exact reason, independently of the
     # bounded post-commit audit counter. No routing or SQLite mutation here.
     if (_pc92_acd_early_duplicate($pcall, $t)) {
-        $audit_reject->($pc, 'duplicate'); return;
+        return;
     }
     if (_pc92_acd_early_time_invalid($t)) {
-        $audit_reject->($pc, 'time'); return;
+        return;
     }
     if (_pc92_acd_preflight($pc)) {
-        $audit_reject->($pc, 'preflight'); return;
+        return;
     }
     my $owner = $pcall;
     if (length($pc->[4] || '')) {
@@ -2852,32 +2804,25 @@ sub _pc92_acd_guarded
         $owner = $call if $call;
     }
     if ($owner ne $pcall && !Route::Node::get($owner)) {
-        $audit_reject->($pc, 'owner_absent'); return;
+        return;
     }
     if ($pcall eq $main::mycall || $pcall eq $main::myalias) {
-        $audit_reject->($pc, 'local_origin'); return;
+        return;
     }
     if ($self->{state} ne 'init' && !$self->{do_pc9x}) {
-        $audit_reject->($pc, 'channel_not_pc9x'); return;
+        return;
     }
     for my $i (5 .. $#$pc - 1) {
         my ($flag, $call) = $pc->[$i] =~ /\A([0-7])([^:]+)/;
         unless (defined $flag && defined $call) {
-            $audit_reject->($pc, 'object_decode'); return;
+            return;
         }
         if ($call eq $main::mycall
             || ($call eq $main::myalias && ($flag & 4))
             || (!($flag & 4) && ($flag & 2))
             || (!($flag & 4) && _pc92_user_is_known_node($call, undef, $self, $pc->[3]))) {
-            $audit_reject->($pc, 'object_conflict'); return;
+            return;
         }
-    }
-    my $pc92_d_audit_before;
-    my $pc92_d_audit_parent;
-    if ($pc92_d_audit_enabled && $pc->[3] eq 'D' && $pc92_d_audit_count < $pc92_d_audit_limit) {
-        ++$pc92_d_audit_count;
-        $pc92_d_audit_parent = Route::Node::get($owner);
-        $pc92_d_audit_before = _pc92_d_audit_snapshot($pc92_d_audit_parent, $pc);
     }
     # A D for an absent ORIGIN has no parent from which any advertised OBJECT
     # can be removed. Treat each removal as a successful no-op, not a rejection:
@@ -2894,23 +2839,21 @@ sub _pc92_acd_guarded
                 DXHealth::protocol_origin_inc('forwarded', $pcall, 92, length($line));
             }
         }
-        _pc92_d_audit_result($pc, $owner, $pc92_d_audit_before, undef) if $pc92_d_audit_before;
         return;
     }
     # SQLite writes made by DXUser::put() are protected by a nested SAVEPOINT.
     # Fail closed for unsupported storage; do not claim graph+SQL atomicity there.
     my $dbh = $DXUser::dbh;
     unless ($dbh && ($main::userdsn || '') =~ /:sqlite:/i) {
-        $audit_reject->($pc, 'sqlite_unavailable'); return;
+        return;
     }
     my $sp = 'pc92_acd_guard';
-    my $started = eval {
+    my $started = eval { local $SIG{__DIE__} = sub {};
         my $rv = $dbh->do("SAVEPOINT $sp");
         die "SAVEPOINT failed: " . ($dbh->errstr // "unknown DBI error") unless defined $rv;
         1;
     };
     unless ($started) {
-        $audit_reject->($pc, 'savepoint_failed');
         LogDbg('err', "PC92 A/C/D SQL savepoint failed: $@");
         return;
     }
@@ -2929,7 +2872,7 @@ sub _pc92_acd_guarded
     # Slugging tables are mutable global side effects, restore on failure.
     my %saved_things_add = %things_add;
     my %saved_things_del = %things_del;
-    my $ok = eval {
+    my $ok = eval { local $SIG{__DIE__} = sub {};
         $graph = _pc92_c_graph_checkpoint($pc, $owner);
         $users = _pc92_acd_user_checkpoint($pc, $graph);
         _pc92_handle_92_original(@_);
@@ -2944,7 +2887,7 @@ sub _pc92_acd_guarded
         $self->{do_pc9x} = $saved_channel_do_pc9x;
         %things_add = %saved_things_add;
         %things_del = %saved_things_del;
-        my $sql_ok = eval {
+        my $sql_ok = eval { local $SIG{__DIE__} = sub {};
             my $rollback = $dbh->do("ROLLBACK TO SAVEPOINT $sp");
             die "ROLLBACK failed: " . ($dbh->errstr // "unknown DBI error") unless defined $rollback;
             my $release = $dbh->do("RELEASE SAVEPOINT $sp");
@@ -2952,19 +2895,15 @@ sub _pc92_acd_guarded
             1;
         };
         my $sql_err = $@;
-        my $graph_ok = eval { _pc92_c_graph_restore($graph) if $graph; 1 };
+        my $graph_ok = eval { local $SIG{__DIE__} = sub {}; _pc92_c_graph_restore($graph) if $graph; 1 };
         my $graph_err = $@;
-        my $users_ok = eval { _pc92_acd_user_restore($users) if $users; 1 };
+        my $users_ok = eval { local $SIG{__DIE__} = sub {}; _pc92_acd_user_restore($users) if $users; 1 };
         my $users_err = $@;
-        $audit_reject->($pc, 'transaction_failed');
         LogDbg('err', "PC92 A/C/D failure: $err; sql_rollback=" . ($sql_ok ? 'OK' : $sql_err) .
                       '; graph_rollback=' . ($graph_ok ? 'OK' : $graph_err) .
                       '; user_cache_rollback=' . ($users_ok ? 'OK' : $users_err));
         return;
     }
-    # This is after successful RELEASE; compare exact owner->OBJECT links.
-    _pc92_d_audit_result($pc, $owner, $pc92_d_audit_before,
-                         Route::Node::get($owner)) if $pc92_d_audit_before;
     # Post-commit callbacks may themselves invoke PC92 routing/notifications.
     # Disable the dynamically scoped queues before dispatch: otherwise nested
     # callbacks append to a queue that is already being flushed (or lose events).
@@ -2973,12 +2912,12 @@ sub _pc92_acd_guarded
     $pc92_acd_deferred_logs = undef;
     $pc92_acd_deferred_metrics = undef;
     for my $event (@deferred_logs) {
-        eval { Log(@$event); 1 }
+        eval { local $SIG{__DIE__} = sub {}; Log(@$event); 1 }
             or LogDbg('err', "PC92 post-commit Log failed: $@");
     }
     for my $event (@deferred_metrics) {
         my ($method, @args) = @$event;
-        eval { my $cb = DXHealth->can($method) or die "Unknown DXHealth metric $method"; $cb->(@args); 1 }
+        eval { local $SIG{__DIE__} = sub {}; my $cb = DXHealth->can($method) or die "Unknown DXHealth metric $method"; $cb->(@args); 1 }
             or LogDbg('err', "PC92 post-commit metric $method failed: $@");
     }
     # Dispatch only after successful SQL RELEASE. Errors here are logged,
@@ -2987,20 +2926,20 @@ sub _pc92_acd_guarded
         my ($chan, $method, @args) = @$event;
         if ($method eq 'broadcast_route_pc9x') {
             my ($pcall, $unused, $line, $zero, $marker, $sort, $len) = @args;
-            my $sent = eval { $chan->broadcast_route_pc9x($pcall, undef, $line, 0) };
+            my $sent = eval { local $SIG{__DIE__} = sub {}; $chan->broadcast_route_pc9x($pcall, undef, $line, 0) };
             if ($@) { LogDbg('err', "PC92 post-commit broadcast failed: $@"); }
             elsif ($sent) {
                 DXHealth::pc92_forwarded($sort, $len);
                 DXHealth::protocol_origin_inc('forwarded', $pcall, 92, $len);
             }
         } else {
-            eval { $chan->$method(@args); 1 }
+            eval { local $SIG{__DIE__} = sub {}; $chan->$method(@args); 1 }
                 or LogDbg('err', "PC92 post-commit $method failed: $@");
         }
     }
     for my $event (@deferred_buddies) {
         my ($chan, @args) = @$event;
-        eval { $chan->tell_buddies(@args); 1 }
+        eval { local $SIG{__DIE__} = sub {}; $chan->tell_buddies(@args); 1 }
             or LogDbg('err', "PC92 buddy notification failed after commit: $@");
     }
     return;

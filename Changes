@@ -1,3 +1,10 @@
+13Nov26======================================================================
+1. Fixed a bug in Route::Node::delete() where the parent-child relationship 
+   was removed in the wrong direction.
+2. Optimized DXWeb Admin historical statistics processing by replacing 
+   JSON::PP with the faster JSON::XS decoder.
+3. Disabled DXWeb Admin statistics collection by default. Metrics collection
+   and associated historical data processing now require explicit activation.
 12Nov26======================================================================
 1. Modified the automatic discovery of public IPv4 and IPv6 addresses.
 2. Added the DXPublicIP.pm module to centralize IP address discovery, 
