@@ -627,7 +627,7 @@ sub dx_spot
 		++$self->{nospothour};
 		
 		if ($qra) {
-			my $user = DXUser::get_current($saver->[SCall]) || DXUser->new($saver->[SCall]);
+			my $user = DXUser::get_current($saver->[SCall]); # || DXUser->new($saver->[SCall]);
 			unless ($user->qra && is_qra($user->qra)) {
 				$user->qra($qra);
 				dbg("RBN: update qra on $saver->[SCall] to $qra");

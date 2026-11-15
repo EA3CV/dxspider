@@ -17,6 +17,8 @@ package main;
 my %ipcall;
 my %callip;
 my %callserial;
+my %callnode;
+
 my $count;
 
 my %susip;
@@ -29,15 +31,15 @@ sub handle
 	my @parts = split /\^/, $line;
 	shift @parts;
 	shift @parts;
-	my $from = shift @parts;
+	my $node = shift @parts;
 	my $serial = shift @parts;
-	return if exists $callserial{$from} && $serial <= $callserial{$from} ;
-	$callserial{$from} = $serial;
+	return if exists $callserial{$node} && $serial <= $callserial{$node} ;
+	$callserial{$node} = $serial;
 	
 	my $letter = shift @parts;
 	return unless $letter =~ /^[AC]$/;
 	shift @parts unless $parts[0];
-	#	print "slot: $from $serial $letter ";
+	#	print "slot: $node $serial $letter ";
 	foreach my $slot (@parts) {
 		last if $slot =~ /^H\d{1,2}$/;
 		my ($state, $call, $ip) = $slot =~ /^([0-7])([-\w\d]+):(.*)$/;
@@ -47,6 +49,7 @@ sub handle
 
 		++$callip{$call}{$ip};
 		++$ipcall{$ip}{$call};
+		++$callnode{$call}{$node};
 
 #		++$susip{$ip} if $callip{$call} != $ipcall{$ip}{$call};
 		#	print "callip $call|$ip = $callip{$call}{$ip} ipcall $ip|$call = $ipcall{$ip}{$call}\n";
@@ -91,6 +94,8 @@ sub end
 		my $hash = $ipcall{$ip};
 		print "Suspect ip: $ip ", join(', ',  sort keys %$hash), "\n";
 	}
+
+	
 	print sprintf("Totals: PC92 A/C records read: $count  calls: %d  ips: %d  suspect calls: %d  ips: %d\n", scalar keys  %callip, scalar keys %ipcall, scalar keys %suscall, scalar keys %susip); 
 }
 
