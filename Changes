@@ -1,3 +1,6 @@
+15Nov26======================================================================
+1. Remove the autovivification of a new spotter call (just) to add their QRA
+   locator from received RBN spots that has one attached.  
 13Nov26======================================================================
 1. Fixed a bug in Route::Node::delete() where the parent-child relationship 
    was removed in the wrong direction.
