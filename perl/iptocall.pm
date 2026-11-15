@@ -23,6 +23,9 @@ my $count;
 
 my %susip;
 my %suscall;
+my %susnode;
+
+my $baseonly = 1;
 
 sub handle
 {
@@ -47,6 +50,8 @@ sub handle
 		$ip =~ s/(?:,[\da-f]+){4}$/\/64/i; # reduce IPV6 to /64 addresses
 		$ip =~ s/,/:/g if $ip;
 
+		$call =~ s|-\d+$|| if $baseonly &&  !($state & 4) ;
+		
 		++$callip{$call}{$ip};
 		++$ipcall{$ip}{$call};
 		++$callnode{$call}{$node};
@@ -82,21 +87,33 @@ sub end
 		my $hash = $ipcall{$ip};
 		++$susip{$ip}  if keys %$hash > 1;
 	}
+	foreach my $call (keys %callnode) {
+		my $hash = $callnode{$call};
+		++$susnode{$call}  if keys %$hash > 1;
+	}
 
 #	print "SUSPECT callsigns: ", keys %suscall, "IP addresses: ", keys %susip, "\n";
 
 	foreach my $call (sort keys %suscall) {
 		my $hash = $callip{$call};
-		print "Suspect call: $call ", join(', ',  sort keys %$hash), "\n";
+		print sprintf("Suspect call: %-10s ",$call), join(', ',  sort keys %$hash), "\n";
 	}
 
+	print "\n\n";
+
+	foreach my $call (sort keys %susnode) {
+		my $hash = $callnode{$call};
+		print sprintf("Suspect call-node: %-10s ", $call), join(', ',  sort keys %$hash), "\n";
+	}
+
+	print "\n\n";
+	
 	foreach my $ip (sort keys %susip) {
 		my $hash = $ipcall{$ip};
-		print "Suspect ip: $ip ", join(', ',  sort keys %$hash), "\n";
+		print  sprintf("Suspect ip: %-32s ", $ip), join(', ',  sort keys %$hash), "\n";
 	}
 
-	
-	print sprintf("Totals: PC92 A/C records read: $count  calls: %d  ips: %d  suspect calls: %d  ips: %d\n", scalar keys  %callip, scalar keys %ipcall, scalar keys %suscall, scalar keys %susip); 
+	print sprintf("\n\nTotals: PC92 A/C records read: $count  calls: %d  ips: %d  suspect calls: %d  ips: %d suspect callnodes %d\n", scalar keys  %callip, scalar keys %ipcall, scalar keys %suscall, scalar keys %susip, scalar keys %susnode)  ; 
 }
 
 1;
