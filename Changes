@@ -3,6 +3,10 @@
    monitoring, transaction and rollback tracing, Route consistency checks
    and post-commit reporting.
 2. Fix various export_user and RBN warnings
+3. Added compression to automatically compress old debug and log, preserving
+   the last two UTC days. Supports DXSpider cron scheduling (default 100).
+   Requires gzip in PATH; no additional Perl modules.
+4. Added load/badnode and load/badspotter commands to reload the bad lists.
 15Nov26======================================================================
 1. Remove the autovivification of a new spotter call (just) to add their QRA
    locator from received RBN spots that has one attached.

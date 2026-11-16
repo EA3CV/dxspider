@@ -2438,12 +2438,9 @@ sub _pc92_k_preflight
         && $pc->[2] =~ /\A(?:0|[1-9][0-9]{0,4})(?:\.0[1-9]|\.[1-9][0-9])?\z/
         && $pc->[2] < 86400;
     my $node = $pc->[4];
-    # Version/build components can contain dots (e.g. 5455:0.92).
-    return 'invalid node' unless defined $node
-        && $node =~ /\A[4-7][^:]+:[0-9]+:[0-9]+(?:\.[0-9]+)*\z/;
-    my ($call) = $node =~ /\A[4-7]([^:]+)/;
-    return 'invalid node callsign' unless is_callsign($call)
-        && normalise_call($call) eq $call;
+    # Use the same node-object syntax as PC92 A/C/D. Version, build and
+    # IP are optional; do not require VERSION:BUILD for a K node.
+    return 'invalid node' if _pc92_acd_wire_object($node, 1);
     return 'invalid node count' unless defined $pc->[5] && $pc->[5] =~ /\A[0-9]+\z/;
     return 'invalid user count' unless defined $pc->[6] && $pc->[6] =~ /\A[0-9]+\z/;
     # The K address field is optional. When present, allow any syntactically
@@ -2465,32 +2462,40 @@ sub _pc92_k_preflight
 
 sub _pc92_malformed_reject
 {
-    my ($self, $pc, $reason) = @_;
+    my ($self, $pc, $reason, $badfield) = @_;
+    return unless $DXProt::checkcpu >= 1;
     my ($origin, $id, $type) = map { defined $_ ? $_ : '?' } @$pc[1,2,3];
     my $peer = defined $self->{call} ? $self->{call} : '?';
     # Single-line escaped wire representation, preserving every field.
     my $wire = join('^', map { defined $_ ? $_ : '' } @$pc);
     $wire =~ s/([^\x20-\x7e])/sprintf('\\x%02X', ord($1))/ge;
+    # Report the exact rejected wire field in reason, not in a separate key.
+    # Keep the diagnostic category for errors without an identifiable field.
+    if (defined $badfield) {
+        my $value = $badfield;
+        $value =~ s/([^\x20-\x7e])/sprintf('\\x%02X', ord($1))/ge;
+        $reason = "invalid object: $value" if $reason =~ /\Ainvalid object:/;
+        $reason = "invalid relay: $value" if $reason =~ /\Ainvalid relay:/;
+        $reason .= ": $value" unless $reason =~ /\Ainvalid (?:object|relay):/;
+    }
     dbg("PC92_MALFORMED drop peer=$peer origin=$origin id=$id type=$type reason=$reason packet=$wire");
     return;
 }
 
 sub _pc92_acd_preflight
 {
-    my ($pc) = @_;
+    my ($pc, $badref) = @_;
+    $$badref = undef if $badref;
     return 'missing fields' unless $pc && ref($pc) eq 'ARRAY' && @$pc >= 6;
     my ($origin, $id, $sort, $relay) = @$pc[1,2,3,4];
-    return 'invalid origin' unless defined $origin && length $origin
-        && is_callsign($origin) && normalise_call($origin) eq $origin;
-    return 'invalid id' unless defined $id
-        && $id =~ /\A(?:0|[1-9][0-9]{0,4})(?:\.0[1-9]|\.[1-9][0-9])?\z/
-        && $id < 86400;
-    return 'invalid type' unless defined $sort && $sort =~ /\A[ACD]\z/;
-    return 'missing relay' unless defined $relay;
-    return 'invalid hops' unless defined $pc->[-1] && $pc->[-1] =~ /\AH[0-9]{1,2}\z/;
+    unless (defined $origin && length $origin && is_callsign($origin) && normalise_call($origin) eq $origin) { $$badref = $origin if $badref; return 'invalid origin'; }
+    unless (defined $id && $id =~ /\A(?:0|[1-9][0-9]{0,4})(?:\.0[1-9]|\.[1-9][0-9])?\z/ && $id < 86400) { $$badref = $id if $badref; return 'invalid id'; }
+    unless (defined $sort && $sort =~ /\A[ACD]\z/) { $$badref = $sort if $badref; return 'invalid type'; }
+    unless (defined $relay) { $$badref = 'field[4]=undef' if $badref; return 'missing relay'; }
+    unless (defined $pc->[-1] && $pc->[-1] =~ /\AH[0-9]{1,2}\z/) { $$badref = $pc->[-1] if $badref; return 'invalid hops'; }
     for my $i (1 .. $#$pc) {
-        return 'undefined field' unless defined $pc->[$i];
-        return 'space in field' if $pc->[$i] =~ /\s/;
+        unless (defined $pc->[$i]) { $$badref = 'field[' . $i . ']=undef' if $badref; return 'undefined field'; }
+        if ($pc->[$i] =~ /\s/) { $$badref = $pc->[$i] if $badref; return 'space in field'; }
     }
     # RELAY is a node, or the empty string; historical ORIGIN repetition
     # is accepted, but a different RELAY must still be a valid node.
@@ -2498,13 +2503,13 @@ sub _pc92_acd_preflight
         # v0.15: all A/C/D types may announce a classical node via RELAY.
         # Historic origin repetition is also admitted on reception only.
         my $err = _pc92_acd_wire_object($relay, 1);
-        return "invalid relay: $err" if $err;
+        if ($err) { $$badref = $relay if $badref; return "invalid relay: $err"; }
     }
     my %seen;
     for my $i (5 .. $#$pc - 1) {
         my $obj = $pc->[$i];
         my $err = _pc92_acd_wire_object($obj, 0);
-        return "invalid object: $err" if $err;
+        if ($err) { $$badref = $obj if $badref; return "invalid object: $err"; }
         my ($flag, $call) = $obj =~ /\A([0-7])([^:]+)/;
         # An explicit ORIGIN node IP must be globally reachable.  Reuse
         # DXUtil::is_public_ip (also used by PC61); other OBJECT IPs may
@@ -2513,11 +2518,11 @@ sub _pc92_acd_preflight
             my (undef, @meta) = split /:/, $obj, -1;
             my $ip = @meta && ($meta[-1] =~ /[.,]/) ? $meta[-1] : undef;
             if (defined $ip && $ip =~ /[.,]/) {
-                return 'non-public origin IP' unless is_public_ip(_pc92_acd_ip($ip));
+                unless (is_public_ip(_pc92_acd_ip($ip))) { $$badref = $obj if $badref; return 'non-public origin IP'; }
             }
         }
         my $key = (($flag & 4) ? 'N' : 'U') . ':' . $call;
-        return 'duplicate identity' if $seen{$key}++;
+        if ($seen{$key}++) { $$badref = $obj if $badref; return 'duplicate identity'; }
     }
     return '';
 }
@@ -2539,6 +2544,9 @@ sub _pc92_acd_wire_object
     return 'callsign' unless length $call
         && ($badlisted_user || (is_callsign($call)
             && normalise_call($call) eq $call && $call !~ /-0\z/));
+    # A final colon denotes an omitted optional field (e.g. CALL:5300:).
+    # Ignore only that empty suffix; never suppress empty interior fields.
+    pop @meta if @meta >= 2 && $meta[-1] eq '';
     return 'metadata count' if @meta > 3;
     for (@meta) { return 'empty metadata' unless length $_; }
     if (@meta) {
@@ -2546,19 +2554,26 @@ sub _pc92_acd_wire_object
         if ($first =~ /\A[0-9]{4}\z/) {
             if (@meta == 2) {
                 # VERSION:IP and historical VERSION:BUILD are both accepted.
-                return 'metadata' unless ($meta[1] =~ /\A[0-9]+\z/
+                return 'metadata' unless (_pc92_acd_build($meta[1])
                     || ($meta[1] =~ /[.,]/ && is_ipaddr(_pc92_acd_ip($meta[1]))));
             } elsif (@meta == 3) {
-                return 'build' unless $meta[1] =~ /\A[0-9]+\z/;
+                return 'build' unless _pc92_acd_build($meta[1]);
                 return 'ip' unless $meta[2] =~ /[.,]/ && is_ipaddr(_pc92_acd_ip($meta[2]));
             }
         } else {
             return 'metadata count' if @meta > 1;
+            # Historical user transport marker.  The normal PC92 decoder
+            # discards it (it is not an IP address); it must not reject C.
+            return '' if $flag eq '1' && lc($first) eq 'ax25';
             return 'ip' unless ($first =~ /[.,]/ && is_ipaddr(_pc92_acd_ip($first)));
         }
     }
     return '';
 }
+
+# Accept the original integer build and the historical 0.nn / 0.nnn
+# build encodings. This is shared by PC92 A/C/D and K wire preflights.
+sub _pc92_acd_build { defined($_[0]) && $_[0] =~ /\A(?:[0-9]+|0\.[0-9]{2,3})\z/; }
 
 sub _pc92_acd_ip { my $ip = shift; $ip =~ tr/,/:/; return $ip; }
 
@@ -2849,14 +2864,26 @@ sub _pc92_acd_guarded
     return _pc92_handle_92_original(@_) unless $pc && ($pc->[3] || '') =~ /\A[ACDK]\z/;
     if (($pc->[3] || '') eq 'K') {
         my $reason = _pc92_k_preflight($pc);
-        return _pc92_malformed_reject($self, $pc, $reason) if $reason;
+        if ($reason) {
+            my %field = (
+                'invalid origin' => 1, 'invalid id' => 2,
+                'invalid node' => 4, 'invalid node count' => 5,
+                'invalid user count' => 6, 'invalid K IP' => 7,
+                'invalid K metadata' => 8, 'invalid hops' => $#$pc,
+            );
+            my $bad = exists $field{$reason} ? $pc->[$field{$reason}] : undef;
+            $bad = 'fields=' . scalar(@$pc) if $reason eq 'invalid field count';
+            $bad = 'fields=' . scalar(@$pc) if $reason eq 'missing fields';
+            return _pc92_malformed_reject($self, $pc, $reason, $bad);
+        }
         return _pc92_handle_92_original(@_);
     }
     # Validate malformed A/C/D before duplicate/time gates, with a reason.
     my $cpu_start = $checkcpu ? Time::HiRes::time() : undef;
-    my $format_reason = _pc92_acd_preflight($pc);
+    my $bad_object;
+    my $format_reason = _pc92_acd_preflight($pc, \$bad_object);
     _pc92_cpu_gate_record('preflight', Time::HiRes::time() - $cpu_start) if $checkcpu;
-    return _pc92_malformed_reject($self, $pc, $format_reason) if $format_reason;
+    return _pc92_malformed_reject($self, $pc, $format_reason, $bad_object) if $format_reason;
     my $pcall = $pc->[1];
     my $t = $pc->[2];
     # Every D admission gate reports its exact reason, independently of the
