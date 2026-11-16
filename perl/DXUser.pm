@@ -1041,6 +1041,12 @@ sub export
 				last if $r;
 				$action = R_NEXT;
 			}
+			unless ($key && $val) {
+				$key = 'missing' unless $key;
+				$val = 'missing' unless $val;
+				LogDbg('error', "Export_user: key($key) val($key) has missing info, ignoring");
+				next;
+			}
 
 			my $ref;
 			$source_data{$key} = $val if $dbh;
@@ -1077,15 +1083,15 @@ sub export
 				
 				my $t = 0;
 				my $flag ;
-				if (exists $ref->{lastseen}) {
+				if (exists $ref->{lastseen} && $ref->{lastseen})  {
 					$flag = 'lastseen';
 					$t = $ref->{lastseen};
 				}
-				if (exists $ref->{lastin} && $ref->{lastin} > $t) {
+				if (exists $ref->{lastin} && $ref->{lastin} && $ref->{lastin} > $t) {
 					$flag = 'lastin';
 					$t = $ref->{lastin};
 				}
-				if (exists $ref->{lastoper} && $ref->{lastoper} > $t) {
+				if (exists $ref->{lastoper} && $ref->{lastoper} && $ref->{lastoper} > $t) {
 					$flag = 'lastoper';
 					$t = $ref->{lastoper};
 				}
@@ -1122,7 +1128,7 @@ sub export
 								LogDbg('dxuser', sprintf("Stale $ref->{call} deleted at %s", difft($t, ' ')));
 								++$del;
 								++$old;
-							$delete_reason{$key} = "old";
+								$delete_reason{$key} = "old";
 								$del{$key} = $ref;
 								next;
 							}
@@ -1134,7 +1140,7 @@ sub export
 								LogDbg('dxuser', sprintf("Ephmeral $ref->{call} deleted at %s", difft($t, ' ')));
 								++$del;
 								++$eph;
-							$delete_reason{$key} = "eph";
+								$delete_reason{$key} = "eph";
 								$del{$key} = $ref;
 								next;
 							}

@@ -2,6 +2,7 @@
 1. Added comprehensive PC92 A/C/D diagnostics, including CPU/resource
    monitoring, transaction and rollback tracing, Route consistency checks
    and post-commit reporting.
+2. Fix various export_user and RBN warnings
 15Nov26======================================================================
 1. Remove the autovivification of a new spotter call (just) to add their QRA
    locator from received RBN spots that has one attached.
