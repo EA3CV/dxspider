@@ -628,12 +628,14 @@ sub dx_spot
 		
 		if ($qra) {
 			my $user = DXUser::get_current($saver->[SCall]); # || DXUser->new($saver->[SCall]);
-			unless ($user && $user->qra && is_qra($user->qra)) {
-				$user->qra($qra);
-				dbg("RBN: update qra on $saver->[SCall] to $qra");
+			if ($user) {
+				unless ($user->qra && is_qra($user->qra)) {
+					$user->qra($qra);
+					dbg("RBN: update qra on $saver->[SCall] to $qra");
+				}
+				# update lastseen if nothing else
+				$user->put;
 			}
-			# update lastseen if nothing else
-			$user->put;
 		}
 	}
 }
