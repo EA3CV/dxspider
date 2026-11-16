@@ -115,6 +115,7 @@ sub del
 			push @nodes, $r->del($self, $ncall, @_) if $r;
 		}
 		$self->_del_users;
+		Route::_pc92_registry('node', $ncall);
 		delete $list{$ncall};
 		push @nodes, $self;
 		dbg("CLUSTER: node $ncall deleted") if isdbg('cluster');
@@ -144,6 +145,7 @@ sub delete
 	# this only happens if we a orphan with no parents
 	if ($list{$ncall}) {
 		push @out, $self;
+		Route::_pc92_registry('node', $ncall);
 		delete $list{$ncall};
 	}
 	return @out;
@@ -167,6 +169,7 @@ sub _del_users
 		my $ref = Route::User::get($_);
 		$ref->del($self) if $ref;
 	}
+	Route::_pc92_touch($self);
 	$self->{users} = [];
 }
 
@@ -189,6 +192,7 @@ sub add_user
 		@out = $uref;
 	}
 	$self->_adduser($uref);
+	Route::_pc92_touch($self);
 	$self->{usercount} = scalar @{$self->{users}};
 
 	return @out;
@@ -207,6 +211,7 @@ sub del_user
 	} else {
 		confess "tried to delete non-existant $ref->{call} from $self->{call}";
 	}
+	Route::_pc92_touch($self);
 	$self->{usercount} = scalar @{$self->{users}};
 	return @out;
 }
@@ -223,6 +228,7 @@ sub usercount
 {
 	my $self = shift;
 	if (@_ && @{$self->{users}} == 0) {
+		Route::_pc92_touch($self);
 		$self->{usercount} = shift;
 	}
 	return $self->{usercount};
@@ -305,6 +311,7 @@ sub new
 	$self->{ip} = $ip if defined $ip;
 	$self->reset_obs;			# by definition
 
+	Route::_pc92_registry('node', $call);
 	$list{$call} = $self;
 
 	return $self;
@@ -370,6 +377,7 @@ sub _deluser
 sub dec_obs
 {
 	my $self = shift;
+	Route::_pc92_touch($self);
 	$self->{obscount}--;
 	return $self->{obscount};
 }
@@ -377,6 +385,7 @@ sub dec_obs
 sub reset_obs
 {
 	my $self = shift;
+	Route::_pc92_touch($self);
 	$self->{obscount} = $obscount;
 }
 
@@ -399,6 +408,7 @@ sub PC92C_dxchan
 	my $hops = shift;
 	if ($call && $hops) {
 		$hops =~ s/^H//;
+		Route::_pc92_touch($parent);
 		$parent->{PC92C_dxchan}->{$call} = $hops;
 		return;
 	}
@@ -485,7 +495,7 @@ sub AUTOLOAD
 
 	# this clever line of code creates a subroutine which takes over from autoload
 	# from OO Perl - Conway
-        *$AUTOLOAD = sub {$_[0]->{$name} = $_[1] if @_ > 1; return $_[0]->{$name}};
+        *$AUTOLOAD = sub { if (@_ > 1) { Route::_pc92_touch($_[0]); $_[0]->{$name} = $_[1] } return $_[0]->{$name} };
         goto &$AUTOLOAD;
 }
 

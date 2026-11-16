@@ -413,11 +413,11 @@ sub normal
 {
 	my ($self, $line) = @_;
 
+
 	if ($line =~ '^<\w+\s' && $main::do_xml) {
 		DXXml::normal($self, $line);
 		return;
 	}
-
 	my @field = split /\^/, $line;
 	return unless @field;
 
@@ -456,20 +456,17 @@ sub normal
 			$field[-1] = "H$hops";
 		}
 	}
-
 	my $origin = $self->{call};
-
 	if (defined &Local::pcprot) {
 		my $r;
 		eval { $r = Local::pcprot($self, $pcno, $line,  $origin, \@field); };
 		return if $r;			# i.e don't process it
 	}
-
 	# send it out for processing
 	no strict 'subs';
 	my $sub = "handle_$pcno";
-
-	if ($self->can($sub)) {
+	my $handler_exists = $self->can($sub);
+	if ($handler_exists) {
 		$self->$sub($pcno, $line, $origin, \@field);
 	} else {
 		$self->handle_default($pcno, $line, $origin, \@field);

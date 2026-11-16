@@ -1,26 +1,44 @@
+16Nov26======================================================================
+1. Added comprehensive PC92 A/C/D diagnostics, including CPU/resource
+   monitoring, transaction and rollback tracing, Route consistency checks
+   and post-commit reporting.
 15Nov26======================================================================
 1. Remove the autovivification of a new spotter call (just) to add their QRA
-   locator from received RBN spots that has one attached.  
+   locator from received RBN spots that has one attached.
+2. Removed the execution of _pc92_c_graph_checkpoint.
+3. Implemented routing rollback using a journal.
+4. Preserved SQLite atomicity using SAVEPOINT and ROLLBACK.
+5. Restored DXUser and affected state in case of errors.
+6. Fixed PC93 CHAT/ANN misclassification CHAT messages to SYSOP were
+   incorrectly handled as announcements.
+14Nov26======================================================================
+1. Optimized Route::_addlist and Route::_dellist to reduce redundant op.
+2. Optimized _pc92_snapshot_value to reduce the overhead of copying data
+   structures during checkpoints.
+3. Removed duplicate pre-validation checks in the guarded processing PC92 A/C/D
 13Nov26======================================================================
-1. Fixed a bug in Route::Node::delete() where the parent-child relationship 
+1. Fixed a bug in Route::Node::delete() where the parent-child relationship
    was removed in the wrong direction.
-2. Optimized DXWeb Admin historical statistics processing by replacing 
+2. Optimized DXWeb Admin historical statistics processing by replacing
    JSON::PP with the faster JSON::XS decoder.
 3. Disabled DXWeb Admin statistics collection by default. Metrics collection
    and associated historical data processing now require explicit activation.
 12Nov26======================================================================
 1. Modified the automatic discovery of public IPv4 and IPv6 addresses.
-2. Added the DXPublicIP.pm module to centralize IP address discovery, 
+2. Added the DXPublicIP.pm module to centralize IP address discovery,
    validation, and normalization.
 3. Updated the startup sequence to detect the public IP address before opening
    network services.
-4. Users connecting via localhost or private networks are advertised using the 
-   node's public IP address in PC92 and PC61, while preserving their actual 
+4. Users connecting via localhost or private networks are advertised using the
+   node's public IP address in PC92 and PC61, while preserving their actual
    connection IP internally.
 5. Added support for asynchronous public IP updates through DXSpider's native
    crontab using set/external_ip.
 6. Added timeouts to prevent indefinite startup blocking when HTTPS providers
    are unavailable.
+11Nov26======================================================================
+1. WCY: Improved source redundancy to maintain service availability in case
+   of server failures. Multiple WCY sources are now accepted.
 10Nov26======================================================================
 1. Adaptation of v2 of the PC92 protocol
 09Nov26======================================================================
@@ -30,12 +48,12 @@
    registration-disabled notification until the Registration tab is opened.
 06Nov26======================================================================
 1. DXHistory v2: new SQLite schema, data compression, and 365-day retention.
-2. DXWeb Admin 2.0.9: Maintenance improvements, database information, 
+2. DXWeb Admin 2.0.9: Maintenance improvements, database information,
    and configurable history record limits.
 3. Refresh: fixed WebSocket response handling.
 4. DXSpider links: added support for displaying WebCluster #WEB-n connections
     while preserving the original format.
-5. Installation: added integrity and compatibility checks, along with 
+5. Installation: added integrity and compatibility checks, along with
    automatic backups before applying changes.
 05Nov26======================================================================
 1. Fixed a bug in the interactive installer for DXWeb and DXWeb Admin.
@@ -74,9 +92,9 @@
    responses, preserving Unicode characters in console output.
 2. Fixed UTF-8 handling of historical spot comments in Spot::search().
 3. Updated DXWeb to version 3.0.7 and DXWeb Admin to version 1.0.22.
-4. Fixed startup connections by deferring them until the Mojo event loop is 
+4. Fixed startup connections by deferring them until the Mojo event loop is
    running.
-5. DXWeb Installer v0.51: improved post-installation health checks to detect 
+5. DXWeb Installer v0.51: improved post-installation health checks to detect
    missing or invalid running versions.
 30Oct26======================================================================
 1. DXWeb Admin: Reorganized the filter field selector.
@@ -95,15 +113,15 @@
    Improved Curses screen handling to keep the command input area visible.
 4. DXWeb Admin: Added Pause/Resume and Save TXT controls for Spots.
 27Oct26======================================================================
-1. Introduced a unified manager to install, update, and roll back DXWeb and 
+1. Introduced a unified manager to install, update, and roll back DXWeb and
    DXWeb Admin systemd service configurations.
-2. Added a planning mode to review operations before applying them, along 
+2. Added a planning mode to review operations before applying them, along
    with transactional backups and rollback recovery.
 3. Improved service shutdown handling.
 4. Fixed rollback of initial installations.
-5. Fixed excessive shutdown delays caused by persistent WebSocket 
+5. Fixed excessive shutdown delays caused by persistent WebSocket
    connections and background tasks.
-6. Added installer documentation covering installation, updates, rollback, 
+6. Added installer documentation covering installation, updates, rollback,
    and recovery procedures. Updated the Nginx documentation.
 7. Reject login attempts from callsigns starting with 'Q'.
 8. Improved badip management with IPv4/IPv6 support for individual addresses,
@@ -111,16 +129,16 @@
 9. Don't allow callsigns like R4NDOM or starting in Q to login.
 10.On logins that have been connecting too frequently and have reached the
    maximum delay time, let them run it down and not keep bumping it up
-   to the maximum on every login.   
+   to the maximum on every login.
 26Oct26======================================================================
 1. Improved PC92C message processing and routing consistency between nodes.
 2. Fixed set/isolate, unset/isolate, and show/isolate.
 3. Fixed set/lockout and unset/lockout.
 4. Fixed set/password to explicitly persist changes using DXUser::put().
-5. Improved DXHash.pm to support multiple badnode.*, baddx.*, and 
-   badspotter.* files. Added duplicate detection and removal of matching 
+5. Improved DXHash.pm to support multiple badnode.*, baddx.*, and
+   badspotter.* files. Added duplicate detection and removal of matching
    entries from all corresponding files.
- 
+
    NOTE: Before restarting the node, PLEASE remove all bad* files from
    /spider/local_data. The node will refuse to start while they are there.
 

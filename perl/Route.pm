@@ -21,6 +21,10 @@ use DXUtil;
 
 use strict;
 
+our $pc92_mutation_journal;
+sub _pc92_touch { $pc92_mutation_journal->touch($_[0]) if $pc92_mutation_journal; }
+sub _pc92_registry { $pc92_mutation_journal->registry(@_) if $pc92_mutation_journal; }
+
 
 use vars qw(%list %valid $filterdef $maxlevel);
 
@@ -95,37 +99,45 @@ sub _getcall
 
 sub _addlist
 {
-	my $self = shift;
-	my $field = shift;
-	my @out;
-	foreach my $c (@_) {
-		confess "Need a ref here" unless ref($c);
-
-		my $call = $c->{call};
-		unless (grep $_ eq $call, @{$self->{$field}}) {
-			push @{$self->{$field}}, $call;
-			dbg(ref($self) . " adding $call to " . $self->{call} . "->\{$field\}") if isdbg('routelow');
-			push @out, $c;
-		}
-	}
-	return @out;
+    my $self = shift;
+    my $field = shift;
+    my @out;
+    my %present = map { $_ => 1 } @{$self->{$field}};
+    foreach my $c (@_) {
+        confess "Need a ref here" unless ref($c);
+        my $call = $c->{call};
+        unless ($present{$call}) {
+            Route::_pc92_touch($self);
+            push @{$self->{$field}}, $call;
+            $present{$call} = 1;
+            dbg(ref($self) . " adding $call to " . $self->{call} . "->\{$field\}") if isdbg('routelow');
+            push @out, $c;
+        }
+    }
+    return @out;
 }
 
 sub _dellist
 {
-	my $self = shift;
-	my $field = shift;
-	my @out;
-	foreach my $c (@_) {
-		confess "Need a ref here" unless ref($c);
-		my $call = $c->{call};
-		if (grep $_ eq $call, @{$self->{$field}}) {
-			$self->{$field} = [ grep {$_ ne $call} @{$self->{$field}} ];
-			dbg(ref($self) . " deleting $call from " . $self->{call} . "->\{$field\}") if isdbg('routelow');
-			push @out, $c;
-		}
-	}
-	return @out;
+    my $self = shift;
+    my $field = shift;
+    my @out;
+    my %present = map { $_ => 1 } @{$self->{$field}};
+    my %remove;
+    foreach my $c (@_) {
+        confess "Need a ref here" unless ref($c);
+        my $call = $c->{call};
+        if ($present{$call} && !$remove{$call}) {
+            $remove{$call} = 1;
+            dbg(ref($self) . " deleting $call from " . $self->{call} . "->\{$field\}") if isdbg('routelow');
+            push @out, $c;
+        }
+    }
+    if (%remove) {
+        Route::_pc92_touch($self);
+        $self->{$field} = [ grep { !$remove{$_} } @{$self->{$field}} ];
+    }
+    return @out;
 }
 
 sub is_empty
@@ -150,6 +162,7 @@ sub here
 	my $r = shift;
 	return $self ? 2 : 0 unless ref $self;
 	return ($self->{flags} & 2) ? 1 : 0 unless defined $r;
+	Route::_pc92_touch($self);
 	$self->{flags} = (($self->{flags} & ~2) | ($r ? 2 : 0));
 	return $r ? 1 : 0;
 }
@@ -160,6 +173,7 @@ sub conf
 	my $r = shift;
 	return $self ? 1 : 0 unless ref $self;
 	return ($self->{flags} & 1) ? 1 : 0 unless defined $r;
+	Route::_pc92_touch($self);
 	$self->{flags} = (($self->{flags} & ~1) | ($r ? 1 : 0));
 	return $r ? 1 : 0;
 }
@@ -481,7 +495,7 @@ sub AUTOLOAD
 
 	# this clever line of code creates a subroutine which takes over from autoload
 	# from OO Perl - Conway
-	*{$AUTOLOAD} = sub {@_ > 1 ? $_[0]->{$name} = $_[1] : $_[0]->{$name}};
+	*{$AUTOLOAD} = sub { if (@_ > 1) { Route::_pc92_touch($_[0]); $_[0]->{$name} = $_[1] } else { $_[0]->{$name} } };
        goto &$AUTOLOAD;
 
 }

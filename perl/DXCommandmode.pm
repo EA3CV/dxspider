@@ -552,7 +552,10 @@ sub run_cmd
 		}
 
 		# first expand out the entry to a command
-		($path, $fcmd) = search($main::localcmd, $cmd, "pl");
+		# Exact command names take precedence over abbreviations in either tree.
+		($path, $fcmd) = search_exact($main::localcmd, $cmd, "pl");
+		($path, $fcmd) = search_exact($main::cmd, $cmd, "pl") unless $path && $fcmd;
+		($path, $fcmd) = search($main::localcmd, $cmd, "pl") unless $path && $fcmd;
 		($path, $fcmd) = search($main::cmd, $cmd, "pl") unless $path && $fcmd;
 		dbg("cmd: search '$cmd '-> $fcmd (path: $path) $args") if isdbg('command');
 		
@@ -775,6 +778,17 @@ sub run_script
 }
 
 #
+# Resolve an exact command without consulting the abbreviation cache.
+# A nested command is exact only when every path component matches.
+sub search_exact
+{
+    my ($path, $command, $suffix) = @_;
+    return () unless defined $path && defined $command && defined $suffix;
+    return () unless $command =~ /\A\w+(?:\/\w+)*\z/;
+    return () unless -f "$path/$command.$suffix";
+    return ($path, lc $command);
+}
+
 # search for the command in the cache of short->long form commands
 #
 
