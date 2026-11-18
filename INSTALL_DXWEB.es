@@ -1,7 +1,7 @@
 DXWEB Y DXWEB ADMIN - INSTALACION, ACTUALIZACION Y RECUPERACION
 ================================================================
 Manual operativo en espanol.
-Revision de 4 de noviembre de 2026.
+Revision de 18 de noviembre de 2026.
 
 1. OBJETO, ARQUITECTURA Y ALCANCE
 ---------------------------------
@@ -18,9 +18,9 @@ copia ni actualiza codigo de las aplicaciones: DXWeb y DXWeb Admin
 proceden del arbol Git de DXSpider.
 
 DXWeb y DXWeb Admin son aplicaciones distintas: se pueden instalar,
-configurar y gestionar individualmente o conjuntamente. Turnstile
-protege el login de ambas en las versiones probadas DXWeb 4.0.3 y
-DXWeb Admin 2.0.3; DXWeb tambien protege el registro publico.
+configurar y gestionar individualmente o conjuntamente. Turnstile protege el login de ambas aplicaciones y el registro
+publico de DXWeb cuando esta habilitado y bien configurado. Las
+versiones probadas anteriormente no indican las versiones actuales.
 La proteccion no sustituye la contrasena ni la autorizacion SYSOP.
 
 2. ARCHIVOS, REQUISITOS Y PREPARACION
@@ -157,6 +157,48 @@ revisar las diferencias del plan.
 No mezclar Direct y Nginx sin planificar una migracion. 
 Actualizar el codigo desde Git es un paso separado.
 No es necesario reiniciar DXSpider para actualizar solo las webs.
+Consultar la seccion 4.5 para el ciclo de vida de los servicios.
+
+4.5. CICLO DE VIDA DE SERVICIOS Y ACTUALIZACIONES
+---------------------------------------------------
+DXSpider, DXWeb y DXWeb Admin son tres servicios systemd separados:
+  dxspider.service
+  dxweb.service
+  dxweb-admin.service
+
+Cada servicio puede iniciarse, detenerse, habilitarse o deshabilitarse
+independientemente. Las funciones web que intercambian informacion con
+DXSpider necesitan que este se encuentre disponible.
+
+Actualizar los ficheros de codigo no recarga automaticamente los procesos.
+Tras una actualizacion, reiniciar los servicios afectados:
+  - Modulos Perl de DXSpider cargados por cluster.pl: dxspider.service.
+  - Codigo de DXWeb: dxweb.service.
+  - Codigo de DXWeb Admin: dxweb-admin.service.
+  - Componentes compartidos: todos los servicios que los carguen.
+
+Ejemplo de reinicio coordinado si una actualizacion de DXSpider tambien
+modifica las dos aplicaciones web (interrumpira temporalmente las
+conexiones de DXSpider y las sesiones web):
+
+  systemctl restart dxspider.service
+  systemctl restart dxweb.service dxweb-admin.service
+  systemctl status dxspider.service dxweb.service dxweb-admin.service --no-pager
+
+Si solo cambia codigo web, no es necesario reiniciar DXSpider. Cuando
+una actualizacion afecta a los tres componentes, se recomienda reiniciar
+los tres servicios de forma coordinada. Verificar los nombres y las
+dependencias de las unidades instaladas antes de ejecutar los comandos.
+Reiniciar servicios no actualiza Git ni aplica cambios de configuracion
+del instalador.
+
+4.6. RECOPILACION DE METRICAS (DXWEB ADMIN)
+--------------------------------------------
+La recopilacion de metricas esta desactivada por defecto en DXWeb Admin.
+Para activar la recogida y almacenamiento de nuevas metricas, acceder a:
+  Supervision -> System -> Metrics collection
+Activar la opcion. Desactivar la recopilacion no impide la supervision
+en vivo, las vistas administrativas ni consultar datos historicos existentes.
 
 5. CLOUDFLARE TURNSTILE: OBTENCION Y CONFIGURACION DE CLAVES
 ------------------------------------------------------------
@@ -330,8 +372,8 @@ por HTTP en loopback, aunque el acceso publico utilice HTTPS.
 
 MOJO_REVERSE_PROXY=0 corresponde al acceso directo y el valor 1
 al acceso a traves de un proxy HTTP de confianza. Para una
-configuracion manual, consultar la seccion 8.2 sobre cabeceras e IP
-real del cliente. No activar esta confianza ante clientes directos.
+configuracion manual, validar las cabeceras del proxy y la IP
+real del cliente frente a la configuracion Nginx instalada. No activar esta confianza ante clientes directos.
 
 DXWEB_TLS_CERT y DXWEB_TLS_KEY solo se incorporan cuando las
 aplicaciones sirven HTTPS directamente. Con Nginx, el certificado
@@ -380,8 +422,9 @@ ruta real y DXS_HOST=127.0.0.1, DXS_PORT=27754. Si /spider es un
 enlace simbolico, el gestor usa la ruta fisica resuelta; los ejemplos
 requieren ajustar esa ruta antes de una instalacion manual.
 
-Los ejemplos se verificaran contra el generador de unidades antes
-de incorporarlos al repositorio. No sustituir una unidad operativa
+Los ejemplos ya estan incluidos en /spider/dxweb/examples/.
+Comprobar sus valores frente al generador de unidades y la
+configuracion local antes de utilizarlos manualmente. No sustituir una unidad operativa
 por un ejemplo sin respaldo y sin comprobar sus diferencias.
 
 11. LIMITACIONES Y SEGURIDAD

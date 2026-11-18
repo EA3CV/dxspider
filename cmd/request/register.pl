@@ -1,11 +1,12 @@
 #
-# register/request.pl - Create a DXSpider registration request
+# Copyright (c) 2026 Dirk Koopman G1TLH
+# request/register.pl - Create a DXSpider registration request
 #
 # Normal user:
-#   register/request <email> <EN|ES> [ssid-list]
+#   request/register <email> <EN|ES> [ssid-list]
 #
 # SYSOP:
-#   register/request <call> <email> <EN|ES> [ssid-list]
+#   request/register <call> <email> <EN|ES> [ssid-list]
 #
 # SSID examples:
 #   1
@@ -22,7 +23,7 @@ unless ($main::reg_enable && DXReg::ready()) {
 }
 
 if ($self->remotecmd || $self->inscript) {
-    Log('DXCommand', $self->call . ' attempted register/request remotely');
+    Log('DXCommand', $self->call . ' attempted request/register remotely');
     return (1, $self->msg('e5'));
 }
 
@@ -31,14 +32,14 @@ my @args = grep { length $_ } split /\s+/, ($line // '');
 my ($call, $email, $language, $ssid_spec, $source);
 
 if ($self->priv >= 9) {
-    return (1, 'Usage: register/request <call> <email> <EN|ES> [ssid-list]')
+    return (1, 'Usage: request/register <call> <email> <EN|ES> [ssid-list]')
         unless @args >= 3;
 
     ($call, $email, $language, $ssid_spec) = @args;
     $call   = uc $call;
     $source = 'SYSOP';
 } else {
-    return (1, 'Usage: register/request <email> <EN|ES> [ssid-list]')
+    return (1, 'Usage: request/register <email> <EN|ES> [ssid-list]')
         unless @args >= 2;
 
     ($email, $language, $ssid_spec) = @args;
@@ -69,7 +70,7 @@ my ($ok, $result) = DXReg::create_request(
 );
 
 unless ($ok) {
-    Log('DXCommand', $self->call . " register/request failed for $call: $result");
+    Log('DXCommand', $self->call . " request/register failed for $call: $result");
     return (1, $result);
 }
 

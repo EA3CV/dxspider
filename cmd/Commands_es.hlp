@@ -1076,7 +1076,7 @@ y también cualquier mensaje enviado por o recibido para tu indicativo.
 === 5^READ-^
 Como sysop puedes leer cualquier mensaje en el sistema
 
-=== 0^REGISTER/REQUEST <email> <idioma> [ssid-list]^Solicita el registro de usuario
+=== 0^request/register <email> <idioma> [ssid-list]^Solicita el registro de usuario
 Permite a un usuario solicitar su registro en el sistema DXSpider.
 
 El indicativo se obtiene siempre de la sesion conectada y no debe
@@ -1115,10 +1115,10 @@ SSID 0 y las formas con cero inicial, como 01 a 09, no son validos.
 
 Ejemplos:
 
-  REGISTER/REQUEST usuario@example.net ES
-  REGISTER/REQUEST usuario@example.net EN 1,2,5
-  REGISTER/REQUEST usuario@example.net DE 1-5
-  REGISTER/REQUEST usuario@example.net FR 1,3-5,9
+  request/register usuario@example.net ES
+  request/register usuario@example.net EN 1,2,5
+  request/register usuario@example.net DE 1-5
+  request/register usuario@example.net FR 1,3-5,9
 
 Solo puede existir una solicitud PENDING para un indicativo. Las
 solicitudes anteriores ACCEPTED, REJECTED o REMOVED se conservan
@@ -1127,16 +1127,16 @@ en el historico.
 Un SYSOP puede crear una solicitud para otro indicativo especificando
 el indicativo como primer parametro:
 
-  REGISTER/REQUEST <indicativo> <email> <idioma> [ssid-list]
+  request/register <indicativo> <email> <idioma> [ssid-list]
 
 Ejemplos para SYSOP:
 
-  REGISTER/REQUEST EA0XYZ usuario@example.net ES
-  REGISTER/REQUEST EA0XYZ usuario@example.net EN 1,2,5
-  REGISTER/REQUEST EA0XYZ usuario@example.net DE 1-5
-  REGISTER/REQUEST EA0XYZ usuario@example.net FR 1,3-5,9
+  request/register EA0XYZ usuario@example.net ES
+  request/register EA0XYZ usuario@example.net EN 1,2,5
+  request/register EA0XYZ usuario@example.net DE 1-5
+  request/register EA0XYZ usuario@example.net FR 1,3-5,9
 
-=== 9^REGISTER/SHOW [<indicativo>|<id>]^Muestra solicitudes de registro
+=== 9^show/register [<indicativo>|<id>]^Muestra solicitudes de registro
 Muestra las solicitudes y el historico del sistema de registro.
 
 Sin argumentos muestra todas las solicitudes que se encuentran
@@ -1144,39 +1144,39 @@ actualmente en estado PENDING.
 
 Ejemplo:
 
-  REGISTER/SHOW
+  show/register
 
 Si se especifica un indicativo, muestra el historico completo de
 registro correspondiente a ese indicativo.
 
 Ejemplo:
 
-  REGISTER/SHOW EA0XYZ
+  show/register EA0XYZ
 
 Tambien puede especificarse directamente el identificador de una
 solicitud para mostrar esa solicitud.
 
 Ejemplo:
 
-  REGISTER/SHOW 20260924-0001
+  show/register 20260924-0001
 
 Las busquedas por CALL y CALL-SSID se agrupan por el indicativo base
 y el historico se presenta comenzando por las solicitudes mas recientes.
 
-=== 9^REGISTER/ACCEPT <id|indicativo> [nota]^Acepta una solicitud de registro
+=== 9^accept/register <id|indicativo> [nota]^Acepta una solicitud de registro
 Acepta una solicitud que se encuentre en estado PENDING.
 
 La solicitud puede identificarse mediante su ID.
 
 Ejemplo:
 
-  REGISTER/ACCEPT 20260924-0001
+  accept/register 20260924-0001
 
 Tambien puede identificarse mediante el indicativo.
 
 Ejemplo:
 
-  REGISTER/ACCEPT EA0XYZ
+  accept/register EA0XYZ
 
 Cuando se utiliza el indicativo debe existir una unica solicitud
 PENDING correspondiente a ese indicativo.
@@ -1185,7 +1185,7 @@ Puede anadirse opcionalmente una nota administrativa.
 
 Ejemplo:
 
-  REGISTER/ACCEPT EA0XYZ Registro comprobado
+  accept/register EA0XYZ Registro comprobado
 
 Al aceptar una solicitud:
 
@@ -1202,20 +1202,20 @@ Al aceptar una solicitud:
 La contrasena nunca se almacena en registration.json ni aparece en
 los logs de debug.
 
-=== 9^REGISTER/REJECT <id|indicativo> [nota]^Rechaza una solicitud de registro
+=== 9^reject/register <id|indicativo> [nota]^Rechaza una solicitud de registro
 Rechaza una solicitud que se encuentre en estado PENDING.
 
 La solicitud puede identificarse mediante su ID.
 
 Ejemplo:
 
-  REGISTER/REJECT 20260924-0001
+  reject/register 20260924-0001
 
 Tambien puede identificarse mediante el indicativo.
 
 Ejemplo:
 
-  REGISTER/REJECT EA0XYZ
+  reject/register EA0XYZ
 
 Cuando se utiliza el indicativo debe existir una unica solicitud
 PENDING correspondiente a ese indicativo.
@@ -1224,14 +1224,14 @@ Puede anadirse opcionalmente una nota administrativa.
 
 Ejemplo:
 
-  REGISTER/REJECT EA0XYZ Indicativo no verificado
+  reject/register EA0XYZ Indicativo no verificado
 
 La solicitud queda almacenada en el historico con estado REJECTED.
 
 El rechazo no impide que posteriormente se cree una nueva solicitud
 para el mismo indicativo.
 
-=== 9^REGISTER/REMOVE <indicativo> [nota]^Elimina el registro de un usuario
+=== 9^remove/register <indicativo> [nota]^Elimina el registro de un usuario
 Elimina el estado de registro de un usuario.
 
 La operacion actua sobre el indicativo base y sobre todos los registros
@@ -1239,13 +1239,13 @@ CALL-1 a CALL-99 que existan para ese indicativo.
 
 Ejemplo:
 
-  REGISTER/REMOVE EA0XYZ
+  remove/register EA0XYZ
 
 Puede anadirse opcionalmente una nota administrativa.
 
 Ejemplo:
 
-  REGISTER/REMOVE EA0XYZ Registro eliminado por el SYSOP
+  remove/register EA0XYZ Registro eliminado por el SYSOP
 
 Al eliminar el registro:
 

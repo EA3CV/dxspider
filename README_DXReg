@@ -75,12 +75,29 @@ $passwdreq configuration.
 
 * Commands
 
-register/request
+Command names after migration (old `register/*` names are removed):
+`request/register`, `show/register`, `accept/register`, `reject/register`,
+`remove/register`. The separate `show/registered` command continues to
+list registered DXUser accounts; it does NOT display DXReg requests.
+
+Only for the `show` command family, the second word must be written as
+`register` or `registered` in full. `sh/register` and `sh/registered`
+remain valid, but `show/reg`, `sh/reg` and `show/registere` are rejected.
+All other DXSpider command abbreviations retain their original behavior.
+
+DXWeb and DXWeb Admin registration actions use the Web.pm `reg_*` protocol
+and call DXReg APIs directly, not the five console command paths. The
+protocol message names are unchanged. This is a source-code compatibility
+finding, not a substitute for an end-to-end test on a running node.
+
+
+
+request/register
 
 Normal user:
 
 
-register/request <email> <language> [ssid-list]
+request/register <email> <language> [ssid-list]
 
 
 The CALL is always taken from the connected session.
@@ -88,15 +105,15 @@ The CALL is always taken from the connected session.
 SYSOP:
 
 
-register/request <call> <email> <language> [ssid-list]
+request/register <call> <email> <language> [ssid-list]
 
 
 Examples:
 
 
-register/request user@example.net ES
-register/request user@example.net EN 1,2,5
-register/request EA3XYZ user@example.net ES 1-5
+request/register user@example.net ES
+request/register user@example.net EN 1,2,5
+request/register EA3XYZ user@example.net ES 1-5
 
 
 Only one PENDING request per CALL is allowed. Previous ACCEPTED, REJECTED or
@@ -109,12 +126,12 @@ offers a language selector and defaults to EN. Notification template lookup
 first tries the selected language; when that template is not installed, DXReg
 automatically uses the corresponding English (.EN) template.
 
-register/show
+show/register
 
 
-register/show
-register/show <call>
-register/show <request-id>
+show/register
+show/register <call>
+show/register <request-id>
 
 
 Without arguments, lists PENDING requests.
@@ -123,10 +140,10 @@ With a CALL, shows the complete registration history for that CALL.
 
 With an ID, shows that request using the same readable history format.
 
-register/accept
+accept/register
 
 
-register/accept <request-id|call> [note]
+accept/register <request-id|call> [note]
 
 
 The CALL form resolves the unique PENDING request for that CALL.
@@ -143,19 +160,19 @@ Acceptance:
 - stores requested_ssids and accepted_ssids separately in history;
 - never stores the password in registration.json or debug logs.
 
-register/reject
+reject/register
 
 
-register/reject <request-id|call> [note]
+reject/register <request-id|call> [note]
 
 
 Marks the PENDING request REJECTED and optionally stores an administrative note.
 A later request for the same CALL creates a new historical record.
 
-register/remove
+remove/register
 
 
-register/remove <call> [note]
+remove/register <call> [note]
 
 
 Acts on the basecall and every existing CALL-1 .. CALL-99 DXUser record:
@@ -240,8 +257,8 @@ Telegram does not require curl.
 
 * Notes
 
-register/show, register/accept, register/reject and register/remove are SYSOP
-operations. register/request is shared between normal users and SYSOPs.
+show/register, accept/register, reject/register and remove/register are SYSOP
+operations. request/register is shared between normal users and SYSOPs.
 
 Registration operations are local to the node on which they are executed. There
 is no automatic cross-node propagation in V2.

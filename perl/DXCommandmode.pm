@@ -804,6 +804,19 @@ sub search
 	# do some checking for funny characters
 	return () if $short_cmd =~ /\/$/;
 
+	# DXReg: only the complete leaf names register/registered are accepted
+	# under show (the show directory itself may still be abbreviated).
+	# Check before the abbreviation cache, for local_cmd and cmd alike.
+	my ($dir_part, $leaf_part) = split m{/}, $short_cmd, 3;
+	if (defined $leaf_part && $short_cmd !~ m{/.*/} &&
+	    length($dir_part) && index('show', $dir_part) == 0 &&
+	    length($leaf_part) &&
+	    (index('register', $leaf_part) == 0 ||
+	     index('registered', $leaf_part) == 0) &&
+	    $leaf_part ne 'register' && $leaf_part ne 'registered') {
+		return ();
+	}
+
 	# return immediately if we have it
 	($apath, $acmd) = split ',', $cmd_cache{$short_cmd} if $cmd_cache{$short_cmd};
 	if ($apath && $acmd) {

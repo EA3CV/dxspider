@@ -1,3 +1,12 @@
+18Nov26======================================================================
+1. Reorganized DXReg commands according to the DXSpider command structure 
+   request/register, show/register, accept/register, reject/register, ... 
+   Updated multilingual help and documentation, and restricted ambiguous 
+   abbreviations between show/register and show/registered.
+17Nov26======================================================================
+1. Fixed Network Chat to properly receive SYSOP messages (PC93).
+2. Added badip.curated download to Maintenance.
+3. Avoided unnecessary SQLite queries when Metrics collection is disabled.
 16Nov26======================================================================
 1. Added comprehensive PC92 A/C/D diagnostics, including CPU/resource
    monitoring, transaction and rollback tracing, Route consistency checks

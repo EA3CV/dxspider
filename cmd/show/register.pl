@@ -1,12 +1,13 @@
 #
-# register/show.pl - Show DXSpider registration requests/history
+# Copyright (c) 2026 Dirk Koopman G1TLH
+# show/register.pl - Show DXSpider registration requests/history
 #
 # SYSOP only.
 #
 # Usage:
-#   register/show
-#   register/show <call>
-#   register/show <request-id>
+#   show/register
+#   show/register <call>
+#   show/register <request-id>
 #
 
 my ($self, $line) = @_;
@@ -20,7 +21,7 @@ unless ($main::reg_enable && DXReg::ready()) {
 }
 
 if ($self->remotecmd || $self->inscript) {
-    Log('DXCommand', $self->call . ' attempted register/show remotely');
+    Log('DXCommand', $self->call . ' attempted show/register remotely');
     return (1, $self->msg('e5'));
 }
 

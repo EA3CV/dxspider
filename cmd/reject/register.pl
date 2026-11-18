@@ -1,10 +1,11 @@
 #
-# register/reject.pl - Reject a DXSpider registration request
+# Copyright (c) 2026 Dirk Koopman G1TLH
+# reject/register.pl - Reject a DXSpider registration request
 #
 # SYSOP only.
 #
 # Usage:
-#   register/reject <request-id|call> [note]
+#   reject/register <request-id|call> [note]
 #
 
 my ($self, $line) = @_;
@@ -17,7 +18,7 @@ unless ($main::reg_enable && DXReg::ready()) {
 }
 
 if ($self->remotecmd || $self->inscript) {
-    Log('DXCommand', $self->call . ' attempted register/reject remotely');
+    Log('DXCommand', $self->call . ' attempted reject/register remotely');
     return (1, $self->msg('e5'));
 }
 
@@ -30,7 +31,7 @@ my ($target, $note) = split /\s+/, $line, 2;
 return (
     1,
     ' ',
-    'Usage: register/reject <request-id|call> [note]',
+    'Usage: reject/register <request-id|call> [note]',
     ' '
 ) unless defined $target && length $target;
 
@@ -52,7 +53,7 @@ unless ($ok) {
     Log(
         'DXCommand',
         sprintf(
-            '%s register/reject #%d %s failed: %s',
+            '%s reject/register #%d %s failed: %s',
             $self->call,
             $request->{id},
             $request->{call},

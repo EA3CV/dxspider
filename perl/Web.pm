@@ -22,6 +22,7 @@ use Route::User;
 use DXSubprocess;
 use Filter;
 use Scalar::Util qw(weaken);
+use Mojo::IOLoop;
 
 
 # One-request execution context for a logical WebCluster user.
@@ -193,6 +194,7 @@ sub web_command_begin
     # channel must enforce its own lifetime boundary.
     return if $self->{web_released} || $self->{web_disconnecting};
     return if $self->{_web_command_capture} || $self->{_async_pending};
+    $self->{_web_command_generation} = ($self->{_web_command_generation} || 0) + 1;
     $self->{_web_command_capture} = 1;
     $self->{_web_command_output} = [];
     $self->{_command_returned} = [];
@@ -207,6 +209,27 @@ sub web_command_end
     delete @{$self}{qw(_web_command_capture _web_command_output
                        _command_returned _async_completion)};
     return grep { defined $_ && length $_ } @messages;
+}
+
+# Bound a stalled command without blocking the shared event loop.  A timed-out
+# subprocess may still complete, but its generation is invalidated and its
+# output must never be delivered into a later request.
+sub web_command_watchdog
+{
+    my ($self, $seconds, $on_timeout) = @_;
+    my $generation = $self->{_web_command_generation};
+    my $weak = $self;
+    Scalar::Util::weaken($weak);
+    Mojo::IOLoop->timer($seconds => sub {
+        my $channel = $weak or return;
+        return unless $channel->{_web_command_capture};
+        return unless ($channel->{_web_command_generation} || 0) == $generation;
+        return if $channel->{web_released} || $channel->{web_disconnecting};
+        $channel->{_web_command_generation}++;
+        $channel->{_async_pending} = 0;
+        $channel->web_command_end();
+        $on_timeout->($channel);
+    });
 }
 
 sub set_async_completion { $_[0]->{_async_completion} = $_[1]; return; }
@@ -411,6 +434,8 @@ sub spawn_cmd
 		return @out;
 	}
 
+	my $web_generation = $self->isa('Web::UserChannel')
+        ? ($self->{_web_command_generation} || 0) : undef;
 	$self->{_async_pending} = ($self->{_async_pending} || 0) + 1;
 	my $fc = DXSubprocess->new;
 	$fc->run(
@@ -435,6 +460,12 @@ sub spawn_cmd
 		},
 		sub {
 			my ($fc, $err, @res) = @_;
+            # A stale subprocess must not write to a subsequent command's
+            # capture buffer, decrement its pending count, or run its callback.
+            if (defined $web_generation &&
+                ($self->{_web_command_generation} || 0) != $web_generation) {
+                return;
+            }
 
 			if ($err) {
 				my $s = "Web::Actor::spawn_cmd: call $self->{dcall} error $err";
@@ -2037,6 +2068,14 @@ sub _command_request
     my $webcall = $self->{call};
     my $generation = $self->{web_generation};
     my $user_generation = $self->{web_users}{$call}{generation};
+    $channel->web_command_watchdog(8, sub {
+        my ($expired) = @_;
+        my $web = DXChannel::get($webcall);
+        return unless $web && $web->isa('Web') &&
+            $web->_web_command_session_current(
+                $call, $generation, $user_generation, $expired);
+        $web->_error($id, 'command', 'command_timeout', {call => $call});
+    });
     $channel->set_async_completion(sub {
         my ($done_channel) = @_;
         my $web = DXChannel::get($webcall);
@@ -2106,6 +2145,14 @@ sub _web_fixed_command
                 {call => $call, %$extra, result => 'processed'});
         }
     };
+    $channel->web_command_watchdog(8, sub {
+        my ($expired) = @_;
+        my $web = DXChannel::get($webcall);
+        return unless $web && $web->isa('Web') &&
+            $web->_web_command_session_current(
+                $call, $transport_generation, $user_generation, $expired);
+        $web->_error($id, $type, 'command_timeout', {call => $call, %$extra});
+    });
     $channel->set_async_completion($respond);
     my (@returned, $ok);
     $ok = eval { @returned = $channel->run_cmd("$cmd $args"); 1 };
