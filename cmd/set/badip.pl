@@ -13,7 +13,7 @@ return (1, q{Please install Net::CIDR::Lite or libnet-cidr-lite-perl to use this
 
 my @out;
 my @added;
-my @in = split /\s+/, $line;
+my @in = split /[,\s]+/, $line;
 my $suffix = 'local';
 if ($in[0] =~ /^[_\d\w]+$/) {
 	$suffix = shift @in;
