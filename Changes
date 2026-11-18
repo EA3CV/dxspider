@@ -3,6 +3,8 @@
    request/register, show/register, accept/register, reject/register, ... 
    Updated multilingual help and documentation, and restricted ambiguous 
    abbreviations between show/register and show/registered.
+2. Modify Verify.pm
+3. Fixed a duplicate $ua declaration in download.pl
 17Nov26======================================================================
 1. Fixed Network Chat to properly receive SYSOP messages (PC93).
 2. Added badip.curated download to Maintenance.

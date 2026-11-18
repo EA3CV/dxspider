@@ -19,13 +19,13 @@ sub handle
 	my $dest = unpad(shift) if @_;
 	dbg("download: url $url");
 	my $ua = Mojo::UserAgent->new->insecure(1)->max_redirects(5);
-	my $res = $ua->get($url => sub {finish(@_, $self, $ua)});
+	my $res = $ua->get($url => sub {finish(@_, $self)});
 	$self->{$res} = $res;
 	dbg("ua $ua start: $url") if isdbg('download');
 }
 
 sub finish {
-	my ($ua, $tx, $self, $ua) = @_;
+	my ($ua, $tx, $self) = @_;
 
 #	$DB::single = 1;
 	
