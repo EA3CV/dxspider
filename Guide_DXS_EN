@@ -19,7 +19,11 @@ PART I. NEW INSTALLATION
     3.2 OPTION A - APT (DEBIAN/UBUNTU/RASPBERRY PI OS)
        3.2.1 System tools and build packages:
        3.2.2 Mojo modules and common utilities:
-       3.2.3 Some auxiliary packages may not be available in every release.
+          DB_File is checked as a Perl module and does not require a separate
+   libdb-file-perl package when it is already provided by Perl.
+   Verify.pm uses Digest::SHA (sha1_base64), not Digest::SHA1.
+
+3.2.3 Some auxiliary packages may not be available in every release.
        3.2.4 LWP::Parallel::UserAgent dependency
     3.3 OPTION B - CPANM (PERL MODULES)
        3.3.1 Install Perl, cpanminus, a compiler and OS libraries first.
@@ -199,7 +203,7 @@ Keeping
  DBD::SQLite (the correct CPAN module name is NOT DBD::SQLite3).
 - Utilities: Date::Parse, HTML::Parser,
   IO::Socket::INET6, Archive::Zip, Curses, Mail::Internet,
-  Digest::SHA1, LWP::UserAgent, LWP::Parallel::UserAgent, DB_File.
+  Digest::SHA, LWP::UserAgent, LWP::Parallel::UserAgent, DB_File.
   IO::Pty (dxweb-admin),
  Authen::SASL and Net::SMTP::SSL (DXReg).
   Email::Sender
@@ -227,13 +231,17 @@ not enter these commands in the DXSpider console.
      libev-perl libmojolicious-perl libjson-perl \
      libjson-xs-perl libdata-structure-util-perl \
      libmath-round-perl libnet-cidr-lite-perl \
-     libdbi-perl libdbd-sqlite3-perl libdb-file-perl \
+     libdbi-perl libdbd-sqlite3-perl \
      libtimedate-perl libhtml-parser-perl \
      libio-socket-inet6-perl libarchive-zip-perl \
-     libcurses-perl libmailtools-perl libdigest-sha1-perl \
+     libcurses-perl libmailtools-perl \
      libwww-perl libio-pty-perl libauthen-sasl-perl \
      libnet-smtp-ssl-perl libemail-sender-perl
 
+
+   DB_File is checked as a Perl module and does not require a separate
+   libdb-file-perl package when it is already provided by Perl.
+   Verify.pm uses Digest::SHA (sha1_base64), not Digest::SHA1.
 
 3.2.3 Some auxiliary packages may not exist in every distribution release.
 
@@ -263,7 +271,7 @@ not enter these commands in the DXSpider console.
      EV Mojolicious JSON JSON::XS Data::Structure::Util \
      Math::Round Net::CIDR::Lite DBI DBD::SQLite \
      Date::Parse HTML::Parser IO::Socket::INET6 \
-     Archive::Zip Curses Mail::Internet Digest::SHA1 \
+     Archive::Zip Curses Mail::Internet Digest::SHA \
      LWP::UserAgent LWP::Parallel::UserAgent DB_File \
      IO::Pty Authen::SASL Net::SMTP::SSL Email::Sender
 
@@ -282,7 +290,7 @@ not enter these commands in the DXSpider console.
    perl -MMath::Round -MNet::CIDR::Lite -MDBI -MDBD::SQLite -e 1
    perl -MDate::Parse -MHTML::Parser -MIO::Socket::INET6 -e 1
    perl -MArchive::Zip -MCurses -MMail::Internet -e 1
-   perl -MDigest::SHA1 -MLWP::UserAgent -MDB_File -e 1
+   perl -MDigest::SHA -MLWP::UserAgent -MDB_File -e 1
    perl -MIO::Pty -MAuthen::SASL -MNet::SMTP::SSL -e 1
    perl -MEmail::Sender -e 1
    perl -MLWP::Parallel::UserAgent -e 1

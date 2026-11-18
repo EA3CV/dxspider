@@ -19,7 +19,11 @@ PARTE I. INSTALACION NUEVA
      3.2 ALTERNATIVA A - APT (DEBIAN/UBUNTU/RASPBERRY PI OS)
         3.2.1 Herramientas de sistema y paquetes de construccion:
         3.2.2 Modulos de mojo y herramientas comunes:
-        3.2.3 Algunos paquetes auxiliares pueden no existir en una release.
+           DB_File se comprueba como modulo Perl y no requiere instalar
+   libdb-file-perl por separado cuando ya viene con Perl.
+   Verify.pm utiliza Digest::SHA (sha1_base64), no Digest::SHA1.
+
+3.2.3 Algunos paquetes auxiliares pueden no existir en una release.
         3.2.4 Dependencia LWP::Parallel::UserAgent
      3.3 ALTERNATIVA B - CPANM (MODULOS PERL)
         3.3.1 Instalar primero Perl, cpanminus, compilador y librerias del SO.
@@ -197,7 +201,7 @@ Instalar Git en el paso de preparacion siguiente; no continuar sin comprobarlo.
   DBD::SQLite (el nombre correcto en CPAN NO es DBD::SQLite3).
 - Utilidades: Date::Parse, HTML::Parser,
   IO::Socket::INET6, Archive::Zip, Curses, Mail::Internet,
-  Digest::SHA1, LWP::UserAgent, LWP::Parallel::UserAgent, DB_File.
+  Digest::SHA, LWP::UserAgent, LWP::Parallel::UserAgent, DB_File.
   IO::Pty (dxweb-admin),
   Authen::SASL y Net::SMTP::SSL (DXReg).
   Email::Sender
@@ -225,13 +229,17 @@ No ejecutar estos comandos en la consola DXSpider.
      libev-perl libmojolicious-perl libjson-perl \
      libjson-xs-perl libdata-structure-util-perl \
      libmath-round-perl libnet-cidr-lite-perl \
-     libdbi-perl libdbd-sqlite3-perl libdb-file-perl \
+     libdbi-perl libdbd-sqlite3-perl \
      libtimedate-perl libhtml-parser-perl \
      libio-socket-inet6-perl libarchive-zip-perl \
-     libcurses-perl libmailtools-perl libdigest-sha1-perl \
+     libcurses-perl libmailtools-perl \
      libwww-perl libio-pty-perl libauthen-sasl-perl \
      libnet-smtp-ssl-perl libemail-sender-perl
 
+
+   DB_File se comprueba como modulo Perl y no requiere instalar
+   libdb-file-perl por separado cuando ya viene con Perl.
+   Verify.pm utiliza Digest::SHA (sha1_base64), no Digest::SHA1.
 
 3.2.3 Algunos paquetes auxiliares pueden no existir en una release.
 
@@ -261,7 +269,7 @@ No ejecutar estos comandos en la consola DXSpider.
      EV Mojolicious JSON JSON::XS Data::Structure::Util \
      Math::Round Net::CIDR::Lite DBI DBD::SQLite \
      Date::Parse HTML::Parser IO::Socket::INET6 \
-     Archive::Zip Curses Mail::Internet Digest::SHA1 \
+     Archive::Zip Curses Mail::Internet Digest::SHA \
      LWP::UserAgent LWP::Parallel::UserAgent DB_File \
      IO::Pty Authen::SASL Net::SMTP::SSL Email::Sender
 
@@ -280,7 +288,7 @@ No ejecutar estos comandos en la consola DXSpider.
    perl -MMath::Round -MNet::CIDR::Lite -MDBI -MDBD::SQLite -e 1
    perl -MDate::Parse -MHTML::Parser -MIO::Socket::INET6 -e 1
    perl -MArchive::Zip -MCurses -MMail::Internet -e 1
-   perl -MDigest::SHA1 -MLWP::UserAgent -MDB_File -e 1
+   perl -MDigest::SHA -MLWP::UserAgent -MDB_File -e 1
    perl -MIO::Pty -MAuthen::SASL -MNet::SMTP::SSL -e 1
    perl -MEmail::Sender -e 1
    perl -MLWP::Parallel::UserAgent -e 1
