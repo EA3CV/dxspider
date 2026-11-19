@@ -19,8 +19,8 @@ sub handle
 	my $dest = unpad(shift) if @_;
 	dbg("download: url $url");
 	my $ua = Mojo::UserAgent->new->insecure(1)->max_redirects(5);
-	my $res = $ua->get($url => sub {finish(@_, $self)});
-	$self->{$res} = $res;
+	my $tx = $ua->get($url => sub {finish(@_, $self)});
+	$self->{$tx} = {ua => $ua, tx => $tx};
 	dbg("ua $ua start: $url") if isdbg('download');
 }
 
@@ -47,12 +47,15 @@ sub finish {
 			unlink "$tmp/$fn";
 		}
 		dbg("download: $target successfully downloaded") if isdbg('progress')
-	} elsif ($res->is_error) {
-		dbg("ua $ua err: " . $res->error) if isdbg('download');
-	} elsif ($res->code == 301) {
-		dbg("redirect: " . $res->headers->location)
 	} else {
-		dbg("something else: " . $res->error->{message});
+		my $err = $tx->error;
+		if ($err) {
+			my $message = $err->{message} // 'unknown error';
+			my $code = $err->{code};
+			dbg("download: " . (defined $code ? "HTTP $code: " : "connection error: ") . $message);
+		} else {
+			dbg("download: unexpected response " . ($res->code // 'without HTTP status'));
+		}
 	}
-	delete $self->{$res};
+	delete $self->{$tx};
 }

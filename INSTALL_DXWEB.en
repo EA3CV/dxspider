@@ -160,7 +160,6 @@ Do not mix Direct and Nginx without planning a migration.
 Updating code from Git is a separate step.
 Restarting DXSpider is not necessary when updating only the websites.
 See section 4.5 for service lifecycle and update procedures.
-See section 4.5 for service lifecycle and update procedures.
 
 4.5. SERVICE LIFECYCLE AND CODE UPDATES
 ---------------------------------------
