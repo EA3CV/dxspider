@@ -402,22 +402,18 @@ sub delete_interface
 # This returns the number of parents a base callsign has.
 # takes any callsign, strips its ssid and searchs through list
 # for any matching base call (again, ignoring any SSID).
+#
+# It returns the total number of objects with that call
 sub basecall_no
 {
-	my $user = shift;
-	my $count = 0;
-	my $call = $user->call;
-	my $base = $call;
+	my $base = shift;
 	$base =~ s/-\d+//;
 	my $patt = qr/$base/;
+	my $count;
 	my @calls;
 	my @keys;
-
-	if ($user->is_node) {
-		push @keys, Route::Node::get_all_keys();
-	} else {
-		push @keys, Route::User::get_all_keys();
-	} 	
+	push @keys, Route::Node::get_all_keys();
+	push @keys, Route::User::get_all_keys();
 	foreach my $key (grep {m/^${$patt}(?:-\d+)?$/} @keys ) {
 		dbg("base call: $base call: $key") if isdbg('routebase');
 		my $ref = get($key);

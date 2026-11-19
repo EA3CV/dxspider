@@ -567,9 +567,12 @@ sub new_channel
 		}
 
 		# (fairly) politely disconnect people that are connected to too many other places at once
-		if ($conn->{sort} && $conn->{sort} =~ /^I/ && $user) {
-			my ($callcount, @calls) = Route::basecall_no($user);
-			my $m = $user->is_node ? $maxconnect_node : $maxconnect_user;
+		if ($conn->{sort} && $conn->{sort} =~ /^I/ ) {
+			my ($callcount, @calls) = Route::basecall_no($call);
+			my $m = $maxconnect_user;;
+			if ($user && $user->is_node  ) {
+			    $m = $maxconnect_node;
+			}
 			if ($m && $callcount > $m+$allowmultiple) {
 				LogDbg('*', "$call has too many connections ($callcount > $m) disconnected");
 				DXHealth::connection_too_many($call, eval { $conn->peerhost } || '', $m, $callcount);
