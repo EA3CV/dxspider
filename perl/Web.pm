@@ -1305,23 +1305,19 @@ sub _user_add
 		return;
 	}
 
-	if ($user) {
-		my $r = Route::get($call);
-
-		if ($r) {
-			my @parents = $r->parents;
-			my $max = $user->maxconnect;
-			$max = $main::maxconnect_user unless defined $max;
-
-			if ($max && @parents >= $max + ($main::allowmultiple || 0)) {
-				$self->_error($id, 'user_add', 'too_many_connections', {
-					call  => $call,
-					max   => $max,
-					nodes => \@parents,
-				});
-				return;
-			}
-		}
+	# Match main::new_channel's basecall-wide admission check, including
+	# SSIDs that have no persistent DXUser record yet.  basecall_no()
+	# includes the proposed connection in its count.
+	my ($callcount, @calls) = Route::basecall_no($call);
+	my $max = $user ? $user->maxconnect : undef;
+	$max = $main::maxconnect_user unless defined $max;
+	if ($max && $callcount > $max + ($main::allowmultiple || 0)) {
+		$self->_error($id, 'user_add', 'too_many_connections', {
+			call  => $call,
+			max   => $max,
+			nodes => \@calls,
+		});
+		return;
 	}
 
 	# Do not pre-create a missing DXUser here.  _add_thingy() calls the native
