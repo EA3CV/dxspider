@@ -211,12 +211,15 @@ sub list
 sub find
 {
 	return 0 unless $active;
-	return 0 unless $_[0];
+	return 0 unless defined $_[0] && length $_[0];
 
 	if ($_[0] =~ /\./) {
-		return $ipv4->find($_[0]) if $count4;
+		return $count4 ? $ipv4->find($_[0]) : 0;
 	}
-	return $ipv6->find($_[0]) if $count6;
+	if ($_[0] =~ /:/) {
+		return $count6 ? $ipv6->find($_[0]) : 0;
+	}
+	return 0;
 }
 
 

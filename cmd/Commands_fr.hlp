@@ -1087,7 +1087,7 @@ les messages dont vous êtes l'expéditeur ou le destinataire.
 === 5^READ-^
 En tant que sysop, vous pouvez lire n'importe quel message sur le système.
 
-=== 0^REGISTER/REQUEST <email> <langue> [liste-ssid]^Demande l'enregistrement d'un utilisateur
+=== 0^request/register <email> <langue> [liste-ssid]^Demande l'enregistrement d'un utilisateur
 Permet a un utilisateur de demander son enregistrement dans DXSpider.
 
 L'indicatif est toujours obtenu depuis la session connectee et ne doit pas
@@ -1126,10 +1126,10 @@ Le SSID 0 et les formes avec zero initial, comme 01 a 09, ne sont pas valides.
 
 Exemples :
 
-  REGISTER/REQUEST user@example.net ES
-  REGISTER/REQUEST user@example.net EN 1,2,5
-  REGISTER/REQUEST user@example.net DE 1-5
-  REGISTER/REQUEST user@example.net FR 1,3-5,9
+  request/register user@example.net ES
+  request/register user@example.net EN 1,2,5
+  request/register user@example.net DE 1-5
+  request/register user@example.net FR 1,3-5,9
 
 Une seule demande PENDING peut exister pour un indicatif. Les demandes
 precedentes ACCEPTED, REJECTED ou REMOVED restent conservees dans l'historique.
@@ -1137,54 +1137,54 @@ precedentes ACCEPTED, REJECTED ou REMOVED restent conservees dans l'historique.
 Un SYSOP peut creer une demande pour un autre indicatif en indiquant cet
 indicatif comme premier parametre :
 
-  REGISTER/REQUEST <indicatif> <email> <langue> [liste-ssid]
+  request/register <indicatif> <email> <langue> [liste-ssid]
 
 Exemples SYSOP :
 
-  REGISTER/REQUEST EA0XYZ user@example.net ES
-  REGISTER/REQUEST EA0XYZ user@example.net EN 1,2,5
-  REGISTER/REQUEST EA0XYZ user@example.net DE 1-5
-  REGISTER/REQUEST EA0XYZ user@example.net FR 1,3-5,9
+  request/register EA0XYZ user@example.net ES
+  request/register EA0XYZ user@example.net EN 1,2,5
+  request/register EA0XYZ user@example.net DE 1-5
+  request/register EA0XYZ user@example.net FR 1,3-5,9
 
-=== 9^REGISTER/SHOW [<indicatif>|<id>]^Affiche les demandes d'enregistrement
+=== 9^show/register [<indicatif>|<id>]^Affiche les demandes d'enregistrement
 Affiche les demandes et l'historique d'enregistrement.
 
 Sans argument, affiche toutes les demandes actuellement a l'etat PENDING.
 
 Exemple :
 
-  REGISTER/SHOW
+  show/register
 
 Si un indicatif est indique, affiche l'historique complet d'enregistrement
 pour cet indicatif.
 
 Exemple :
 
-  REGISTER/SHOW EA0XYZ
+  show/register EA0XYZ
 
 L'identifiant d'une demande peut egalement etre indique directement.
 
 Exemple :
 
-  REGISTER/SHOW 20260924-0001
+  show/register 20260924-0001
 
 Les recherches CALL et CALL-SSID sont regroupees par indicatif de base et
 l'historique est affiche en commencant par les demandes les plus recentes.
 
-=== 9^REGISTER/ACCEPT <id|indicatif> [note]^Accepte une demande d'enregistrement
+=== 9^accept/register <id|indicatif> [note]^Accepte une demande d'enregistrement
 Accepte une demande qui se trouve a l'etat PENDING.
 
 La demande peut etre identifiee par son ID.
 
 Exemple :
 
-  REGISTER/ACCEPT 20260924-0001
+  accept/register 20260924-0001
 
 Elle peut egalement etre identifiee par l'indicatif.
 
 Exemple :
 
-  REGISTER/ACCEPT EA0XYZ
+  accept/register EA0XYZ
 
 Lorsque l'indicatif est utilise, il doit exister exactement une demande
 PENDING pour cet indicatif.
@@ -1193,7 +1193,7 @@ Une note administrative peut etre ajoutee facultativement.
 
 Exemple :
 
-  REGISTER/ACCEPT EA0XYZ Enregistrement verifie
+  accept/register EA0XYZ Enregistrement verifie
 
 Lorsqu'une demande est acceptee :
 
@@ -1209,20 +1209,20 @@ Lorsqu'une demande est acceptee :
 Le mot de passe n'est jamais stocke dans registration.json ni ecrit dans les
 logs de debug.
 
-=== 9^REGISTER/REJECT <id|indicatif> [note]^Rejette une demande d'enregistrement
+=== 9^reject/register <id|indicatif> [note]^Rejette une demande d'enregistrement
 Rejette une demande qui se trouve a l'etat PENDING.
 
 La demande peut etre identifiee par son ID.
 
 Exemple :
 
-  REGISTER/REJECT 20260924-0001
+  reject/register 20260924-0001
 
 Elle peut egalement etre identifiee par l'indicatif.
 
 Exemple :
 
-  REGISTER/REJECT EA0XYZ
+  reject/register EA0XYZ
 
 Lorsque l'indicatif est utilise, il doit exister exactement une demande
 PENDING pour cet indicatif.
@@ -1231,14 +1231,14 @@ Une note administrative peut etre ajoutee facultativement.
 
 Exemple :
 
-  REGISTER/REJECT EA0XYZ Indicatif non verifie
+  reject/register EA0XYZ Indicatif non verifie
 
 La demande reste conservee dans l'historique avec l'etat REJECTED.
 
 Le rejet n'empeche pas la creation ulterieure d'une nouvelle demande pour le
 meme indicatif.
 
-=== 9^REGISTER/REMOVE <indicatif> [note]^Supprime l'enregistrement d'un utilisateur
+=== 9^remove/register <indicatif> [note]^Supprime l'enregistrement d'un utilisateur
 Supprime l'etat d'enregistrement d'un utilisateur.
 
 L'operation agit sur l'indicatif de base et sur tous les enregistrements
@@ -1246,13 +1246,13 @@ DXUser CALL-1 a CALL-99 existants pour cet indicatif.
 
 Exemple :
 
-  REGISTER/REMOVE EA0XYZ
+  remove/register EA0XYZ
 
 Une note administrative peut etre ajoutee facultativement.
 
 Exemple :
 
-  REGISTER/REMOVE EA0XYZ Enregistrement supprime par le SYSOP
+  remove/register EA0XYZ Enregistrement supprime par le SYSOP
 
 Lors de la suppression de l'enregistrement :
 

@@ -3,6 +3,23 @@
    connections.
 2. Fix the maximum no of user/node connections code. Users = 12, nodes not
    limited (but can be by parameter).
+3. DXCIDR.pm: Fixed IPv4 and IPv6 address handling in find().
+   Added protection against undefined or empty addresses.
+4. DXSupervisor.pm: Fixed the is_self comparison to require both callsigns
+   to be defined and non-empty.
+18Nov26======================================================================
+1. Reorganized DXReg commands according to the DXSpider command structure 
+   request/register, show/register, accept/register, reject/register, ... 
+   Updated multilingual help and documentation, and restricted ambiguous 
+   abbreviations between show/register and show/registered.
+2. Modify Verify.pm
+3. Fixed a duplicate $ua declaration in download.pl
+4. download.pl: Fixed asynchronous HTTP/HTTPS download handling.
+   Resolved the Premature connection close error.
+17Nov26======================================================================
+1. Fixed Network Chat to properly receive SYSOP messages (PC93).
+2. Added badip.curated download to Maintenance.
+3. Avoided unnecessary SQLite queries when Metrics collection is disabled.
 16Nov26======================================================================
 1. Added comprehensive PC92 A/C/D diagnostics, including CPU/resource
    monitoring, transaction and rollback tracing, Route consistency checks

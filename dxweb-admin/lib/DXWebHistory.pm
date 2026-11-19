@@ -23,7 +23,7 @@ use Time::HiRes    qw(time);
 use Time::Local    qw(timegm);
 use DXHistoryCodec qw(pack_bytes unpack_bytes);
 
-our $VERSION        = '0.40';
+our $VERSION        = '0.41';
 our $SCHEMA_VERSION = 2; # New databases use compressed schema v2
 
 sub new {
@@ -470,6 +470,11 @@ sub latest_snapshots_async {
                     sqlite_open_flags   => 0x00000001,
                 }
             );
+            # The reader may run while history collection is suspended.
+            # Detect the actual on-disk schema inside this subprocess; never
+            # trust the writer's cached/default schema for read-only queries.
+            $schema = _database_schema_version($dbh);
+            die 'history_unknown_or_invalid_schema' unless $schema;
             my %out;
             for my $kind (qw(status connections traffic rbn self_health)) {
                 my $r = $dbh->selectrow_arrayref(
@@ -724,6 +729,11 @@ sub semantic_window_async {
                     sqlite_open_flags   => 0x00000001,
                 }
             );
+            # The reader may run while history collection is suspended.
+            # Detect the actual on-disk schema inside this subprocess; never
+            # trust the writer's cached/default schema for read-only queries.
+            $schema = _database_schema_version($dbh);
+            die 'history_unknown_or_invalid_schema' unless $schema;
             my $rows = $dbh->selectall_arrayref(
                 'SELECT kind,collected_at,' . ($schema == 2 ? 'payload,codec' : 'payload_json,NULL') . q{
                      FROM samples
@@ -917,6 +927,11 @@ sub metrics_series_async {
                     sqlite_open_flags   => 0x00000001
                 }
             );
+            # The reader may run while history collection is suspended.
+            # Detect the actual on-disk schema inside this subprocess; never
+            # trust the writer's cached/default schema for read-only queries.
+            $schema = _database_schema_version($dbh);
+            die 'history_unknown_or_invalid_schema' unless $schema;
             my $metrics_sql = q{
             SELECT s.kind,s.collected_at,s.payload_json
               FROM samples s
@@ -1656,6 +1671,11 @@ sub timeline_async {
                     sqlite_open_flags   => 0x00000001
                 }
             );
+            # The reader may run while history collection is suspended.
+            # Detect the actual on-disk schema inside this subprocess; never
+            # trust the writer's cached/default schema for read-only queries.
+            $schema = _database_schema_version($dbh);
+            die 'history_unknown_or_invalid_schema' unless $schema;
             my $rows = $dbh->selectall_arrayref(
 'SELECT kind,collected_at,' . ($schema == 2 ? 'payload,codec' : 'payload_json,NULL') . q{ FROM samples WHERE collected_at>=? AND kind IN ('status','self_health') ORDER BY collected_at,id},
                 undef, $from
@@ -2120,26 +2140,36 @@ sub maintenance_async {
                 $r{ $s eq '-wal' ? 'wal_bytes' : 'shm_bytes' } =
                   @x ? 0 + $x[7] : 0;
             }
-            my $dbh = DBI->connect(
-                "dbi:SQLite:dbname=$path",
-                '', '',
-                {
-                    RaiseError          => 1,
-                    PrintError          => 0,
-                    AutoCommit          => 1,
-                    sqlite_busy_timeout => 1000,
-                    sqlite_open_flags   => 0x00000001
-                }
-            );
-            my ( $count, $oldest, $newest ) = $dbh->selectrow_array(
-'SELECT COUNT(*),MIN(collected_at),MAX(collected_at) FROM samples'
-            );
-            $r{samples}     = 0 + ( $count || 0 );
+            # Historical SQLite is optional for maintenance. Never let a missing,
+            # incompatible or busy metrics database hide the filesystem browser.
+            $r{samples} = undef;
+            $r{oldest_at} = undef;
+            $r{newest_at} = undef;
             $r{max_rows} = 0 + $self->{max_rows};
-            $r{oldest_at}   = defined $oldest ? 0 + $oldest : undef;
-            $r{newest_at}   = defined $newest ? 0 + $newest : undef;
-            $r{quick_check} = 'not checked'
-              ; # Expensive PRAGMA quick_check is an explicit offline/on-demand operation.$dbh->disconnect;
+            $r{quick_check} = 'not checked';
+            if (!$opt{include_db_stats}) {
+                $r{history_db_error} = undef; # disabled collection: skip costly DB aggregate
+            } elsif (-f $path) {
+                my $ok = eval {
+                    my $dbh = DBI->connect(
+                        "dbi:SQLite:dbname=$path", '', '',
+                        { RaiseError => 1, PrintError => 0, AutoCommit => 1,
+                          sqlite_busy_timeout => 1000,
+                          sqlite_open_flags => 0x00000001 }
+                    ) or die 'history_db_open_failed';
+                    my ($count,$oldest,$newest) = $dbh->selectrow_array(
+                        'SELECT COUNT(*),MIN(collected_at),MAX(collected_at) FROM samples'
+                    );
+                    $r{samples} = 0 + ($count || 0);
+                    $r{oldest_at} = defined($oldest) ? 0 + $oldest : undef;
+                    $r{newest_at} = defined($newest) ? 0 + $newest : undef;
+                    $dbh->disconnect;
+                    1;
+                };
+                $r{history_db_error} = 'history_db_unavailable' unless $ok;
+            } else {
+                $r{history_db_error} = 'history_db_missing';
+            }
             if ( open( my $df, '-|', 'df', '-Pk', $root ) ) {
                 my @l = <$df>;
                 close $df;

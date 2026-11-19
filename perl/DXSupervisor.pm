@@ -212,7 +212,14 @@ sub connections {
             do_pc9x => $c ? ($rnode ? _maybe_bool($rnode->do_pc9x) : (defined $c->{do_pc9x} ? _maybe_bool($c->{do_pc9x}) : undef)) : undef,
             via_pc92 => $rnode ? _maybe_bool($rnode->via_pc92) : undef,
             do_pc91 => $c ? (defined $c->{do_pc91} ? _maybe_bool($c->{do_pc91}) : undef) : undef,
-            is_self => $c && (($c->{call} || '') eq ($main::mycall || '')) ? 1 : 0,
+            is_self => (
+                $c
+                && defined $c->{call}
+                && length $c->{call}
+                && defined $main::mycall
+                && length $main::mycall
+                && $c->{call} eq $main::mycall
+            ) ? 1 : 0,
         };
     }
     # Offline logical Web users are retained separately from physical channels.

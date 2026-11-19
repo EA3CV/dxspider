@@ -125,7 +125,7 @@ sub _flush_local_sp
         "Call: $r->{call}", "Email: $r->{email}",
         "Language: $r->{language}",
         'SSIDs: ' . join(',', @{ $r->{requested_ssids} || [] }),
-        "Review with register/show $id"
+        "Review with show/register $id"
     ) : $kind eq 'ACCEPTED' ? (
         "Your registration request #$id has been accepted.",
         'Please contact your SYSOP for login credentials if needed.',
@@ -321,7 +321,7 @@ sub create_request
 # currently PENDING request.
 #
 # This provides the common ID|CALL behaviour used by
-# register/accept and register/reject.
+# accept/register and reject/register.
 # ------------------------------------------------------------
 
 sub resolve_pending_request

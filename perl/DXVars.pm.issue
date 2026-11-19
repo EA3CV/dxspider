@@ -31,7 +31,7 @@ $mylocator = "JO02AA";
 $myqth = "SomeTown, SomeState";
 
 # Your e-mail address
-$myemail = "qqq@gmail.com";
+$myemail = 'qqq@gmail.com';
 
 # the country codes that my node is located in
 # 

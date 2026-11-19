@@ -49,3 +49,32 @@ PROTOCOL
 The two applications can be installed independently. The Nginx examples
 are optional and must be adapted to the actual deployment.
 
+SERVICE LIFECYCLE AND UPDATES
+-----------------------------
+DXSpider, DXWeb and DXWeb Admin are three separate services. DXWeb and
+DXWeb Admin can each be started, stopped, enabled or disabled independently
+of the DXSpider service. However, their live DXSpider-backed functionality
+requires a running and reachable DXSpider IntMsg listener.
+
+A DXSpider source update does not automatically reload code in already
+running processes. If an update changes DXWeb or DXWeb Admin files, restart
+the corresponding web service(s) to load those changes. Changes to Perl
+modules loaded by DXSpider (such as perl/Web.pm) require a DXSpider restart;
+restarting only the web services will not load them.
+
+For a coordinated restart after a DXSpider update, when operationally
+acceptable and after arranging for the brief service interruption:
+
+  systemctl restart dxspider.service
+  systemctl restart dxweb.service dxweb-admin.service
+
+Check service status afterward:
+
+  systemctl status dxspider.service dxweb.service dxweb-admin.service --no-pager
+
+Restarting all three is recommended after an update affecting multiple
+components, but is not required for a web-only update. Use the actual
+installed service names if they differ. Restarting DXSpider interrupts
+active DX cluster connections and should be scheduled accordingly.
+
+

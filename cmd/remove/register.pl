@@ -1,10 +1,11 @@
 #
-# register/remove.pl - Remove DXSpider registration for a callsign family
+# Copyright (c) 2026 Dirk Koopman G1TLH
+# remove/register.pl - Remove DXSpider registration for a callsign family
 #
 # SYSOP only.
 #
 # Usage:
-#   register/remove <call> [note]
+#   remove/register <call> [note]
 #
 # Removes passwd and sets registered=0 on the base callsign and every
 # existing CALL-SSID from 1 to 99. DXUser records are preserved.
@@ -21,7 +22,7 @@ unless ($main::reg_enable && DXReg::ready()) {
 }
 
 if ($self->remotecmd || $self->inscript) {
-    Log('DXCommand', $self->call . ' attempted register/remove remotely');
+    Log('DXCommand', $self->call . ' attempted remove/register remotely');
     return (1, $self->msg('e5'));
 }
 
@@ -34,7 +35,7 @@ my ($call, $note) = split /\s+/, $line, 2;
 return (
     1,
     ' ',
-    'Usage: register/remove <call> [note]',
+    'Usage: remove/register <call> [note]',
     ' '
 ) unless defined $call && length $call;
 
@@ -56,7 +57,7 @@ unless ($ok) {
     Log(
         'DXCommand',
         sprintf(
-            '%s register/remove %s failed: %s',
+            '%s remove/register %s failed: %s',
             $self->call,
             uc($call),
             $result

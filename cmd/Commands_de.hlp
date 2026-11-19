@@ -855,7 +855,7 @@ Nachrichten die von einem selbst geschrieben bzw. an einen adressiert sind.
 === 5^READ-^
 Als Sysop kann man alle Nachrichten lesen.
 
-=== 0^REGISTER/REQUEST <email> <sprache> [ssid-liste]^Beantragt die Registrierung eines Users
+=== 0^request/register <email> <sprache> [ssid-liste]^Beantragt die Registrierung eines Users
 Ermoeglicht einem User, seine Registrierung in DXSpider zu beantragen.
 
 Das Rufzeichen wird immer aus der verbundenen Sitzung uebernommen und darf
@@ -892,10 +892,10 @@ SSID 0 und mit Null aufgefuellte Formen wie 01 bis 09 sind ungueltig.
 
 Beispiele:
 
-  REGISTER/REQUEST user@example.net ES
-  REGISTER/REQUEST user@example.net EN 1,2,5
-  REGISTER/REQUEST user@example.net DE 1-5
-  REGISTER/REQUEST user@example.net FR 1,3-5,9
+  request/register user@example.net ES
+  request/register user@example.net EN 1,2,5
+  request/register user@example.net DE 1-5
+  request/register user@example.net FR 1,3-5,9
 
 Pro Rufzeichen kann nur ein PENDING-Antrag existieren. Fruehere ACCEPTED-,
 REJECTED- oder REMOVED-Antraege bleiben in der Historie erhalten.
@@ -903,54 +903,54 @@ REJECTED- oder REMOVED-Antraege bleiben in der Historie erhalten.
 Ein SYSOP kann einen Antrag fuer ein anderes Rufzeichen erstellen, indem er
 das Rufzeichen als ersten Parameter angibt:
 
-  REGISTER/REQUEST <rufzeichen> <email> <sprache> [ssid-liste]
+  request/register <rufzeichen> <email> <sprache> [ssid-liste]
 
 SYSOP-Beispiele:
 
-  REGISTER/REQUEST EA0XYZ user@example.net ES
-  REGISTER/REQUEST EA0XYZ user@example.net EN 1,2,5
-  REGISTER/REQUEST EA0XYZ user@example.net DE 1-5
-  REGISTER/REQUEST EA0XYZ user@example.net FR 1,3-5,9
+  request/register EA0XYZ user@example.net ES
+  request/register EA0XYZ user@example.net EN 1,2,5
+  request/register EA0XYZ user@example.net DE 1-5
+  request/register EA0XYZ user@example.net FR 1,3-5,9
 
-=== 9^REGISTER/SHOW [<rufzeichen>|<id>]^Zeigt Registrierungsantraege
+=== 9^show/register [<rufzeichen>|<id>]^Zeigt Registrierungsantraege
 Zeigt Antraege und die Registrierungshistorie.
 
 Ohne Argumente werden alle Antraege im Status PENDING angezeigt.
 
 Beispiel:
 
-  REGISTER/SHOW
+  show/register
 
 Wird ein Rufzeichen angegeben, wird die vollstaendige Registrierungshistorie
 fuer dieses Rufzeichen angezeigt.
 
 Beispiel:
 
-  REGISTER/SHOW EA0XYZ
+  show/register EA0XYZ
 
 Es kann auch direkt die Kennung eines Antrags angegeben werden.
 
 Beispiel:
 
-  REGISTER/SHOW 20260924-0001
+  show/register 20260924-0001
 
 Suchen nach CALL und CALL-SSID werden nach dem Basisrufzeichen gruppiert und
 die neuesten Antraege zuerst angezeigt.
 
-=== 9^REGISTER/ACCEPT <id|rufzeichen> [notiz]^Akzeptiert einen Registrierungsantrag
+=== 9^accept/register <id|rufzeichen> [notiz]^Akzeptiert einen Registrierungsantrag
 Akzeptiert einen Antrag im Status PENDING.
 
 Der Antrag kann ueber seine ID angegeben werden.
 
 Beispiel:
 
-  REGISTER/ACCEPT 20260924-0001
+  accept/register 20260924-0001
 
 Er kann auch ueber das Rufzeichen angegeben werden.
 
 Beispiel:
 
-  REGISTER/ACCEPT EA0XYZ
+  accept/register EA0XYZ
 
 Bei Angabe des Rufzeichens muss genau ein PENDING-Antrag fuer dieses
 Rufzeichen existieren.
@@ -959,7 +959,7 @@ Optional kann eine administrative Notiz hinzugefuegt werden.
 
 Beispiel:
 
-  REGISTER/ACCEPT EA0XYZ Registrierung geprueft
+  accept/register EA0XYZ Registrierung geprueft
 
 Beim Akzeptieren eines Antrags:
 
@@ -974,20 +974,20 @@ Beim Akzeptieren eines Antrags:
 
 Das Passwort wird niemals in registration.json oder Debug-Logs gespeichert.
 
-=== 9^REGISTER/REJECT <id|rufzeichen> [notiz]^Lehnt einen Registrierungsantrag ab
+=== 9^reject/register <id|rufzeichen> [notiz]^Lehnt einen Registrierungsantrag ab
 Lehnt einen Antrag im Status PENDING ab.
 
 Der Antrag kann ueber seine ID angegeben werden.
 
 Beispiel:
 
-  REGISTER/REJECT 20260924-0001
+  reject/register 20260924-0001
 
 Er kann auch ueber das Rufzeichen angegeben werden.
 
 Beispiel:
 
-  REGISTER/REJECT EA0XYZ
+  reject/register EA0XYZ
 
 Bei Angabe des Rufzeichens muss genau ein PENDING-Antrag fuer dieses
 Rufzeichen existieren.
@@ -996,14 +996,14 @@ Optional kann eine administrative Notiz hinzugefuegt werden.
 
 Beispiel:
 
-  REGISTER/REJECT EA0XYZ Rufzeichen nicht verifiziert
+  reject/register EA0XYZ Rufzeichen nicht verifiziert
 
 Der Antrag bleibt mit dem Status REJECTED in der Historie erhalten.
 
 Die Ablehnung verhindert nicht, dass spaeter ein neuer Antrag fuer dasselbe
 Rufzeichen erstellt wird.
 
-=== 9^REGISTER/REMOVE <rufzeichen> [notiz]^Entfernt die Registrierung eines Users
+=== 9^remove/register <rufzeichen> [notiz]^Entfernt die Registrierung eines Users
 Entfernt den Registrierungsstatus eines Users.
 
 Die Operation betrifft das Basisrufzeichen und alle vorhandenen DXUser-
@@ -1011,13 +1011,13 @@ Eintraege CALL-1 bis CALL-99 fuer dieses Rufzeichen.
 
 Beispiel:
 
-  REGISTER/REMOVE EA0XYZ
+  remove/register EA0XYZ
 
 Optional kann eine administrative Notiz hinzugefuegt werden.
 
 Beispiel:
 
-  REGISTER/REMOVE EA0XYZ Registrierung durch SYSOP entfernt
+  remove/register EA0XYZ Registrierung durch SYSOP entfernt
 
 Beim Entfernen der Registrierung:
 

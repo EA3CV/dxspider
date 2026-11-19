@@ -3876,7 +3876,7 @@ sub handle_93
 		# PC93 chat messages are identified by their message ID, including
 		# those addressed to SYSOP or WX. Classify before announcements.
 		$self->send_chat(1, $line, $from, '*', $text, $to, $pcall, '0');
-		Web::publish_network_chat('ERROR', $from, $text, $onode) if $to eq 'ERROR' && Web->can('publish_network_chat');
+		Web::publish_network_chat($to, $from, $text, $onode) if ($to eq 'ERROR' || $to eq 'SYSOP') && Web->can('publish_network_chat');
 		return if $via eq 'LOCAL';
 	} elsif ($to eq '*' || $to eq 'SYSOP' || $to eq 'WX') {
 		# announces

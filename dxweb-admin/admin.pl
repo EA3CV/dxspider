@@ -1367,7 +1367,6 @@ sub history_summary_compact($r) {
 }
 
 sub send_overview_snapshot($id) {
-    return ws_send_guarded($id, encode_json({type => 'supervisor_overview_result', status => 'error', error => 'metrics_disabled'})) unless $metrics_enabled;
     $history_store->latest_snapshots_async(
         cb => sub( $err, $latest ) {
             return unless $clients{$id} && $clients{$id}{authenticated};
@@ -1441,7 +1440,6 @@ sub send_overview_snapshot($id) {
 }
 
 sub send_history_summary( $id, $window = '15m' ) {
-    return ws_send_guarded($id, encode_json({type => 'supervisor_history_result', status => 'error', error => 'metrics_disabled'})) unless $metrics_enabled;
     $window = '15m' unless $window =~ /^(?:5m|15m|1h|6h|24h)$/;
     $history_store->semantic_window_async(
         window => $window,
@@ -1941,7 +1939,6 @@ sub v040_cached_async( $key, $ttl, $producer, $cb ) {
 }
 
 sub v040_metrics_async( $window, $peer, $cb ) {
-    return $cb->('metrics_disabled', undef) unless $metrics_enabled;
     $window ||= '24h';
     $peer //= '';
     my $key = "metrics:$window:$peer";
@@ -1960,7 +1957,6 @@ sub v040_metrics_async( $window, $peer, $cb ) {
 }
 
 sub v040_timeline_async( $window, $cb ) {
-    return $cb->('metrics_disabled', undef) unless $metrics_enabled;
     $window ||= '15m';
     my $key = "timeline:$window";
     v040_cached_async(
@@ -1977,7 +1973,6 @@ sub v040_timeline_async( $window, $cb ) {
 }
 
 sub v040_maintenance_async( $path, $cb ) {
-    return $cb->('metrics_disabled', undef) unless $metrics_enabled;
     my $p   = ref($path) eq 'ARRAY' ? $path : [];
     my $key = 'maintenance:' . join( '/', @$p );
     v040_cached_async(
@@ -1985,6 +1980,7 @@ sub v040_maintenance_async( $path, $cb ) {
         sub($done) {
             $history_store->maintenance_async(
                 history_path => $p,
+                include_db_stats => $metrics_enabled ? 1 : 0,
                 cb           => $done
             );
         },
@@ -3024,11 +3020,6 @@ websocket '/ws' => sub($c) {
                 return;
             }
             if ( $t eq 'history_metrics' ) {
-                unless ($metrics_enabled) {
-                    ws_send_response($id, encode_json({type => 'history_metrics_result',
-                        status => 'error', error => 'metrics_disabled'}));
-                    return;
-                }
                 my $window = $m->{window} // '15m';
                 v040_metrics_async(
                     $window,
@@ -3065,7 +3056,6 @@ websocket '/ws' => sub($c) {
                 return;
             }
             if ( $t eq 'history_timeline' ) {
-                unless ($metrics_enabled) { ws_send_response($id, encode_json({type => 'history_timeline_result', status => 'error', error => 'metrics_disabled'})); return; }
                 my $window = $m->{window} // '15m';
                 v040_timeline_async(
                     $window,
@@ -3105,7 +3095,6 @@ websocket '/ws' => sub($c) {
                 return;
             }
             if ( $t eq 'maintenance_history_action' ) {
-                unless ($metrics_enabled) { ws_send_response($id, encode_json({type => 'maintenance_history_action_result', status => 'error', error => 'metrics_disabled'})); return; }
                 my $action = lc( $m->{action} // '' );
                 my $ids    = $m->{ids};
                 if ($maintenance_action_inflight) {
@@ -3175,7 +3164,6 @@ websocket '/ws' => sub($c) {
                 return;
             }
             if ($t eq 'history_limit_preview' || $t eq 'history_limit_apply') {
-                unless ($metrics_enabled) { ws_send_response($id, encode_json({type => $t.'_result', status => 'error', error => 'metrics_disabled'})); return; }
                 unless (($clients{$id}{priv} // 0) >= 9) {return}
                 my $action=$t;
                 my $cb=sub {
@@ -3191,7 +3179,6 @@ websocket '/ws' => sub($c) {
                 return;
             }
             if ( $t eq 'maintenance_snapshot' ) {
-                unless ($metrics_enabled) { ws_send_response($id, encode_json({type => 'maintenance_snapshot_result', status => 'error', error => 'metrics_disabled'})); return; }
                 v040_maintenance_async(
                     $m->{history_path},
                     sub {
