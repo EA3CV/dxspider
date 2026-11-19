@@ -2027,9 +2027,14 @@ our $pc92_acd_deferred_metrics;
 sub _pc92_acd_log
 {
     my (@args) = @_;
-    if ($pc92_acd_deferred_logs) { push @{$pc92_acd_deferred_logs}, \@args; }
-    else { Log(@args); }
+    if ($pc92_acd_deferred_logs) {
+		push @{$pc92_acd_deferred_logs}, \@args;
+	}
+    else {
+		LogDbg('pc92',  @args) if isdbg('pc92');
+	}
 }
+
 sub _pc92_acd_metric
 {
     my ($method, @args) = @_;
@@ -2158,7 +2163,7 @@ sub _add_thingy
 			}
 			if ($ip) {
 				$r->ip($ip);
-				_pc92_acd_log('DXProt', "PC92A $call -> $ip on $ncall");
+				_pc92_acd_log("PC92A $call -> $ip on $ncall") if isdbg('pc92');
 			}
 			if ($r && $pc92_slug_changes && $parent == $main::routeroot) {
 				dbg("add_thingy: $call in add($things_del{$call})") if isdbg('routelow');

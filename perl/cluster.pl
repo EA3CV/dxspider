@@ -406,24 +406,40 @@ sub new_channel
 
 		# Do the same sort of thing for "badspotters"
 		# Note: we are treating "badspotters" as "badusers" as well.
-		if ($DXProt::badspotter->in($call) || $DXProt::badspotter->in($basecall)) {
-			LogDbg('*', "$call on $call is in badspotter, disconnected");
-			$conn->disconnect;
-			return;
+		my $buser = $user || DXUser::get_current($basecall);
+		if ($buser && $buser->is_user ) {
+			if ($DXProt::badspotter->in($call) || $DXProt::badspotter->in($basecall)) {
+				LogDbg('*', "$call is in badspotter, disconnected");
+				$conn->disconnect;
+				return;
+			}
+		} elsif ($buser  && $buser->is_node) {
+			# And also badnodes....
+			if ($DXProt::badnode->in($call) || $DXProt::badnode->in($basecall)) {
+				LogDbg('*', "$call is in badnode, disconnected");
+				$conn->disconnect;
+				return;
+			}
+		} else {
+			# dunno, could be anyone, but if they are in my little lists then Byyyeeeee
+				if ($DXProt::badspotter->in($call) || $DXProt::badspotter->in($basecall)) {
+					LogDbg('*', "$call is in badspotter, disconnected");
+					$conn->disconnect;
+					return;
+				}
+				if ($DXProt::badnode->in($call) || $DXProt::badnode->in($basecall)) {
+					LogDbg('*', "$call is in badnode, disconnected");
+					$conn->disconnect;
+					return;
+			}
 		}
 
-		# And also badnodes....
-		if ($DXProt::badnode->in($call) || $DXProt::badnode->in($basecall)) {
-			LogDbg('*', "$call on $call is in badnode, disconnected");
-			$conn->disconnect;
-			return;
-		}
 	   
 		# If this user has a nextlogin time, is it > now?
 		if ($tmlinterval && $user) {
 			my $nextlogin = $user->{nextlogin} || 0;
 			my $atmax = $user->{nextloginatmax} || 0;
-			my $n =  @{$user->connlist} || 0;
+			my $n =  @{$user->{connlist}} || 0;
 			my $firstconn = 0;
 			my $lastconn = $user->{lastin} || $systime;
 			if ($n >= $DXUser::maxconnlist) {
@@ -555,7 +571,7 @@ sub new_channel
 			my ($callcount, @calls) = Route::basecall_no($user);
 			my $m = $user->is_node ? $maxconnect_node : $maxconnect_user;
 			if ($m && $callcount > $m+$allowmultiple) {
-				LogDbg('*', "$call has too many connections ($m) disconnected");
+				LogDbg('*', "$call has too many connections ($callcount > $m) disconnected");
 				DXHealth::connection_too_many($call, eval { $conn->peerhost } || '', $m, $callcount);
 				already_conn($conn, $call, DXM::msg($lang, 'contomany', $call, $m, join(' ', @calls)));
 				return;
