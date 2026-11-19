@@ -10,7 +10,7 @@ return (1, $self->msg('e5')) if $self->remotecmd;
 return (1, $self->msg('e5')) if $self->priv < 6;
 return (1, q{Please install Net::CIDR::Lite or libnet-cidr-lite-perl to use this command}) unless $DXCIDR::active;
 
-my @in = split /\s+/, $line;
+my @in = split /[,\s]+/, $line;
 my $suffix = 'local';
 $suffix = shift @in if $in[0] =~ /^[_\d\w]+$/;
 
