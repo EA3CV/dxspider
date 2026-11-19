@@ -439,7 +439,7 @@ sub new_channel
 		if ($tmlinterval && $user) {
 			my $nextlogin = $user->{nextlogin} || 0;
 			my $atmax = $user->{nextloginatmax} || 0;
-			my $n =  @{$user->{connlist}} || 0;
+			my $n =  $user->{connlist} ? @{$user->{connlist}} : 0;
 			my $firstconn = 0;
 			my $lastconn = $user->{lastin} || $systime;
 			if ($n >= $DXUser::maxconnlist) {
