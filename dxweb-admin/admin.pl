@@ -77,7 +77,7 @@ my $DXSPIDER_ROOT = $ENV{DXSPIDER_ROOT}
 # The file is shared read-only with DXWeb. Never accept a path from a client.
 my $SESSION_POLICY_PATH = "$DXSPIDER_ROOT/local_data/dxweb-session-policy.json";
 sub session_policy_default {
-    return { map { $_ => { enabled => \0, minutes => 15 } } qw(dxweb dxweb_admin) };
+    return { map { $_ => { enabled => JSON::PP::false, minutes => 15 } } qw(dxweb dxweb_admin) };
 }
 sub session_policy_valid($v) {
     return 0 unless ref($v) eq 'HASH' && keys(%$v) == 2;
