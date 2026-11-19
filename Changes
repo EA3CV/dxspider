@@ -3,6 +3,8 @@
    Added protection against undefined or empty addresses.
 2. DXSupervisor.pm: Fixed the is_self comparison to require both callsigns
    to be defined and non-empty.
+3. Fixed an issue where the operator idle timeout could be triggered even
+   when disabled. DXWeb Admin 2.0.15 and DXWeb 4.0.5 
 18Nov26======================================================================
 1. Reorganized DXReg commands according to the DXSpider command structure 
    request/register, show/register, accept/register, reject/register, ... 

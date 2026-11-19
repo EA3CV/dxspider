@@ -538,15 +538,14 @@ tasks. Configure /spider/local_cmd/crontab according to the node and its
 version. Do not duplicate existing tasks. Times follow
 the schedule interpreted by DXSpider.
 
+# Automatic compression debug and log files
+10 0 * * * spawn("$main::root/perl/compression.pl")
+
 # AutoUpdate BadIP
-33 * * * * run_cmd('download http://dxspider.dxcluster.net/download/badip.torexi
-    t')
-34 * * * * run_cmd('download http://dxspider.dxcluster.net/download/badip.torrel
-    ay')
-35 * * * * run_cmd('download http://dxspider.dxcluster.net/download/badip.global
-    ')
-36 * * * * run_cmd('download http://dxspider.dxcluster.net/download/badip.curate
-    d')
+33 * * * * run_cmd('download http://dxspider.dxcluster.net/download/badip.torexit')
+34 * * * * run_cmd('download http://dxspider.dxcluster.net/download/badip.torrelay')
+35 * * * * run_cmd('download http://dxspider.dxcluster.net/download/badip.global')
+36 * * * * run_cmd('download http://dxspider.dxcluster.net/download/badip.curated')
 40 * * * * run_cmd('load/badip')
 
 # AutoUpdate USDB
@@ -556,8 +555,7 @@ the schedule interpreted by DXSpider.
 9 1 * * * spawn('rm -f /spider/local_data/usdbraw.gz')
 
 # AutoUpdate Keps
-0 2 * * * run_cmd('download
-http://www.amsat.org/amsat/ftp/keps/current/nasabare.txt')
+0 2 * * * run_cmd('download http://www.amsat.org/amsat/ftp/keps/current/nasabare.txt')
 2 2 * * * spawn('/spider/perl/convkeps.pl -p /spider/local_data/nasabare.txt')
 6 2 * * * run_cmd('load/keps')
 9 2 * * * spawn('rm -f /spider/local_data/nasabare.txt')
