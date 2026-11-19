@@ -508,12 +508,11 @@ sub new_channel
 
 		# set up the basic channel info for "Normal" Users
 		# is there one already connected to me - locally?
-
 		$dxchan = DXChannel::get($call);
 		my $newcall = $call;
 		if ($dxchan) {
-			my $existing_host = $dxchan->conn->host;
-			my $new_host = $conn->host;
+			my $existing_host = $dxchan->conn->peerhost;
+			my $new_host = $conn->peerhost;
 			if ($user && $user->is_node) {
 				already_conn($conn, $call, DXM::msg($lang, 'conother', $call, $main::mycall));
 				return;
@@ -557,9 +556,8 @@ sub new_channel
 					$dxchan->send_now('D', "Another authenticated session on $existing_host  for $call on $new_host has replaced this connection.");
 					$dxchan->disconnect;
 				} else {
-					my $host = 
 					LogDbg('*', "$call on $existing_host - duplicate login from $new_host rejected; existing channel preserved");
-					already_conn($conn, $call, "Another session on $existing_host for $call from $host is already connected. Existing session preserved.");
+					already_conn($conn, $call, "Another session on $existing_host for $call from $new_host is already connected. Existing session preserved.");
 					return;
 				}
 			}
