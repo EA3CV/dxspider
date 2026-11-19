@@ -512,6 +512,8 @@ sub new_channel
 		$dxchan = DXChannel::get($call);
 		my $newcall = $call;
 		if ($dxchan) {
+			my $existing_host = $dxchan->conn->host;
+			my $new_host = $conn->host;
 			if ($user && $user->is_node) {
 				already_conn($conn, $call, DXM::msg($lang, 'conother', $call, $main::mycall));
 				return;
@@ -545,18 +547,19 @@ sub new_channel
 				# channel from an unauthenticated incoming connection.
 				# DXCommandmode authentication happens only after new().
 				# Until a verified takeover handshake is implemented,
-				# preserve the original channel regardless of bumpexisting.
+				# preserve the original channel regardless of bumpexisting
 				if ($conn->{session_takeover_verified} &&
 				    $conn->{session_takeover_target} &&
 				    $conn->{session_takeover_target} == $dxchan) {
 					delete $conn->{session_takeover_verified};
 					delete $conn->{session_takeover_target};
-					LogDbg('*', "$call authenticated session takeover accepted");
-					$dxchan->send_now('D', "Another authenticated session for $call has replaced this connection.");
+					LogDbg('*', "existing $call  on $existing_host authenticated session takeover from $new_host accepted");
+					$dxchan->send_now('D', "Another authenticated session on $existing_host  for $call on $new_host has replaced this connection.");
 					$dxchan->disconnect;
 				} else {
-					LogDbg('*', "$call duplicate login rejected; existing channel preserved");
-					already_conn($conn, $call, "Another session for $call is already connected. Existing session preserved.");
+					my $host = 
+					LogDbg('*', "$call on $existing_host - duplicate login from $new_host rejected; existing channel preserved");
+					already_conn($conn, $call, "Another session on $existing_host for $call from $host is already connected. Existing session preserved.");
 					return;
 				}
 			}
