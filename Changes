@@ -1,6 +1,8 @@
 19Nov26======================================================================
 1. Added checks for badspotter and badnode at login on non IntMsg incoming
    connections.
+2. Fix the maximum no of user/node connections code. Users = 12, nodes not
+   limited (but can be by parameter).
 16Nov26======================================================================
 1. Added comprehensive PC92 A/C/D diagnostics, including CPU/resource
    monitoring, transaction and rollback tracing, Route consistency checks
