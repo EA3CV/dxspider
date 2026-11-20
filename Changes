@@ -4,6 +4,7 @@
 2. Fix PC92 C records so that the node's slot has an IP address.
 3. Fixed PC92D routing loops caused by accepting deletion messages from
    unknown origin nodes.
+4. Fixed PC92K duplicate handling to match PC92A/C/D.
 19Nov26======================================================================
 1. Added checks for badspotter and badnode at login on non IntMsg incoming
    connections.

@@ -3268,7 +3268,7 @@ sub _pc92_handle_92_original
 
 	# Cheap read-only duplicate/old-ID rejection before RELAY or OBJECT work.
 	# check_pc9x_t remains the authoritative admission/update after validation.
-	if (($sort eq 'A' || $sort eq 'C' || $sort eq 'D')
+	if (($sort eq 'A' || $sort eq 'C' || $sort eq 'D' || $sort eq 'K')
 	    && _pc92_acd_early_duplicate($pcall, $t)) {
         $pc92_acd_reject_reason = 'duplicate_after_checkpoint' if $pc92_acd_prevalidated;
 		return;
@@ -3723,6 +3723,10 @@ sub _pc92_handle_92_original
 		_pc92_acd_route_event($self, 'route_pc16', $pcall, undef, $parent, @pc16) if @pc16;
 	}
 
+	# K uses the same bounded sequence watermark as A/C/D, but retains its
+	# original non-transactional handling. Commit only after successful K
+	# processing, before broadcasting, so a lost Route::Node cannot replay it.
+	_pc92_recent_commit($pcall, $t) if $sort eq 'K';
 	# Mark successful A/C/D admission only after all routing operations.
 	$pc92_acd_accepted = 1 if $sort eq 'A' || $sort eq 'C' || $sort eq 'D';
 	# Reaching here means an A/D/C/K survived the logical handling above.
