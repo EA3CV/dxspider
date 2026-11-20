@@ -998,6 +998,7 @@ sub setup_start
 	$routeroot->build($main::build);
 	$routeroot->do_pc9x(1);
 	$routeroot->via_pc92(1);
+	$routeroot->ip(DXPublicIP::normalize($clusteraddr));
 
 	# make sure that there is a routing OUTPUT node default file
 	#unless (Filter::read_in('route', 'node_default', 0)) {

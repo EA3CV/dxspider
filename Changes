@@ -1,3 +1,7 @@
+20Nov26======================================================================
+1. Only count users when determining whether there are too many connections
+   in the cluster with the same base call.
+2. Fix PC92 C records so that the node's slot has an IP address.
 19Nov26======================================================================
 1. Added checks for badspotter and badnode at login on non IntMsg incoming
    connections.

@@ -412,7 +412,7 @@ sub basecall_no
 	my $count;
 	my @calls;
 	my @keys;
-	push @keys, Route::Node::get_all_keys();
+#	push @keys, Route::Node::get_all_keys();
 	push @keys, Route::User::get_all_keys();
 	foreach my $key (grep {m/^${$patt}(?:-\d+)?$/} @keys ) {
 		dbg("base call: $base call: $key") if isdbg('routebase');
