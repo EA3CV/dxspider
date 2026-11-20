@@ -2597,6 +2597,50 @@ sub _pc92_acd_early_time_invalid
     return ($diff < $pc9x_time_tolerance || 86400 - $diff < $pc9x_time_tolerance) ? 0 : 1;
 }
 
+# Recently committed A/C/D sequence watermarks survive transient Route::Node
+# deletion. This is a short-lived, bounded in-memory supplement, not a route.
+# Update only after SQLite RELEASE; failed transactions never enter the cache.
+our %pc92_recent_committed;
+our $pc92_recent_sweep_at = 0;
+sub _pc92_recent_duplicate
+{
+    my ($origin, $t) = @_;
+    my $entry = $pc92_recent_committed{$origin} or return 0;
+    my $now = $main::systime;
+    if ($entry->[1] + $pc9x_time_tolerance < $now || $entry->[1] > $now + 5) {
+        delete $pc92_recent_committed{$origin};
+        return 0;
+    }
+    my $lastid = $entry->[0];
+    return $t + 86400 - $lastid > $pc9x_past_age ? 1 : 0 if $t < $lastid;
+    return 1 if $t == $lastid;
+    return $lastid + 86400 - $t < $pc9x_past_age ? 1 : 0;
+}
+sub _pc92_recent_commit
+{
+    my ($origin, $t) = @_;
+    return unless defined $origin && defined $t;
+    my $now = $main::systime;
+    my $existing = $pc92_recent_committed{$origin};
+    if ($existing && $existing->[1] + $pc9x_time_tolerance >= $now) {
+        return if _pc92_recent_duplicate($origin, $t);
+    }
+    $pc92_recent_committed{$origin} = [$t, $now];
+    if ($now >= ($pc92_recent_sweep_at || 0) + 30 || keys(%pc92_recent_committed) > 16384) {
+        $pc92_recent_sweep_at = $now;
+        for my $call (keys %pc92_recent_committed) {
+            my $stamp = $pc92_recent_committed{$call}[1];
+            delete $pc92_recent_committed{$call} if $stamp + $pc9x_time_tolerance < $now || $stamp > $now + 5;
+        }
+        # Bound memory by evicting the oldest cache entries, not all entries.
+        my $excess = keys(%pc92_recent_committed) - 16384;
+        if ($excess > 0) {
+            my @oldest = sort { $pc92_recent_committed{$a}[1] <=> $pc92_recent_committed{$b}[1] } keys %pc92_recent_committed;
+            delete $pc92_recent_committed{$_} for @oldest[0 .. $excess - 1];
+        }
+    }
+}
+
 # Read-only, constant-cost PC92 A/C/D sequence gate. No Route/DXUser mutation.
 # Preserve the exact modulo-day comparison used by check_pc9x_t.
 sub _pc92_acd_early_duplicate
@@ -2605,6 +2649,7 @@ sub _pc92_acd_early_duplicate
     return 0 unless defined $origin && length $origin;
     return 0 unless defined $t && $t =~ /\A\d+(?:\.\d+)?\z/ && $t >= 0 && $t < 86400;
     return 0 if $origin eq $main::mycall;
+    return 1 if _pc92_recent_duplicate($origin, $t);
     my $node = Route::Node::get($origin);
     return 0 unless $node;
     my $lastid = $node->lastid;
@@ -2907,7 +2952,8 @@ sub _pc92_acd_guarded
         $owner = $call if $call;
     }
     if ($owner ne $pcall && !Route::Node::get($owner)
-        && $pc->[3] ne 'A' && $pc->[3] ne 'C') {
+        && $pc->[3] ne 'A' && $pc->[3] ne 'C'
+        && $pc->[3] ne 'D') {
         _pc92_admission_trace($self, $pc, 'relay_parent_absent');
         return;
     }
@@ -2937,21 +2983,10 @@ sub _pc92_acd_guarded
             return;
         }
     }
-    # A D for an absent ORIGIN has no parent from which any advertised OBJECT
-    # can be removed. Treat each removal as a successful no-op, not a rejection:
-    # count the admitted packet and forward it under the ordinary A/D policy.
-    # No Route::Node or DXUser record is created merely to process a deletion.
+    # Match mojo: a D packet cannot establish a missing ORIGIN route.
+    # Reject before opening a SQL transaction or changing routing state.
     if ($pc->[3] eq 'D' && !Route::Node::get($pcall)) {
-        DXHealth::pc92_physical_in($self->{call}, 'D', length($line));
-        _pc92_acd_metric('pc92_received', 'D', length($line));
-        _pc92_acd_metric('protocol_origin_inc', 'accepted', $pcall, 92, length($line));
-        if ($pc92_ad_enabled) {
-            my $sent = _pc92_acd_broadcast($self, 'D', $pcall, $line);
-            if ($sent) {
-                DXHealth::pc92_forwarded('D', length($line));
-                DXHealth::protocol_origin_inc('forwarded', $pcall, 92, length($line));
-            }
-        }
+        _pc92_admission_trace($self, $pc, 'd_origin_absent');
         return;
     }
     # SQLite writes made by DXUser::put() are protected by a nested SAVEPOINT.
@@ -3067,6 +3102,9 @@ sub _pc92_acd_guarded
                       '; user_cache_rollback=' . ($users_ok ? 'OK' : $users_err));
         return;
     }
+    # Record the sequence only after successful SQL RELEASE. This protects
+    # transiently deleted Route::Node identities against replay/backflow.
+    _pc92_recent_commit($pcall, $t);
     # Read-only commit outcome trace for every accepted PC92 A/C/D, including
     # transactions with no deferred callbacks and no C recovery candidates.
     # This records a local SQLite savepoint release, not remote delivery.

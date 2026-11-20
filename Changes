@@ -2,6 +2,8 @@
 1. Only count users when determining whether there are too many connections
    in the cluster with the same base call.
 2. Fix PC92 C records so that the node's slot has an IP address.
+3. Fixed PC92D routing loops caused by accepting deletion messages from
+   unknown origin nodes.
 19Nov26======================================================================
 1. Added checks for badspotter and badnode at login on non IntMsg incoming
    connections.
@@ -18,9 +20,9 @@
 7. WebCluster USER_ADD now checks the same basecall-wide connection count,
    including unknown SSIDs (Web.pm).
 18Nov26======================================================================
-1. Reorganized DXReg commands according to the DXSpider command structure 
-   request/register, show/register, accept/register, reject/register, ... 
-   Updated multilingual help and documentation, and restricted ambiguous 
+1. Reorganized DXReg commands according to the DXSpider command structure
+   request/register, show/register, accept/register, reject/register, ...
+   Updated multilingual help and documentation, and restricted ambiguous
    abbreviations between show/register and show/registered.
 2. Modify Verify.pm
 3. Fixed a duplicate $ua declaration in download.pl
