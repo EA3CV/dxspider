@@ -409,26 +409,26 @@ sub new_channel
 		my $buser = $user || DXUser::get_current($basecall);
 		if ($buser && $buser->is_user ) {
 			if ($DXProt::badspotter->in($call) || $DXProt::badspotter->in($basecall)) {
-				LogDbg('*', "$call is in badspotter, disconnected");
+				LogDbg('*', "$call on $host is in badspotter, disconnected");
 				$conn->disconnect;
 				return;
 			}
 		} elsif ($buser  && $buser->is_node) {
 			# And also badnodes....
 			if ($DXProt::badnode->in($call) || $DXProt::badnode->in($basecall)) {
-				LogDbg('*', "$call is in badnode, disconnected");
+				LogDbg('*', "$call on $host is in badnode, disconnected");
 				$conn->disconnect;
 				return;
 			}
 		} else {
 			# dunno, could be anyone, but if they are in my little lists then Byyyeeeee
 				if ($DXProt::badspotter->in($call) || $DXProt::badspotter->in($basecall)) {
-					LogDbg('*', "$call is in badspotter, disconnected");
+					LogDbg('*', "$call on $host is in badspotter, disconnected");
 					$conn->disconnect;
 					return;
 				}
 				if ($DXProt::badnode->in($call) || $DXProt::badnode->in($basecall)) {
-					LogDbg('*', "$call is in badnode, disconnected");
+					LogDbg('*', "$call on $host is in badnode, disconnected");
 					$conn->disconnect;
 					return;
 			}
@@ -446,12 +446,12 @@ sub new_channel
 				$firstconn = $user->connlist->[0]->[0] || 0;
 			} 
 
-			dbg(sprintf "nextlogin: next: %s atmax: %s no conns: $n start: %s last in: %s", htime($nextlogin), htime($atmax), htime($firstconn), htime($lastconn)) if isdbg('chan');
+			dbg(sprintf "$call on $host nextlogin: next: %s atmax: %s no conns: $n start: %s last in: %s", htime($nextlogin), htime($atmax), htime($firstconn), htime($lastconn)) if isdbg('chan');
 				
 			
 			if ($user->{nextloginatmax} && $systime < $nextlogin) {
 				my $diff = $systime - $nextlogin;
-				dbg(sprintf "nextlogin max $call nextlogin %s still greater than systime %s ($diff secs), disconnect and wait", htime($nextlogin), htime($systime)) if isdbg('chan');
+				dbg(sprintf "$call on $host nextlogin max $call nextlogin %s still greater than systime %s ($diff secs), disconnect and wait", htime($nextlogin), htime($systime)) if isdbg('chan');
 				$user->close;
 				$conn->disconnect;
 				return;
@@ -463,28 +463,28 @@ sub new_channel
 					$l = $tmlmaxdelay;
 					$user->{nextlogin} = $user->{nextloginatmax} = $l + $systime;
 				}
-				dbg(sprintf "nextlogin \$nextlogin > \$systime  $call nextlogin: %s systime: %s", htime($nextlogin), htime($systime)) if isdbg('chan');
+				dbg(sprintf "$call on $host nextlogin \$nextlogin > \$systime  $call nextlogin: %s systime: %s", htime($nextlogin), htime($systime)) if isdbg('chan');
 				$tmlinplay{$call} = $user->{nextlogin};
 				$user->close;
 				eval { DXHealth::connection_rapid_throttled($call); 1 };
-				LogDbg('*', sprintf("nextlogin \$nextlogin > \$systime $call logging in too quickly, banned for $l seconds until %s CLOSING", htime($user->{nextlogin})));
+				LogDbg('*', sprintf("$call on $host nextlogin \$nextlogin > \$systime $call logging in too quickly, banned for $l seconds until %s CLOSING", htime($user->{nextlogin})));
 				$user->close;
 				already_conn($conn, $call, "new_channel nextlogin $call on $host is not allowed to login for another $l secs, disconnected" );
 				$conn->disconnect;
 				return;
 			} 	else {
 
-				dbg(sprintf "nextlogin $call lastconns: $n nextlogin: %s systime: %s", htime($nextlogin), htime($systime)) if isdbg('chan');
+				dbg(sprintf "$call on $host nextlogin $call lastconns: $n nextlogin: %s systime: %s", htime($nextlogin), htime($systime)) if isdbg('chan');
 
 				if ($n >= $DXUser::maxconnlist) {	# meaning it's full 
 					# the number of seconds since the start of the first conn -> end of the last conn
 					# in the list
 					my $diff = $lastconn - $firstconn; 
-					dbg(sprintf "nextlogin check connlist $call nextlogin: %s first: %s last: %s av: $diff tmlinterval: $tmlinterval systime: %s", htime($nextlogin), htime($firstconn), htime($lastconn), htime($systime)) if isdbg('chan');
+					dbg(sprintf "$call on $host nextlogin check connlist $call nextlogin: %s first: %s last: %s av: $diff tmlinterval: $tmlinterval systime: %s", htime($nextlogin), htime($firstconn), htime($lastconn), htime($systime)) if isdbg('chan');
 					if ( $diff <  $tmlinterval) {
 						my $l = $diff + $tmlinterval;
 						$user->nextlogin($l + $systime);
-						LogDbg('*', sprintf("nextlogin $call  tmlinterval: $tmlinterval secs diff: $diff secs login delayed for $l secs till %s CLOSING", htime($user->nextlogin)));
+						LogDbg('*', sprintf("$call on $host nextlogin $call  tmlinterval: $tmlinterval secs diff: $diff secs login delayed for $l secs till %s CLOSING", htime($user->nextlogin)));
 						#						already_conn($conn, $call, "new_channel nextlogin starting to exceed 3 attempts in $tmlinterval secs at $diff secs login delayed for $l secs till " . cldatetime($user->nextlogin));
 						$user->close;
 						$tmlinplay{$call} = $user->{nextlogin};
