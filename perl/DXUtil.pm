@@ -561,21 +561,19 @@ sub deleteitem
 # equivalent one in the (system) data directory then return that name rather than the system one
 sub localdata
 {
-	my $ifn = shift;
-	my $lfn = "$main::local_data/$ifn";
-	my $dfn =  "$main::data/$ifn";
-	
-	if (-e "$main::local_data") {
-		if ((-e $dfn) && (-e $lfn)) {
-			$lfn = $dfn if -M $dfn < -M $lfn;
-		} else {
-			$lfn = $dfn if -e $dfn;
-		}
-	} else {
-		$lfn = $dfn;
-	}
+    my $fn = shift;
+    my $lfn = "$main::local_data/$fn";
+    my $dfn = "$main::data/$fn";
 
-	return $lfn;
+    if ((-e $dfn) && (-e $lfn)) {
+        if ((stat($dfn))[9] > (stat($lfn))[9] ) {
+            copy($dfn, $lfn);
+        }
+    }
+    elsif (-e $dfn) {
+        copy($dfn, $lfn);
+    }
+    return $lfn;
 }
 
 # move a file or a directory from data -> local_data if isn't there already
