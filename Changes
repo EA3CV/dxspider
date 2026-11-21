@@ -2,6 +2,7 @@
 1. Fixed PC93 duplicate sequence handling across transient Route::Node loss.
 2. Restored DXUser::union() with efficient case-insensitive group matching.
    Fixed a potential infinite loop.
+3. Fix PC92K uninitialized value warnings in DXProtHandle.pm.
 20Nov26======================================================================
 1. Only count users when determining whether there are too many connections
    in the cluster with the same base call.
