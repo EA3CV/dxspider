@@ -1,3 +1,5 @@
+21Nov26======================================================================
+1. Fixed PC93 duplicate sequence handling across transient Route::Node loss.
 20Nov26======================================================================
 1. Only count users when determining whether there are too many connections
    in the cluster with the same base call.

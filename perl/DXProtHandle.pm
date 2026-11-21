@@ -3818,6 +3818,8 @@ sub handle_93
 	}
 
 	my $t = $pc->[2];
+	# Read-only sequence check also survives temporary Route::Node loss.
+	return if _pc92_acd_early_duplicate($pcall, $t);
 	my $parent = check_pc9x_t($pcall, $t, 93, 1) || return;
 
 	my $to = uc $pc->[3];
@@ -3882,6 +3884,9 @@ sub handle_93
 		DXHealth::protocol_logical_origin_line('accepted', $onode, $line);
 	}
 
+	# Keep the accepted PC93 ID after Route::Node deletion; all delivery paths
+	# (directed talk, chat, announce, broadcast) follow this point.
+	_pc92_recent_commit($pcall, $t);
 	$self->populate_routing_table($onode, $from, $ipaddr) if $pc61_extract_route;
 
 	# if it is routeable then then treat it like a talk
