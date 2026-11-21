@@ -3521,7 +3521,11 @@ sub _pc92_handle_92_original
 					my $lastchanged = $changed;
 					$user->priv(1), ++$changed unless defined $oldpriv && $oldpriv;
 					$user->lockout(1), ++$changed unless defined $oldlock;
-					dbg(sprintf "PCPROT: PC92 K rec, node $call updated priv: '$oldpriv'->%d lockout: '$oldlock'->%s", $user->priv || 0, $user->lockout || 0) if $lastchanged != $changed;
+					dbg(sprintf "PCPROT: PC92 K rec, node $call updated priv: '%s'->%d lockout: '%s'->%s",
+						defined $oldpriv ? $oldpriv : 'undef',
+						$user->priv || 0,
+						defined $oldlock ? $oldlock : 'undef',
+						$user->lockout || 0) if $lastchanged != $changed;
 				}
 				unless ($user->K) {
 					dbg(sprintf "PCPROT: PC92 K rec, node $call updated - marked as sending PC92 K records priv: %d lockout: %d ", $user->priv || 0, $user->lockout || 0);
