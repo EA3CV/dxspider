@@ -670,22 +670,19 @@ sub del_group
 }
 
 # does this thing contain all the groups listed?
-# sub union
-# {
-# 	my $self = shift;
-# 	my $ref = $self->{group};
-# 	my $n;
-	
-# 	return 0 if !$ref || @_ == 0;
-# 	return 1 if @$ref == 0 && @_ == 0;
-# 	for ($n = 0; $n < @_; ) {
-# 		for (@$ref) {
-# 			my $a = $_;
-# 			$n++ if grep $_ eq $a, @_; 
-# 		}
-# 	}
-# 	return $n >= @_;
-# }
+sub union
+{
+	my $self = shift;
+	my $ref = $self->{group};
+
+	return 0 unless $ref && @$ref && @_;
+
+	my %groups = map { uc($_) => 1 } @$ref;
+	for my $group (@_) {
+		return 0 unless defined $group && exists $groups{uc($group)};
+	}
+	return 1;
+}
 
 # simplified group test just for one group
 sub in_group
