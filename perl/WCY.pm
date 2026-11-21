@@ -256,15 +256,29 @@ sub readfile
 }
 
 # enter the spot for dup checking and return true if it is already a dup
+# Use the full bulletin-hour and the originating callsign as the duplicate identity.
+# The source is normalized in the same way as update() (base callsign).
+# Callers must check allowed_source() before inserting a duplicate key.
+sub allowed_source
+{
+    my ($source) = @_;
+    return 0 unless defined $source && length $source;
+    $source = uc $source;
+    $source =~ s/-\d+$//;
+    return 0 if @denied && grep { $_ eq $source } @denied;
+    return scalar(grep { $_ eq $source } @allowed) ? 1 : 0 if @allowed;
+    return 1;
+}
+
 sub dup
 {
-	my ($d) = @_; 
-
-	# dump if too old
-	return 2 if $d < $main::systime - $dupage;
- 
-	my $dupkey = "C$d";
-	return DXDupe::check_add($dupkey, $main::systime+$dupage);
+    my ($d, $source) = @_;
+    return 2 unless defined $d && defined $source && length $source;
+    return 2 if $d < $main::systime - $dupage;
+    $source = uc $source;
+    $source =~ s/-\d+$//;
+    my $dupkey = "C${d}:$source";
+    return DXDupe::check_add($dupkey, $main::systime+$dupage);
 }
 
 sub listdups

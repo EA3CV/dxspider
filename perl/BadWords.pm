@@ -21,113 +21,152 @@ our @relist; # the list of regexes to try, record = [canonical word, regex]
 my %in;	# the collection of words we are building up and their regexes
 
 
-# load the badwords file(s)
+# Load all badword sources without rewriting or converting their formats.
+# The extensionless historical file is a Data::Dumper DXHash object; .new
+# and other badword.* files are line-oriented word lists.
+sub _sources
+{
+    my $dir = $main::local_data;
+    opendir my $dh, $dir or return ();
+    my @files = sort map { "$dir/$_" }
+                grep { $_ eq 'badword' || /^badword\./ }
+                grep { -f "$dir/$_" } readdir $dh;
+    closedir $dh;
+    return @files;
+}
+
+sub _source_words
+{
+    my ($file) = @_;
+    my $fh = IO::File->new($file, 'r') or return (undef, "BadWords: can't open $file: $!");
+    my @words;
+    my $line = 0;
+    while (my $text = <$fh>) {
+        ++$line;
+        chomp $text;
+        $text =~ s/\r$//;
+        next if $text =~ /^\s*(?:#|$)/;
+        if ($file =~ m{/badword$}) {
+            # Parse only key/timestamp records. Never eval an untrusted file.
+            if ($text =~ /^\s*(?:'([^']+)'|([A-Za-z0-9_]+))\s*=>\s*\d+\s*,?\s*$/) {
+                my $key = defined $1 ? $1 : $2;
+                push @words, uc $key unless lc($key) eq 'name';
+            } elsif ($text =~ /^\s*name\s*=>/ || $text =~ /^\s*(?:bless\s*\(\s*\{|\}\s*,\s*'DXHash'\s*\))\s*$/) {
+                next;
+            } else {
+                $fh->close;
+                return (undef, "BadWords: invalid historical record $file:$line");
+            }
+        } else {
+            # Plain files: one or more words per line, comments permitted.
+            $text =~ s/\s+#.*$//;
+            push @words, split /\s+/, uc $text;
+        }
+    }
+    $fh->close;
+    return (\@words, undef);
+}
+
 sub load
 {
-	%in = ();
-	@relist = ();
-	$regex = '';
+    my @files = _sources();
+    my $newfn = localdata('badword.new');
+    if (!@files) {
+        filecopy("$main::data/badword.new.issue", $newfn) unless -e $newfn;
+        @files = _sources();
+    }
+    my @words;
+    for my $file (@files) {
+        my ($found, $error) = _source_words($file);
+        if ($error) {
+            dbg($error);
+            return ($error); # retain the previous active list on failure
+        }
+        push @words, @$found;
+    }
+    %in = ();
+    @relist = ();
+    $regex = '';
+    add_regex($_) for sort @words;
+    generate_regex();
+    dbg('BadWords: loaded ' . scalar(@relist) . ' unique entries from ' . scalar(@files) . ' files');
+    return ();
+}
 
-	my @inw;
-	my @out;
-	my $wasold;
-	
+sub _rewrite_source
+{
+    my ($file, $word) = @_;
+    my ($valid, $parse_error) = _source_words($file);
+    return $parse_error if $parse_error;
+    my $fh = IO::File->new($file, 'r') or return "BadWords: can't read $file: $!";
+    my @lines = <$fh>;
+    $fh->close;
+    my @kept;
+    my $removed = 0;
+    for my $line (@lines) {
+        my $entry;
+        if ($file =~ m{/badword$}) {
+            my ($quoted, $plain) = $line =~ /^\s*(?:'([^']+)'|([A-Za-z0-9_]+))\s*=>\s*\d+\s*,?\s*$/;
+            $entry = defined $quoted ? $quoted : $plain;
+        } else {
+            ($entry) = $line =~ /^\s*([^\s#]+)/;
+        }
+        if (defined $entry && _cleanword($entry) eq $word) {
+            ++$removed;
+            next;
+        }
+        push @kept, $line;
+    }
+    return (undef, 0) unless $removed;
+    require File::Temp;
+    require File::Basename;
+    my ($tmpfh, $tmp) = File::Temp::tempfile('.badword-XXXXXX', DIR => File::Basename::dirname($file), UNLINK => 0);
+    my $mode = (stat($file))[2] & 07777;
+    chmod $mode, $tmp;
+    my $written = print {$tmpfh} @kept;
+    my $closed = close($tmpfh);
+    unless ($written && $closed) {
+        unlink $tmp;
+        return ("BadWords: can't write $file: $!", 0);
+    }
+    unless (rename $tmp, $file) {
+        unlink $tmp;
+        return ("BadWords: can't replace $file: $!", 0);
+    }
+    return (undef, $removed);
+}
 
-	my $newfn = localdata("badword.new");
-	filecopy("$main::data/badword.new.issue", $newfn) unless -e $newfn;
-	if (-e $newfn) {
-		# new style
-		dbg("BadWords: Found new style badword.new file");
-		my $fh = new IO::File $newfn;
-		if ($fh) {
-			while (<$fh>) {
-				chomp;
-				next if /^\s*\#/;
-				add_regex(uc $_);
-			}
-			$fh->close;
-			@relist = sort {$a->[0] cmp $b->[0]} @relist; # just in case...
-			dbg("BadWords: " . scalar @relist . " new style badwords read");
-		}
-		else {
-			my $l = "BadWords: can't open $newfn $!";
-			dbg($l);
-			push @out, $l;
-			return @out;
-		}
-	}
-	else {
+sub add_word
+{
+    my ($word) = @_;
+    my $canonical = _cleanword($word);
+    return ('BadWords: invalid word') unless $canonical =~ /^\w+$/;
+    return ('BadWords: already defined') if $in{$canonical};
+    my $file = localdata('badword.new');
+    my $fh = IO::File->new($file, 'a') or return ("BadWords: can't append $file: $!");
+    print {$fh} "$canonical\n" or return ("BadWords: can't write $file: $!");
+    $fh->close or return ("BadWords: can't close $file: $!");
+    return load();
+}
 
-		# using old style files 
-		my $bwfn = localdata("badword");
-		filecopy("$main::data/badword.issue", $bwfn) unless -e $bwfn;
-	
-		# parse the existing static file
-		dbg("BadWords: Using old style badword file");
-	
-		my $fh = new IO::File $bwfn;
-		if ($fh) {
-			my $line = 0;
-			while (<$fh>) {
-				chomp;
-				++$line;
-				next if /^\s*\#/;
-				unless (/\w+\s+=>\s+\d+,/) {
-					dbg("BadWords: syntax error in $bwfn:$line '$_'");
-					next;
-				}
-				my @line =  split /\s+/, uc $_;
-				shift @line unless $line[0];
-				push @inw, $line[0];
-			}
-			$fh->close;
-		}
-		else {
-			my $l = "BadWords: can't open $bwfn $!";
-			dbg($l);
-			push @out, $l;
-			return @out;
-		}
-
-		# do the same for badw_regex
-		my $regexfn = localdata("badw_regex");
-		filecopy("$main::data/badw_regex.gb.issue", $regexfn) unless -e $regexfn;
-		dbg("BadWords: Using old style badw_regex file");
-		$fh = new IO::File $regexfn;
-	
-		if ($fh) {
-			while (<$fh>) {
-				chomp;
-				next if /^\s*\#/;
-				next if /^\s*$/;
-				push @inw, split /\s+/, uc $_;
-			}
-			$fh->close;
-		}
-		else {
-			my $l = "BadWords: can't open $regexfn $!";
-			dbg($l);
-			push @out, $l;
-			return @out;
-		}
-
-		++$wasold;
-	}
-
-	# catch most of the potential duplicates
-	@inw = sort @inw;
-	for (@inw) {
-		add_regex($_);
-	}
-	
-	# create the master regex
-	generate_regex();
-	
-	# use new style from now on
-	put() if $wasold;
-	
-
-	return @out;
+sub remove_word
+{
+    my ($word) = @_;
+    my $canonical = _cleanword($word);
+    return ('BadWords: invalid word') unless $canonical =~ /^\w+$/;
+    my @files = _sources();
+    for my $file (@files) {
+        my (undef, $err) = _source_words($file);
+        return ($err) if $err;
+    }
+    my $removed = 0;
+    for my $file (@files) {
+        my ($err, $n) = _rewrite_source($file, $canonical);
+        return ($err) if $err;
+        $removed += $n;
+    }
+    return ('BadWords: word not defined') unless $removed;
+    return load();
 }
 
 sub generate_regex

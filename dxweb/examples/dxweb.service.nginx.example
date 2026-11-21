@@ -1,0 +1,23 @@
+[Unit]
+Description=DXSpider dxweb
+After=network.target
+
+[Service]
+Type=simple
+User=sysop
+Group=spider
+WorkingDirectory=/spider/dxweb
+Environment=DXS_HOST=127.0.0.1
+Environment=DXS_PORT=27754
+Environment=HTTP_HOST=127.0.0.1
+Environment=HTTP_PORT=7480
+Environment=DXWEB_SCHEME=http
+Environment=MOJO_REVERSE_PROXY=1
+Environment=DXSPIDER_ROOT=/spider
+ExecStart=/usr/bin/perl /spider/dxweb/start.pl
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=8192:8192
+
+[Install]
+WantedBy=multi-user.target

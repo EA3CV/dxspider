@@ -12,7 +12,7 @@ my @out;
 
 #$DB::single=1;
 
-return (1, $self->msg('db3', 'QSL')) unless $QSL::dbm;
+return (1, $self->msg('db3', 'QSL')) unless $QSL::dbh;
 
 push @out, $self->msg('qsl1');
 foreach my $call (@call) {

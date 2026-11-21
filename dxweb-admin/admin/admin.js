@@ -1,0 +1,1857 @@
+/*
+ * DXSpider Web Supervision
+ *
+ * Client-side application for DXSpider web supervision and administration.
+ *
+ * Copyright (c) 2026 Dirk Koopman G1TLH
+ */
+// Release version is provided by /admin-version.json (dxweb-admin/VERSION).
+'use strict';
+const $=id=>document.getElementById(id);
+let adminCaptchaEnabled=null,adminCaptchaReady=false,adminCaptchaWidget=null,adminCaptchaPassed=false;
+let ws=null,authenticated=false,logoutPending=false,authUser=null,authPriv=0,activeSection='operation',activePanel='spots';const SYSOP_SECTIONS=new Set(['registration','supervision','metrics','timeline','liveDebugSection','terminalSection','networkChatSection']);
+// Server-authoritative terminal feature flag (default enabled for compatibility).
+let linuxTerminalEnabled=true;
+function applyLinuxTerminalAvailability(enabled){
+ linuxTerminalEnabled=enabled;
+ document.querySelectorAll('[data-section="terminalSection"], [data-v2-target="terminalSection"]').forEach(el=>{
+  el.hidden=!enabled;
+  el.style.display=enabled?'':'none';
+ });
+ const section=$('terminalSection');if(section)section.hidden=!enabled;
+ if(!enabled){terminalLocalClose();if(activeSection==='terminalSection')selectSection('operation')}
+}
+const networkChatMessages=[];
+let spotItems=[],spotCounts={human:0,rbn:0},logs={ann:[],wwv:[],wcy:[],wx:[]},cmdHistory=[],historyPos=0,pendingCommandTargets=[],pendingCommandNames=[],queuedPanelCommands=[];
+let pc92Previous=null;
+const supervisorInflight=new Set();
+const send=o=>{if(!(ws&&ws.readyState===WebSocket.OPEN))return false;ws.send(JSON.stringify(o).replace(/[\u007f-\uffff]/g,c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0')));return true};
+const esc=v=>String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function setCount(k,n){const e=document.querySelector(`[data-count="${k}"]`);if(e)e.textContent=String(n)}
+function setLocked(v){document.body.classList.toggle('locked',v)}
+function clearSessionContent(){liveDebugStop();logWindowsCloseAll();terminalDisconnect();
+ for(const id of ['spotBody','annOutput','wwvOutput','wcyOutput','wxOutput','filtersOutput','consoleOutput','pendingRows','historyRows','searchRows']){
+  const e=$(id);if(e)e.innerHTML='';
+ }
+ for(const k of Object.keys(logs||{})){logs[k]=[]}
+ pendingCommandTargets.length=0;pendingCommandNames.length=0;queuedPanelCommands.length=0;vfRules=[];vfCurrent=null;vfReadLines=[];vfReadActive=false;
+ if($('regSearch'))$('regSearch').value='';
+ if($('regActionResult'))$('regActionResult').textContent='';
+}
+// Spot font preference is per authenticated callsign and per web application.
+const spotFontKeyBase='dxspider.dxweb-admin.spotFont.';
+let spotFontPercent=100;
+function spotFontApply(value,save=false){
+ spotFontPercent=Math.max(70,Math.min(150,Math.round(value/10)*10));
+ const area=document.querySelector('#spots .spotResultArea');
+ if(area)area.style.setProperty('--spot-font-scale',String(spotFontPercent/100));
+ const reset=$('spotFontReset');if(reset)reset.textContent=spotFontPercent+' %';
+ if(save&&authenticated&&authUser){try{localStorage.setItem(spotFontKeyBase+authUser.toUpperCase(),String(spotFontPercent))}catch(_){}}
+ if(typeof updateSpotLayout==='function')updateSpotLayout();
+ if(save&&typeof spotPresentationSave==='function')spotPresentationSave();
+}
+function spotFontForSession(){
+ let value=100;
+ if(authenticated&&authUser){try{const saved=Number(localStorage.getItem(spotFontKeyBase+authUser.toUpperCase()));if(saved>=70&&saved<=150)value=saved}catch(_){}}
+ spotFontApply(value,false);
+}
+$('spotFontDown').onclick=()=>spotFontApply(spotFontPercent-10,true);
+$('spotFontUp').onclick=()=>spotFontApply(spotFontPercent+10,true);
+$('spotFontReset').onclick=()=>spotFontApply(100,true);
+
+// Console font is independent of Spots and stored for each authenticated callsign.
+const consoleFontKeyBase='dxspider.dxweb-admin.consoleFont.';
+let consoleFontPercent=100;
+function consoleFontApply(value,save=false){
+ consoleFontPercent=Math.max(70,Math.min(150,Math.round(value/10)*10));
+ const area=$('consoleOutput');if(area)area.style.fontSize=(13*consoleFontPercent/100)+'px';
+ const reset=$('consoleFontReset');if(reset)reset.textContent=consoleFontPercent+' %';
+ if(save&&authenticated&&authUser){try{localStorage.setItem(consoleFontKeyBase+authUser.toUpperCase(),String(consoleFontPercent))}catch(_){}}
+}
+function consoleFontRestore(){
+ let value=100;
+ if(authenticated&&authUser){try{const saved=Number(localStorage.getItem(consoleFontKeyBase+authUser.toUpperCase()));if(saved>=70&&saved<=150)value=saved}catch(_){}}
+ consoleFontApply(value,false);
+}
+$('consoleFontDown').onclick=()=>consoleFontApply(consoleFontPercent-10,true);
+$('consoleFontUp').onclick=()=>consoleFontApply(consoleFontPercent+10,true);
+$('consoleFontReset').onclick=()=>consoleFontApply(100,true);
+
+
+// Independent presentation-only zoom for Filters, ANN, WWV, WCY and CONTEST.
+// Spots and Console retain their existing, independently persisted controls.
+const panelZoomNames=['filters','ann','wwv','wcy','contest','liveDebug','terminal','networkChat'];
+const panelZoomLevels=Object.create(null);
+let terminalTerm=null,terminalFitAddon=null,terminalActive=false,terminalStarting=false;
+function panelZoomApply(panel,percent,save=false){
+ if(!panelZoomNames.includes(panel))return;
+ const value=Math.max(70,Math.min(150,Math.round(percent/10)*10));
+ panelZoomLevels[panel]=value;
+ const section=document.getElementById(panel);
+ if(!section)return;
+ section.style.setProperty('--panel-zoom',String(value/100));
+ // xterm.js renders glyphs on a canvas; CSS font-size does not scale it.
+ if(panel==='terminal'&&terminalTerm){
+  terminalTerm.options.fontSize=Math.round(13*value/100);
+  terminalFit();
+ }
+ const label=section.querySelector('[data-zoom-reset]');
+ if(label)label.textContent=value+' %';
+ if(save&&authenticated&&authUser){
+  try{localStorage.setItem('dxspider.dxweb-admin.panelZoom.'+authUser.toUpperCase()+'.'+panel,String(value))}catch(_){}
+ }
+}
+function panelZoomRestore(){
+ for(const panel of panelZoomNames){
+  let value=100;
+  if(authenticated&&authUser){
+   try{const saved=Number(localStorage.getItem('dxspider.dxweb-admin.panelZoom.'+authUser.toUpperCase()+'.'+panel));if(saved>=70&&saved<=150)value=saved}catch(_){}
+  }
+  panelZoomApply(panel,value);
+ }
+}
+for(const panel of panelZoomNames){
+ const control=document.querySelector('[data-zoom-panel="'+panel+'"]');
+ if(!control)continue;
+ control.addEventListener('click',event=>{
+  const button=event.target.closest('button');if(!button)return;
+  if(button.hasAttribute('data-zoom-reset'))panelZoomApply(panel,100,true);
+  else if(button.hasAttribute('data-zoom-step'))panelZoomApply(panel,(panelZoomLevels[panel]||100)+Number(button.dataset.zoomStep),true);
+ });
+}
+panelZoomRestore();
+
+// SSH connection preferences are scoped to this tab AND the authenticated SYSOP.
+// No password, SSH key, or authentication token is stored.
+const terminalSshPrefKey='dxweb-admin.terminal.ssh.v1';
+let terminalSshIdentity=null;
+function terminalSshClear(){
+ try{sessionStorage.removeItem(terminalSshPrefKey)}catch(_){}
+ terminalSshIdentity=null;
+ if($('terminalUser'))$('terminalUser').value='';
+ if($('terminalPort'))$('terminalPort').value='22';
+}
+function terminalSshForIdentity(call){
+ const identity=String(call||'').trim().toUpperCase();
+ if(!identity){terminalSshClear();return}
+ let saved=null;
+ try{saved=JSON.parse(sessionStorage.getItem(terminalSshPrefKey)||'null')}catch(_){}
+ if(saved&&saved.call!==identity){terminalSshClear();saved=null}
+ terminalSshIdentity=identity;
+ const user=$('terminalUser'),port=$('terminalPort');
+ if(user)user.value=saved&&typeof saved.user==='string'&&/^[a-zA-Z0-9_.-]{1,64}$/.test(saved.user)?saved.user:'';
+ if(port)port.value=saved&&Number.isInteger(saved.port)&&saved.port>=1&&saved.port<=65535?String(saved.port):'22';
+}
+function terminalSshSave(){
+ if(!authenticated||authPriv<9||!authUser||terminalSshIdentity!==String(authUser).toUpperCase())return;
+ const user=$('terminalUser')?.value.trim()||'',port=Number($('terminalPort')?.value);
+ if(!/^[a-zA-Z0-9_.-]{1,64}$/.test(user)||!Number.isInteger(port)||port<1||port>65535)return;
+ try{sessionStorage.setItem(terminalSshPrefKey,JSON.stringify({call:terminalSshIdentity,user,port}))}catch(_){}
+}
+let takeoverLogin=null;
+function loginState(ok,m={}){if(!ok){networkChatMessages.length=0;networkChatRender()} authenticated=ok;document.body.classList.toggle('authenticated',ok);authUser=ok?(m.call||authUser):null;authPriv=ok?Number(m.priv||0):0;document.querySelectorAll('#deleteUserOpen, #historyCompress, #historyDelete, #maintenanceUpdates button, .opCommandForm button, #consoleForm button, #filterForm button, #filters .filterBuilder button').forEach(b=>{b.disabled=ok&&authPriv<9;b.hidden=ok&&authPriv<9&&b.id==='deleteUserOpen'});document.querySelectorAll('.mainTabs [data-section]').forEach(b=>{const denied=ok&&authPriv<5&&SYSOP_SECTIONS.has(b.dataset.section);b.style.display='';b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 5':'';b.classList.toggle('sysopDenied',denied);b.style.filter=''});document.querySelectorAll('.v2NavBtn[data-v2-target]').forEach(b=>{const denied=ok&&authPriv<5&&SYSOP_SECTIONS.has(b.dataset.v2Target);b.disabled=denied;b.setAttribute('aria-disabled',denied?'true':'false');b.title=denied?'Requires DXSpider privilege 5':'';b.classList.toggle('sysopDenied',denied)});if(ok&&authPriv<5&&SYSOP_SECTIONS.has(activeSection))selectSection('operation');$('loginButton').textContent=ok?`Logout ${authUser}`:'Login';setLocked(!ok);spotFontForSession();consoleFontRestore();spotPresentationRestore();spotViewsRestore();panelZoomRestore();}
+function notice(t){$('noticeText').textContent=t;$('noticeDialog').showModal()}
+$('noticeClose').onclick=()=>$('noticeDialog').close();
+let adminCaptchaSiteKey=null;
+function adminCaptchaRender(){
+ const container=$('adminLoginTurnstile');
+ if(!container||!$('loginDialog').open||!adminCaptchaSiteKey||!window.turnstile||adminCaptchaReady)return;
+ container.hidden=false;
+ try{adminCaptchaWidget=window.turnstile.render(container,{sitekey:adminCaptchaSiteKey});adminCaptchaReady=true}
+ catch(err){console.error('Admin Turnstile render failed',err);$('loginError').textContent='Turnstile could not be displayed.'}
+}
+async function adminCaptchaInit(){
+ try {
+  const response=await fetch('./turnstile-config.json',{cache:'no-store'});
+  if(!response.ok)throw new Error('Turnstile configuration request failed');
+  const cfg=await response.json();
+  if(typeof cfg.enabled!=='boolean')throw new Error('Invalid Turnstile configuration');
+  adminCaptchaEnabled=cfg.enabled;
+  if(!adminCaptchaEnabled){
+   $('adminLoginTurnstile').hidden=true;
+   return;
+  }
+  if(!cfg.site_key)throw new Error('Turnstile enabled without site key');
+  const script=document.createElement('script');
+  script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+  script.async=true;
+  script.onload=()=>{adminCaptchaSiteKey=cfg.site_key;adminCaptchaRender()};
+  script.onerror=()=>{$('loginError').textContent='Turnstile could not be loaded.'};
+  document.head.appendChild(script);
+ }catch(err){
+  adminCaptchaEnabled=null;
+  console.error('Admin Turnstile configuration failed',err);
+  $('loginError').textContent='Turnstile configuration unavailable.';
+ }
+}
+adminCaptchaInit();
+function showLogin(msg=''){
+ if($('loginDialog').open){if(adminCaptchaEnabled===true)adminCaptchaRender();return}
+ $('loginError').textContent=msg;
+ $('loginDialog').showModal();
+ $('adminLoginTurnstile').hidden=adminCaptchaEnabled!==true||adminCaptchaPassed;
+ if(adminCaptchaEnabled===true&&!adminCaptchaPassed)adminCaptchaRender();
+ $('loginCall').focus();
+}
+function connect(){const proto=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${proto}://${location.host}${new URL("./ws",location.href).pathname}`);ws.onmessage=e=>{try{handle(JSON.parse(e.data))}catch(err){console.error('admin message error',err,e.data)}};ws.onclose=()=>{for(const b of new Set([...refreshWait.keys(),...refreshQueued.keys()]))refreshClear(b);adminCaptchaPassed=false;if(adminCaptchaReady)window.turnstile.reset(adminCaptchaWidget);pendingCommandTargets.length=0;pendingCommandNames.length=0;queuedPanelCommands.length=0;terminalLocalClose();supervisorInflight.clear();authenticated=false;logoutPending=false;loginState(false);$('status').textContent='disconnected';setTimeout(connect,2000)}}
+$('loginButton').onclick=()=>{if(authenticated){liveDebugStop();if(logoutPending)return;terminalSshClear();logoutPending=true;send({type:'logout'});$('loginButton').textContent='Logging out…'}else showLogin()};
+$('loginForm').addEventListener('submit',e=>{
+ e.preventDefault();
+ const call=$('loginCall').value.trim().toUpperCase(),password=$('loginPass').value;
+ if(!call||!password){$('loginError').textContent='Callsign and password are required.';return}
+ if(adminCaptchaEnabled===null){$('loginError').textContent='Turnstile configuration unavailable.';return}
+ let token='';
+ if(adminCaptchaEnabled===true&&!adminCaptchaPassed){
+  token=adminCaptchaReady&&window.turnstile?window.turnstile.getResponse(adminCaptchaWidget):'';
+  if(!token){$('loginError').textContent='Complete Turnstile verification before login.';return}
+ }
+ $('loginSubmit').disabled=true;
+ takeoverLogin={call,password};
+ if(!send({type:'auth',call,password,turnstile_token:token})){
+  $('loginSubmit').disabled=false;
+  $('loginError').textContent='DXSpider connection is not ready';
+  return;
+ }
+ $('loginPass').value='';
+});
+function selectSection(id){if(id!==activeSection)for(const b of new Set([...refreshWait.keys(),...refreshQueued.keys()]))refreshClear(b);if(id==='terminalSection'&&!linuxTerminalEnabled)return;if(authenticated&&(id==='liveDebugSection'||id==='terminalSection'||id==='networkChatSection')&&authPriv<9)return;if(authenticated&&authPriv<5&&SYSOP_SECTIONS.has(id))return;activeSection=id;document.querySelectorAll('.mainTabs button').forEach(b=>b.classList.toggle('active',b.dataset.section===id));document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.id===id));if(authenticated&&id==='registration')loadPending();if(authenticated&&id==='supervision')selectSupervision(activeSupervisionPanel);if(authenticated&&id==='metrics')requestMetrics();if(authenticated&&id==='timeline')requestTimeline();if(id!=='liveDebugSection'&&liveDebugFollowing)liveDebugStop();if(id==='terminalSection')setTimeout(terminalFit,30);if(id==='consoleSection')requestAnimationFrame(()=>{$('consoleCommand')?.focus({preventScroll:true})})}
+document.querySelectorAll('.mainTabs button[data-section]').forEach(b=>b.onclick=()=>{if(b.disabled||b.getAttribute('aria-disabled')==='true')return;selectSection(b.dataset.section)});
+$('quickConsole').onclick=()=>{selectSection('consoleSection');$('consoleCommand').focus()};
+function selectPanel(id){activePanel=id;document.querySelectorAll('#operationTabs button').forEach(b=>b.classList.toggle('active',b.dataset.panel===id));document.querySelectorAll('#operation .panel').forEach(p=>p.classList.toggle('active',p.id===id));if(id==='console')requestAnimationFrame(()=>{$('consoleCommand')?.focus({preventScroll:true})})}
+document.querySelectorAll('#operationTabs button').forEach(b=>b.onclick=()=>selectPanel(b.dataset.panel));
+function selectReg(id){document.querySelectorAll('#registrationTabs button').forEach(b=>b.classList.toggle('active',b.dataset.regpanel===id));document.querySelectorAll('.regPanel').forEach(p=>p.classList.toggle('active',p.id===id));if(authenticated&&id==='pending')loadPending();if(authenticated&&id==='history')loadHistory()}
+document.querySelectorAll('#registrationTabs button').forEach(b=>b.onclick=()=>selectReg(b.dataset.regpanel));
+
+// Only one DXSpider command may be in flight on a WebChannel user.
+// Preserve the issuing panel across asynchronous/chunked responses.
+function dispatchNextPanelCommand(){
+ if(pendingCommandTargets.length||!queuedPanelCommands.length)return;
+ const next=queuedPanelCommands[0];
+ if(!send({type:'command',command:next.cmd}))return;
+ queuedPanelCommands.shift();
+ pendingCommandTargets.push(next.target);pendingCommandNames.push(next.cmd);
+}
+
+function command(cmd,target='console'){if(!authenticated||authPriv<9)return;cmd=cmd.trim();if(!cmd)return;if(!cmdHistory.length||cmdHistory.at(-1)!==cmd)cmdHistory.push(cmd);historyPos=cmdHistory.length;if(target==='console'){const l=document.createElement('div');l.className='consoleCommandLine';l.textContent=`> ${cmd}`;$('consoleOutput').appendChild(l)}queuedPanelCommands.push({cmd,target});dispatchNextPanelCommand();}
+$('consoleForm').addEventListener('submit',e=>{e.preventDefault();const v=$('consoleCommand').value;$('consoleCommand').value='';command(v,'console')});
+$('filterForm').addEventListener('submit',e=>{e.preventDefault();const v=$('filterCommand').value;$('filterCommand').value='';command(v,'filters')});
+const filterBandCatalog={"bands":{"73khz":["band"],"136khz":["band"],"500khz":["band"],"160m":["band","cw","data","ft8","rtty","ssb"],"80m":["band","cw","data","ft4","ft8","rtty","ssb","sstv"],"60m":["band","cw","data","ssb"],"40m":["band","cw","data","ft4","ft8","rtty","ssb"],"30m":["band","cw","data","ft4","ft8","rtty"],"20m":["band","beacon","cw","data","ft4","ft8","rtty","ssb","sstv"],"17m":["band","beacon","cw","data","ft4","ft8","rtty","ssb"],"15m":["band","beacon","cw","data","ft4","ft8","rtty","ssb"],"12m":["band","beacon","cw","data","ft4","ft8","rtty","ssb"],"10m":["band","beacon","cw","data","ft4","ft8","rtty","space","ssb"],"8m":["band"],"6m":["band","beacon","cw","data","ft4","ft8","ssb"],"5m":["band"],"4m":["band","beacon","cw","ssb"],"2m":["band","beacon","cw","ssb"],"220":["band"],"70cm":["band"],"902":["band"],"23cm":["band"],"13cm":["band"],"9cm":["band","beacon","sat"],"6cm":["band","beacon","data","sat"],"3cm":["band"],"12mm":["band"],"6mm":["band","beacon"],"4mm":["band","beacon"],"122g":["band"],"134g":["band","beacon"],"241g":["band","beacon"],"band1":["band"],"band2":["band"],"band3":["band"],"band4":["band"],"band5":["band"],"military":["band"],"aircraft":["band"],"pmrlow":["band"],"pmrmid":["band"],"pmrhigh":["band"],"pmruhf":["band"],"hf":["band"],"vhf":["band"],"lband":["band"],"sband":["band"],"cband":["band"],"xband":["band"],"kuband":["band"],"kband":["band"],"kaband":["band"],"vband":["band"],"wband":["band"],"gband":["band"],"630m":["band"],"24g":["band"],"47g":["band","beacon"],"76g":["band","beacon"]},"regions":{"vlf":["73khz","136khz","630m"],"hf":["160m","80m","60m","40m","30m","20m","17m","15m","12m","10m"],"contesthf":["160m","80m","40m","20m","15m","10m"],"vhf":["8m","6m","5m","4m","2m","220"],"vhfradio":["band1","band2"],"vhftv":["band1","band3"],"uhf":["70cm","902","23cm","13cm"],"uhftv":["band4","band5"],"shf":["9cm","6cm","3cm","24g"],"ehf":["47g","76g","134g","241g"],"pmr":["pmrlow","pmrmid","pmrhigh","pmruhf"],"spe":["10m","8m","6m","5m","4m","2m"],"warc":["60m","30m","17m","12m"],"dsn":["23cm","9cm","6cm","3cm","24g","47g","76g","134g","241g"],"all":["73khz","136khz","630m","160m","80m","60m","40m","30m","20m","17m","15m","12m","10m","8m","6m","5m","4m","2m","220","70cm","902","23cm","9cm","6cm","3cm","24g","47g","76g","134g","241g"]},"aliases":{"630m":"500khz","24g":"12mm","47g":"6mm","76g":"4mm"}};
+// Compact filter editor. Local drafts are never sent until Save/Delete.
+let vfRules=[],vfCurrent=null,vfHistory=[],vfReadLines=[],vfReadActive=false,vfSeq=1;
+// Native Spot::$filterdef tags, not UI-invented aliases. RBN-only controls are a UI restriction.
+const vfCommonFields=[
+ ['call','DX · Callsign'],['call_dxcc','DX · DXCC'],['call_zone','DX · CQ Zone'],['call_itu','DX · ITU Zone'],
+ ['spotter','Spotter · Callsign'],['by_dxcc','Spotter · DXCC'],['by_zone','Spotter · CQ Zone'],['by_itu','Spotter · ITU Zone'],
+ ['on','Frequency · Band'],['freq','Frequency · Range'],['info','Comment']
+];
+const vfRbnFields=[['db','RBN · dB'],['q','RBN · Q']];
+const vfFields=()=>vfCommonFields.concat($('filterFamily').value==='rbn'?vfRbnFields:[]);
+const vfNativeAlias={dxcc:'call_dxcc',cq:'call_zone',zone:'call_zone',itu:'call_itu',by:'spotter',byzone:'by_zone',bycq:'by_zone',byitu:'by_itu'};
+const vfSimple=/^([a-z_]+)\s+([^\s()]+)$/i;
+const vfClone=x=>JSON.parse(JSON.stringify(x));
+function vfSnapshot(){vfHistory.push({rules:vfClone(vfRules),current:vfClone(vfCurrent)});if(vfHistory.length>60)vfHistory.shift();$('vfUndo').disabled=false}
+// Parse native AND/OR/NOT with balanced parentheses into an editable tree.
+function vfParse(expr){
+ const tokens=String(expr).match(/\(|\)|\b(?:and|or|not)\b|[^\s()]+/gi)||[];let pos=0;
+ const atom=()=>{if(tokens[pos]==='('){pos++;const v=disjunction();if(tokens[pos++]!==')')throw Error('Unbalanced parentheses');return v}
+  if(/^not$/i.test(tokens[pos]||'')){pos++;return {type:'not',child:atom()}}
+  const field=tokens[pos++],value=tokens[pos++];if(!field||!value||/[()]/.test(value)||/^(and|or|not)$/i.test(value))throw Error('Invalid condition');
+  const native=field.toLowerCase(),canonical=vfNativeAlias[native]||native;
+  if(!vfFields().some(f=>f[0]===canonical))throw Error('Unsupported native field');
+  return {type:'term',id:vfSeq++,field:native,value};};
+ const conjunction=()=>{let parts=[atom()];while(/^and$/i.test(tokens[pos]||'')){pos++;parts.push(atom())}return parts.length===1?parts[0]:{type:'group',op:'and',children:parts}};
+ const disjunction=()=>{let parts=[conjunction()];while(/^or$/i.test(tokens[pos]||'')){pos++;parts.push(conjunction())}return parts.length===1?parts[0]:{type:'group',op:'or',children:parts}};
+ try{const tree=disjunction();if(pos!==tokens.length)throw Error('Trailing tokens');return tree}catch(_){return null}
+}
+function vfSerialize(node){if(!node)return '';if(node.type==='term')return `${node.field} ${node.value.trim()}`;
+ if(node.type==='not')return `not ( ${vfSerialize(node.child)} )`;
+ return node.children.map(n=>{const value=vfSerialize(n);return n.type==='group'?`(${value})`:`( ${value} )`}).join(` ${node.op} `);}
+function vfBandOrder(a,b){
+ const classify=s=>/^[0-9]+m$/.test(s)?0:/^[0-9]+cm$/.test(s)?1:/^[0-9]+mm$/.test(s)?2:/^[0-9]+g$/.test(s)?3:/^[0-9]+khz$/.test(s)?4:/^[0-9]+$/.test(s)?5:6;
+ const x=classify(a),y=classify(b);return x-y||(x===6?a.localeCompare(b):Number.parseInt(a,10)-Number.parseInt(b,10));
+}
+function vfNodeTerm(){return {type:'term',id:vfSeq++,field:'call',value:''}}
+function vfWalk(root,id,cb){if(!root)return root;if(root.id===id)return cb(root);if(root.type==='group')root.children=root.children.map(n=>vfWalk(n,id,cb)).filter(Boolean);else if(root.type==='not')root.child=vfWalk(root.child,id,cb);return root}
+function vfPopulateExisting(lines){
+ const family=$('filterFamily').value;let seenFamily='',input=false;const found=[];
+ for(const line of lines){
+  const hd=line.match(/^\s*(\S+)\s+:\s+(spots|rbn)(?:\s+(input))?\s*$/i);
+  if(hd){seenFamily=hd[2].toLowerCase();input=!!hd[3];continue}
+  const m=line.match(/^\s*filter([0-9])\s+(accept|reject)\s+(.+)$/i);
+  if(m&&seenFamily===family&&!input&&Number(m[1])>=1)found.push({id:vfSeq++,position:m[1],action:m[2].toLowerCase(),expression:m[3].trim()});
+ }
+ vfRules=found;vfCurrent=null;vfHistory=[];$('vfUndo').disabled=true;vfRender();
+}
+function vfRender(){
+ const box=$('vfRules');box.replaceChildren();
+ if(!vfRules.length){const e=document.createElement('span');e.textContent='No output rules loaded for this family';box.append(e)}
+ for(const r of vfRules){const row=document.createElement('div');row.className='vf-rule';
+  const edit=document.createElement('button');edit.type='button';edit.textContent=`#${r.position} ${r.action.toUpperCase()}  ${r.expression}`;edit.title='Edit this rule';edit.onclick=()=>vfOpen(r);row.append(edit);
+  const del=document.createElement('button');del.type='button';del.textContent='×';del.title='Delete rule';del.onclick=()=>vfDeleteRule(r);row.append(del);box.append(row)}
+ $('vfEditor').hidden=!vfCurrent;if(!vfCurrent)return;
+ $('vfTitle').textContent=vfCurrent.existing?'Edit rule':'New rule';$('filterPosition').value=vfCurrent.position;$('filterAction').value=vfCurrent.action;
+ $('vfAdvancedArea').hidden=!vfCurrent.advanced;$('vfAdvancedDiscard').hidden=true;$('vfAdvanced').textContent=vfCurrent.advanced?'← Back to visual editor':'Advanced';$('filterExpression').value=vfCurrent.expression;
+ vfRenderConditions();vfPreview();
+}
+function vfOpen(r){vfSnapshot();vfCurrent={...vfClone(r),existing:true,tree:vfParse(r.expression),advanced:false};vfCurrent.advanced=!vfCurrent.tree;vfRender()}
+function vfNew(){vfSnapshot();const used=new Set(vfRules.map(r=>r.position));const position=Array.from({length:9},(_,i)=>String(i+1)).find(n=>!used.has(n));if(!position){$('vfStatus').textContent='All 9 positions are in use';return}
+ vfCurrent={id:vfSeq++,position,action:'reject',expression:'',tree:null,advanced:false,existing:false};vfRender()}
+function vfExpression(){return vfCurrent.advanced?$('filterExpression').value.trim():vfSerialize(vfCurrent.tree)}
+// Locate balanced parenthesis pairs which contain a top-level AND/OR.
+// Leaf term parentheses are intentionally not decorated.
+function vfPreviewGroups(expression){
+ const stack=[],groups=[];let quote=null,escaped=false;
+ for(let i=0;i<expression.length;i++){
+  const c=expression[i];
+  if(quote){if(escaped)escaped=false;else if(c==='\\')escaped=true;else if(c===quote)quote=null;continue}
+  if(c==='"'||c==="'"){quote=c;continue}
+  if(c==='(')stack.push(i);
+  else if(c===')'&&stack.length){const start=stack.pop(),inside=expression.slice(start+1,i);
+   let depth=0,operator=false,token='';
+   const flush=()=>{if(depth===0&&/^(and|or)$/i.test(token))operator=true;token=''};
+   for(const ch of inside){if(ch==='('){flush();depth++}else if(ch===')'){flush();depth--}else if(/\s/.test(ch)){flush()}else if(depth===0)token+=ch}
+   flush();if(operator)groups.push({start:start+1,end:i});
+  }
+ }
+ // The outermost boolean group is serialized without enclosing parentheses.
+ // Draw its span as well, excluding the command header (reject/spots N).
+ const header=expression.match(/^\s*(?:accept|reject)\/(?:spots|rbn)\s+[0-9]+\s+/i);
+ if(header){
+  let start=header[0].length,end=expression.length;
+  while(start<end&&/\s/.test(expression[start]))start++;
+  while(end>start&&/\s/.test(expression[end-1]))end--;
+  // Only a composite expression has a root group to draw.
+  let depth=0,hasRootOperator=false,token='';
+  const flushRoot=()=>{if(depth===0&&/^(and|or)$/i.test(token))hasRootOperator=true;token=''};
+  for(let i=start;i<end;i++){
+   const c=expression[i];
+   if(c==='('){flushRoot();depth++}
+   else if(c===')'){flushRoot();depth--}
+   else if(/\s/.test(c)){flushRoot()}
+   else if(depth===0)token+=c;
+  }
+  flushRoot();
+  if(hasRootOperator&&!groups.some(g=>g.start===start&&g.end===end))groups.push({start,end,root:true});
+ }
+ return groups.sort((a,b)=>(a.end-a.start)-(b.end-b.start));
+}
+function vfDrawPreview(expression){
+ const host=$('vfPreviewVisual');host.replaceChildren();
+ const groups=vfPreviewGroups(expression),line=document.createElement('div');
+ line.className='vf-preview-line';line.textContent=expression;
+ const top=Math.max(1,...groups.filter((_,i)=>i%2===1).map((_,i)=>i+1));
+ const bottom=Math.max(1,...groups.filter((_,i)=>i%2===0).map((_,i)=>i+1));
+ // One lane per alternating side; overlapping nested spans never hide each other.
+ const above=groups.filter((_,i)=>i%2===1).length,below=groups.filter((_,i)=>i%2===0).length;
+ line.style.marginTop=`${above*7+4}px`;line.style.marginBottom=`${below*7+4}px`;
+ host.append(line);
+ const palette=['#0066ff','#ff0000','#ffff00','#000000','#808080'];
+ groups.forEach((g,i)=>{if(g.end<=g.start)return;const bar=document.createElement('span');bar.className='vf-preview-bar';
+  const side=i%2===0?'bottom':'top',lane=Math.floor(i/2);
+  bar.style.left=`${g.start}ch`;bar.style.width=`${g.end-g.start}ch`;
+  bar.style.backgroundColor=palette[i%palette.length];if(i%palette.length===2)bar.style.boxShadow='0 0 0 0.5px #a68b00';bar.style[side]=`${-8-lane*7}px`;
+  bar.title=`Group ${i+1}: ${expression.slice(g.start,g.end)}`;line.append(bar);
+ });
+}
+function vfPreview(){if(!vfCurrent)return;vfCurrent.expression=vfExpression();const expression=vfCurrent.expression?`${vfCurrent.action}/${$('filterFamily').value} ${vfCurrent.position} ${vfCurrent.expression}`:'Add a condition';$('filterPreviewText').textContent=expression;vfDrawPreview(expression);}
+function vfRenderConditions(){const box=$('vfConditions');box.replaceChildren();if(vfCurrent.advanced)return;
+ const addButton=(parent,label,fn)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=()=>{vfSnapshot();fn();vfRender()};parent.append(b)};
+ const renderNode=(node,host,parent=null,index=0)=>{
+  const row=document.createElement('div');row.className='vf-node '+(node.type==='group'?'vf-group':'');if(node.type==='group'){const depth=(()=>{let d=0,p=host;while(p&&p!==box){if(p.classList?.contains('vf-group'))d++;p=p.parentElement}return d})();row.style.setProperty('--vf-depth',String(depth));row.dataset.logic=node.op.toUpperCase();}host.append(row);
+  if(node.type==='group'){
+   const header=document.createElement('div');header.className='vf-grouphead';header.dataset.label='GROUP';row.append(header);
+   const op=document.createElement('select');for(const x of ['and','or'])op.add(new Option(x.toUpperCase(),x));op.value=node.op;op.onchange=()=>{vfSnapshot();node.op=op.value;row.dataset.logic=node.op.toUpperCase();vfPreview()};header.append(op);
+   addButton(header,'+ Condition',()=>node.children.push(vfNodeTerm()));
+   addButton(header,'+ Group',()=>node.children.push({type:'group',op:'or',children:[vfNodeTerm(),vfNodeTerm()]}));
+   if(parent)addButton(header,'×',()=>parent.children.splice(index,1));
+   node.children.forEach((child,i)=>renderNode(child,row,node,i));return;
+  }
+  if(node.type==='not'){
+   const label=document.createElement('strong');label.textContent='NOT';row.append(label);renderNode(node.child,row);return;
+  }
+  const field=document.createElement('select');for(const [id,label] of vfFields())field.add(new Option(label,id));if(!vfFields().some(f=>f[0]===node.field))field.add(new Option(node.field+' (native)',node.field));field.value=node.field;row.append(field);
+  const slot=document.createElement('span');slot.className='vf-value';row.append(slot);
+  const renderValue=()=>{slot.replaceChildren();if(node.field==='on'){
+   const details=document.createElement('details');const summary=document.createElement('summary');summary.textContent=node.value||'Select bands';details.append(summary);
+   const choices=document.createElement('div');choices.className='vf-bandchoices';const selected=new Set(node.value.split(',').filter(Boolean));
+   for(const band of Object.keys(filterBandCatalog.bands).sort(vfBandOrder)){const label=document.createElement('label'),cb=document.createElement('input');cb.type='checkbox';cb.checked=selected.has(band);cb.onchange=()=>{vfSnapshot();if(cb.checked)selected.add(band);else selected.delete(band);node.value=[...selected].join(',');summary.textContent=node.value||'Select bands';vfPreview()};label.append(cb,document.createTextNode(band));choices.append(label)}details.append(choices);slot.append(details);
+  }else if(/(?:zone|itu)/.test(node.field)){
+   const select=document.createElement('select');select.add(new Option('Zone…',''));const max=/(?:itu)/.test(node.field)?90:40;for(let n=1;n<=max;n++)select.add(new Option(String(n),String(n)));if(node.value&&!Array.from(select.options).some(o=>o.value===node.value))select.add(new Option(node.value,node.value));select.value=node.value;select.onchange=()=>{vfSnapshot();node.value=select.value;vfPreview()};slot.append(select);
+  }else{const input=document.createElement('input');input.value=node.value;input.size=/^(call|spotter)$/.test(node.field)?20:/dxcc/.test(node.field)?6:/(?:^db$|^q$)/.test(node.field)?5:12;input.maxLength=/^(call|spotter)$/.test(node.field)?20:256;input.placeholder=/dxcc/.test(node.field)?'Prefix / number':'Value';input.onfocus=()=>vfSnapshot();input.oninput=()=>{node.value=input.value;vfPreview()};slot.append(input)}};
+  field.onchange=()=>{vfSnapshot();node.field=field.value;node.value='';renderValue();vfPreview()};renderValue();
+  addButton(row,'×',()=>{if(parent)parent.children.splice(index,1);else vfCurrent.tree=null});
+  if(parent&&parent.type==='group'&&parent.children.length>1){addButton(row,'↑',()=>{if(index>0)[parent.children[index-1],parent.children[index]]=[parent.children[index],parent.children[index-1]]});addButton(row,'↓',()=>{if(index<parent.children.length-1)[parent.children[index+1],parent.children[index]]=[parent.children[index],parent.children[index+1]]});}
+ };
+ if(vfCurrent.tree)renderNode(vfCurrent.tree,box);
+ else{const hint=document.createElement('small');hint.textContent='Empty rule — add a condition or group';box.append(hint)}
+}
+function vfDeleteRule(r){if(!confirm(`Delete ${$('filterFamily').value} rule ${r.position} (${r.action})?`))return;if(!(authenticated&&authPriv>=9)){notice('Privilege 9 required.');return}command(`clear/${$('filterFamily').value} ${r.position}`,'filters');vfRules=vfRules.filter(x=>x.id!==r.id);if(vfCurrent?.id===r.id)vfCurrent=null;vfHistory=[];$('vfUndo').disabled=true;vfRender()}
+$('filterLoad').onclick=()=>{vfCurrent=null;vfRender();command(`show/filter ${$('filterFamily').value}`,'filters')};
+$('filterFamily').onchange=()=>{vfRules=[];vfCurrent=null;vfHistory=[];$('vfUndo').disabled=true;vfRender();command(`show/filter ${$('filterFamily').value}`,'filters')};
+$('vfNew').onclick=vfNew;
+$('vfUndo').onclick=()=>{const last=vfHistory.pop();if(!last)return;vfRules=last.rules;vfCurrent=last.current;$('vfUndo').disabled=!vfHistory.length;vfRender()};
+$('vfDiscard').onclick=()=>{vfCurrent=null;vfRender()};
+$('filterPosition').onchange=()=>{vfSnapshot();vfCurrent.position=$('filterPosition').value;vfPreview()};
+$('filterAction').onchange=()=>{vfSnapshot();vfCurrent.action=$('filterAction').value;vfPreview()};
+$('vfAdd').onclick=()=>{if(!vfCurrent)return;if(vfCurrent.advanced){$('vfStatus').textContent='Advanced expressions cannot be edited as visual blocks';return}vfSnapshot();if(!vfCurrent.tree)vfCurrent.tree=vfNodeTerm();else if(vfCurrent.tree.type==='group'&&vfCurrent.tree.op===$('vfJoin').value)vfCurrent.tree.children.push(vfNodeTerm());else if(vfCurrent.tree.type==='group')vfCurrent.tree={type:'group',op:$('vfJoin').value,children:[vfCurrent.tree,vfNodeTerm()]};else vfCurrent.tree={type:'group',op:$('vfJoin').value,children:[vfCurrent.tree,vfNodeTerm()]};vfRender()};
+$('vfWrapAnd').onclick=()=>{if(!vfCurrent||vfCurrent.advanced)return;vfSnapshot();if(!vfCurrent.tree){vfCurrent.tree=vfNodeTerm()}else{vfCurrent.tree={type:'group',op:'and',children:[vfCurrent.tree,vfNodeTerm()]}};vfRender()};
+$('vfAddGroup').onclick=()=>{if(!vfCurrent||vfCurrent.advanced)return;vfSnapshot();const group={type:'group',op:'or',children:[vfNodeTerm(),vfNodeTerm()]};if(!vfCurrent.tree)vfCurrent.tree=group;else vfCurrent.tree={type:'group',op:'and',children:[vfCurrent.tree,group]};vfRender()};
+$('vfAdvanced').onclick=()=>{if(!vfCurrent)return;
+ if(!vfCurrent.advanced){vfSnapshot();vfCurrent.expression=vfExpression();vfCurrent.visualBackup=vfClone(vfCurrent.tree);vfCurrent.advancedOriginal=vfCurrent.expression;vfCurrent.advanced=true;vfRender();return}
+ const expr=$('filterExpression').value.trim();
+ if(expr===vfCurrent.advancedOriginal){vfCurrent.advanced=false;vfCurrent.tree=vfClone(vfCurrent.visualBackup);$('vfStatus').textContent='Visual editor';vfRender();return}
+ const tree=vfParse(expr);
+ if(tree){vfSnapshot();vfCurrent.tree=tree;vfCurrent.advanced=false;vfCurrent.expression=expr;$('vfStatus').textContent='Advanced expression converted';vfRender();return}
+ $('vfStatus').textContent='Cannot convert this expression. Keep editing in Advanced, or use Discard advanced changes.';
+ $('vfAdvancedDiscard').hidden=false;
+};
+$('vfAdvancedDiscard').onclick=()=>{if(!vfCurrent)return;vfCurrent.tree=vfClone(vfCurrent.visualBackup);vfCurrent.advanced=false;vfCurrent.expression=vfSerialize(vfCurrent.tree);$('vfStatus').textContent='Advanced changes discarded';$('vfAdvancedDiscard').hidden=true;vfRender()};
+$('filterExpression').oninput=()=>{if(vfCurrent){vfCurrent.expression=$('filterExpression').value;vfPreview()}};
+$('filterSend').onclick=()=>{if(!vfCurrent||!authenticated||authPriv<9){notice('Privilege 9 required.');return}vfPreview();if(!vfCurrent.expression||/[\r\n]/.test(vfCurrent.expression)){ $('vfStatus').textContent='Invalid or empty expression';return}if(vfRules.some(r=>r.id!==vfCurrent.id&&r.position===vfCurrent.position)){$('vfStatus').textContent='Position already occupied';return}
+ const cmd=$('filterPreviewText').textContent;command(cmd,'filters');vfHistory=[];$('vfUndo').disabled=true;$('vfStatus').textContent='Command sent; reload to confirm';};
+$('vfDelete').onclick=()=>{if(vfCurrent?.existing)vfDeleteRule(vfCurrent);else{vfCurrent=null;vfRender()}};
+$('vfClearAll').onclick=()=>{if(!confirm(`Delete ALL ${$('filterFamily').value} output rules? This cannot be undone after sending.`))return;if(!(authenticated&&authPriv>=9)){notice('Privilege 9 required.');return}command(`clear/${$('filterFamily').value} all`,'filters');vfRules=[];vfCurrent=null;vfHistory=[];$('vfUndo').disabled=true;vfRender()};
+vfRender();
+
+
+// UI v2.5: every Operation pane has its own bottom command entry.
+document.querySelectorAll('.opCommandForm').forEach(f=>f.addEventListener('submit',e=>{e.preventDefault();const i=f.querySelector('input');const v=i.value;i.value='';command(v,f.dataset.commandTarget||'console')}));
+$('consoleCommand').addEventListener('keydown',e=>{if(e.key==='ArrowUp'){e.preventDefault();if(historyPos>0)historyPos--;$('consoleCommand').value=cmdHistory[historyPos]||''}if(e.key==='ArrowDown'){e.preventDefault();if(historyPos<cmdHistory.length)historyPos++;$('consoleCommand').value=cmdHistory[historyPos]||''}});
+document.querySelectorAll('.runBtn').forEach(b=>b.onclick=()=>command(b.dataset.command,b.closest('.panel').id));
+document.querySelectorAll('.clearBtn').forEach(b=>b.onclick=()=>{const k=b.dataset.clear;if(k==='contest'){const out=document.querySelector('#contest .commandOutput');if(out)out.textContent='';return}if(k==='spots'){spotItems=[];spotCounts={human:0,rbn:0};spotViewUnread.clear();spotViewsUnreadRender();renderSpots();return}if(logs[k]){logs[k]=[];renderLog(k);return}const out=document.querySelector(`#${k} .commandOutput`);if(out)out.textContent='' });
+function spotFilterChanged(k){
+ spotCounts[k]=0;
+ spotItems=spotItems.filter(x=>x.type!==k);
+ renderSpots();
+}
+// Spot submission uses the existing DXS spot action; the server enforces SYSOP privilege.
+$('spotOpen').onclick=()=>{if(!authenticated||authPriv<9){notice('SYSOP login required to send a spot.');return}$('spotResult').textContent='';$('spotDialog').showModal()};
+$('spotCancel').onclick=()=>spotCancelPending();
+function spotCancelPending(){const d=$('spotDialog');d.close();$('spotResult').textContent='';$('spotForm').reset();$('spotSubmit').disabled=false}
+$('spotDialog').addEventListener('cancel',()=>{$('spotResult').textContent='';$('spotForm').reset();$('spotSubmit').disabled=false});
+$('spotForm').addEventListener('submit',e=>{e.preventDefault();if(!authenticated||authPriv<9)return;const freq=$('spotFreq').value.trim(),dxcall=$('spotDx').value.trim().toUpperCase(),comment=$('spotComment').value.trim();if(!freq||!dxcall)return;$('spotSubmit').disabled=true;$('spotResult').textContent='Sending…';if(!send({type:'spot',freq,dxcall,comment})){$('spotSubmit').disabled=false;$('spotResult').textContent='Admin connection is not ready.'}});
+$('showHuman').onchange=()=>spotFilterChanged('human');$('showRbn').onchange=()=>spotFilterChanged('rbn');
+
+// Browser-only great-circle calculations; the prefix map is generated offline
+// from DXSpider's authoritative prefix_data.pl, never queried in the spot path.
+let geoPrefixMap=null,geoPrefixLoading=false;
+function geoLocator(s){
+ s=String(s||'').trim().toUpperCase();if(!/^[A-R]{2}[0-9]{2}(?:[A-X]{2}(?:[0-9]{2}(?:[A-X]{2})?)?)?$/.test(s))return null;
+ let lon=-180,lat=-90,lonSpan=20,latSpan=10;
+ const alph='ABCDEFGHIJKLMNOPQRSTUVWX';
+ for(let i=0;i<s.length;i+=2){
+  const n=i/2;
+  if(n===0){lon+=(s.charCodeAt(i)-65)*20;lat+=(s.charCodeAt(i+1)-65)*10}
+  else if(n===1){lonSpan/=10;latSpan/=10;lon+=Number(s[i])*lonSpan;lat+=Number(s[i+1])*latSpan}
+  else if(n%2===0){lonSpan/=24;latSpan/=24;lon+=alph.indexOf(s[i])*lonSpan;lat+=alph.indexOf(s[i+1])*latSpan}
+  else{lonSpan/=10;latSpan/=10;lon+=Number(s[i])*lonSpan;lat+=Number(s[i+1])*latSpan}
+ }
+ return {lat:lat+latSpan/2,lon:lon+lonSpan/2};
+}
+function geoPrefix(dx){
+ if(!geoPrefixMap)return null;
+ const call=String(dx||'').toUpperCase().replace(/-\d+$/,'');
+ // Exact callsigns and slash-prefixes take precedence; then longest prefix.
+ const keys=[`=${call}`,call];
+ const parts=call.split('/');
+ for(const part of parts)if(part&&part.length<=4)keys.push(part);
+ for(const key of keys)if(Object.prototype.hasOwnProperty.call(geoPrefixMap,key))return geoPrefixMap[key];
+ const candidates=[call,...parts.filter(x=>x.length>=2)];
+ for(const candidate of candidates)for(let n=candidate.length;n>=1;n--){const key=candidate.slice(0,n);if(Object.prototype.hasOwnProperty.call(geoPrefixMap,key))return geoPrefixMap[key]}
+ return null;
+}
+function geoCalculate(item){
+ const origin=geoLocator(document.getElementById('userLocator')?.value);
+ if(!origin)return {distance:'—',bearing:'—',source:''};
+ let dest=geoLocator(item.locDx),approx=false;
+ if(!dest){const fallback=geoPrefix(item.dx);if(fallback){dest={lat:fallback[0],lon:fallback[1]};approx=true}}
+ if(!dest)return {distance:'—',bearing:'—',source:''};
+ const rad=Math.PI/180,p1=origin.lat*rad,p2=dest.lat*rad,dl=(dest.lon-origin.lon)*rad;
+ const cosine=Math.min(1,Math.max(-1,Math.sin(p1)*Math.sin(p2)+Math.cos(p1)*Math.cos(p2)*Math.cos(dl)));
+ const km=Math.round(6371.0088*Math.acos(cosine));
+ const y=Math.sin(dl)*Math.cos(p2),x=Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(dl);
+ const bearing=((Math.round(Math.atan2(y,x)/rad)%360)+360)%360;
+ return {distance:String(km)+' km',bearing:String(bearing).padStart(3,'0')+'°',source:approx?'Approximate DXCC/prefix position':'DX locator'};
+}
+function geoRenderValue(item,key){const g=geoCalculate(item);return key==='distance'?g.distance:g.bearing}
+function geoLoadPrefix(){
+ if(geoPrefixLoading)return;geoPrefixLoading=true;
+ fetch('./geo-prefix.json',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('prefix map missing');return r.json()}).then(data=>{
+  if(data&&data.version===1&&data.prefixes&&typeof data.prefixes==='object')geoPrefixMap=data.prefixes;
+  renderSpots();
+ }).catch(()=>{/* DX locator calculations remain available without a map */});
+}
+const geoInput=document.getElementById('userLocator');
+geoInput.value='';
+geoInput.addEventListener('input',()=>{
+ const value=geoInput.value.trim().toUpperCase();
+ geoInput.setCustomValidity(value&&!geoLocator(value)?'Enter a valid Maidenhead locator (4, 6, 8 or 10 characters).':'');
+ if(!geoInput.validity.valid)return;
+ updateSpotLayout();renderSpots();
+});
+geoLoadPrefix();
+
+// Optional spot columns and bounded Comment resizing; presentation only.
+// Browser-only spot views. One shared bounded feed buffer; no additional subscriptions.
+const spotViewsKey='dxspider.dxweb-admin.spotViews.';
+let spotViews=[],spotActiveView='all',spotDraft=null,spotEditing=null,spotAllSort={key:'utc',dir:'desc'};
+const spotViewUnread=new Set();
+const spotBufferLimit={human:1000,rbn:1000,notice:100};
+function spotBufferAdd(item){
+ spotItems.push(item);
+ const type=item.type,limit=spotBufferLimit[type];
+ if(!limit)return;
+ let count=0;for(let i=spotItems.length-1;i>=0;i--)if(spotItems[i].type===type&&++count>limit){spotItems.splice(i,1);break}
+}
+function spotViewNotify(spot){
+ let changed=false;for(const view of spotViews){
+  if(view.id!==spotActiveView&&!spotViewUnread.has(view.id)&&spotMatches(spot,view)){spotViewUnread.add(view.id);changed=true}
+ }
+ if(changed)spotViewsUnreadRender();
+}
+function spotViewsUnreadRender(){
+ const tabs=$('spotViewTabs');if(!tabs)return;
+ for(const tab of tabs.querySelectorAll('.spotViewTab[data-view-id]')){
+  const unread=spotViewUnread.has(tab.dataset.viewId);tab.classList.toggle('hasMatch',unread);
+  tab.title=unread?'New matching spots since last visit':'';
+ }
+}
+const spotFields=['C/R','UTC','Freq','DX','Spotter','Comment','Origin'];
+// Each explicit condition belongs to one feed. Legacy unqualified conditions
+// remain valid, preserving the previous meaning for saved views.
+const spotFeedFields=[
+ ['C - UTC','human:UTC'],['C - Freq','human:Freq'],['C - DX','human:DX'],
+ ['C - Spotter','human:Spotter'],['C - Comment','human:Comment'],['C - Origin','human:Origin'],
+ ['R - UTC','rbn:UTC'],['R - Freq','rbn:Freq'],['R - DX','rbn:DX'],
+ ['R - Spotter','rbn:Spotter'],['R - Comment','rbn:Comment']
+];
+const spotAllowedFields=[...spotFields,...spotFeedFields.map(x=>x[1])];
+const spotRuleField=f=>f.includes(':')?f.split(':',2)[1]:f;
+const spotRuleFeed=f=>f.startsWith('human:')?'human':f.startsWith('rbn:')?'rbn':null;
+function spotViewsSave(){if(authenticated&&authUser)try{localStorage.setItem(spotViewsKey+authUser.toUpperCase(),JSON.stringify(spotViews))}catch(_){}}
+function spotViewsRestore(){spotViews=[];spotActiveView='all';spotViewUnread.clear();if(authenticated&&authUser)try{
+ const saved=JSON.parse(localStorage.getItem(spotViewsKey+authUser.toUpperCase()));
+ if(Array.isArray(saved))spotViews=saved.slice(0,10).filter(v=>v&&typeof v.id==='string'&&v.id.startsWith('view-')&&typeof v.name==='string'&&v.name.length<=40&&Array.isArray(v.rules)&&v.rules.length&&v.rules.length<=10&&v.rules.every(r=>spotAllowedFields.includes(r.field)&&['is','contains','not'].includes(r.op)&&typeof r.value==='string')).map(v=>({...v,sort: v.sort&&['utc','freq','dx','spotter','comment','origin'].includes(v.sort.key)&&['asc','desc'].includes(v.sort.dir)?v.sort:{key:'utc',dir:'desc'}}));
+ }catch(_){}spotViewsRender()}
+function spotRuleMatches(spot,rule){
+ const field=spotRuleField(rule.field);
+ if(spotRuleFeed(rule.field)&&spotRuleFeed(rule.field)!==spot.type)return false;
+ const value=field==='C/R'?(spot.type==='human'?'C':'R'):String(spot[field.toLowerCase()]??'').toUpperCase();
+ const terms=rule.value.split(',').map(v=>v.trim().toUpperCase()).filter(Boolean);
+ if(!terms.length)return false;
+ const hit=terms.some(term=>{
+  if(field==='Comment')return value.includes(term);
+  if(field==='Freq'){
+   const parts=term.split('-').map(x=>x.trim());const n=Number(value);
+   return parts.length===2?n>=Number(parts[0])&&n<=Number(parts[1]):n===Number(term);
+  }
+  if(field==='UTC'){
+   const toMinutes=t=>{const h=Number(t.slice(0,2)),m=Number(t.slice(2));return h*60+m};
+   const parts=term.split('-').map(x=>x.trim().replace(':',''));
+   const n=toMinutes(value.padStart(4,'0'));
+   if(parts.length===2){const start=toMinutes(parts[0]),end=toMinutes(parts[1]);return start<=end?n>=start&&n<=end:n>=start||n<=end}
+   return n===toMinutes(parts[0]);
+  }
+  return rule.op==='contains'?value.includes(term):value===term;
+ });
+ return rule.op==='not'?!hit:hit;
+ }
+// OR across feeds, AND among conditions targeting the same feed.
+// Legacy unqualified rules retain their former all-feeds AND semantics.
+function spotMatches(spot,view){
+ const explicit=view.rules.filter(r=>spotRuleFeed(r.field));
+ const legacy=view.rules.filter(r=>!spotRuleFeed(r.field));
+ if(!legacy.every(r=>spotRuleMatches(spot,r)))return false;
+ if(!explicit.length)return true;
+ const sameFeed=explicit.filter(r=>spotRuleFeed(r.field)===spot.type);
+ return sameFeed.length>0&&sameFeed.every(r=>spotRuleMatches(spot,r));
+}
+function spotViewsRender(){const tabs=$('spotViewTabs');if(!tabs)return;tabs.replaceChildren();
+ const add=(name,id)=>{const b=document.createElement('button');b.type='button';b.className='spotViewTab'+(spotActiveView===id?' selected':'');b.textContent=name;b.dataset.viewId=id;b.onclick=()=>{spotPauseSet(false);spotActiveView=id;spotViewUnread.delete(id);spotViewsRender();spotSortHeaders();renderSpots()};tabs.append(b)};
+ add('All spots','all');spotViews.forEach(v=>add(v.name,v.id));spotViewsUnreadRender();
+ $('spotViewEdit').hidden=spotActiveView==='all';const v=spotViews.find(x=>x.id===spotActiveView);
+ spotSortHeaders();
+}
+function spotOpenEditor(id){const v=spotViews.find(x=>x.id===id);spotEditing=v?v.id:null;
+ spotDraft=v?JSON.parse(JSON.stringify(v)):{id:null,name:'',rules:[{field:'human:DX',op:'is',value:''}],sort:{key:'utc',dir:'desc'}};
+ $('spotFilterTitle').textContent=v?'Edit Spot Filter':'New Spot Filter';$('spotFilterName').value=spotDraft.name;
+ $('spotFilterDelete').hidden=!v;$('spotFilterSave').textContent=v?'Save Changes':'Create Filter';spotRulesRender();$('spotFilterDialog').hidden=false;$('spotFilterName').focus();
+}
+function spotRulesRender(){const parent=$('spotFilterRules');parent.replaceChildren();spotDraft.rules.forEach((rule,i)=>{
+ const line=document.createElement('div');line.className='spotFilterRule';
+ const field=document.createElement('select');spotFeedFields.forEach(([label,key])=>field.add(new Option(label,key)));
+ // Existing saved unqualified fields stay editable without exposing obsolete choices to new filters.
+ if(!spotFeedFields.some(([,key])=>key===rule.field)){
+  const opt=new Option(rule.field==='C/R'?'C/R (saved filter)':rule.field+' (saved filter)',rule.field);
+  field.add(opt,0);
+ }
+ field.value=rule.field;field.onchange=()=>{rule.field=field.value};
+ // Native select interaction must not bubble into backdrop/global click handlers.
+ ['pointerdown','mousedown','click'].forEach(type=>field.addEventListener(type,e=>e.stopPropagation()));
+ const op=document.createElement('select');[['is','Is any of'],['contains','Contains any'],['not','Is not any of']].forEach(([v,t])=>op.add(new Option(t,v)));op.value=rule.op;op.onchange=()=>{rule.op=op.value};
+ const value=document.createElement('input');value.type='text';value.placeholder='Values separated by commas';value.value=rule.value;value.oninput=()=>{rule.value=value.value};
+ const del=document.createElement('button');del.type='button';del.textContent='×';del.title='Remove condition';del.disabled=spotDraft.rules.length===1;del.onclick=()=>{spotDraft.rules.splice(i,1);spotRulesRender()};
+ line.append(field,op,value,del);parent.append(line);
+ })}
+function spotFilterBind(){
+ $('spotViewNew').onclick=()=>spotOpenEditor(null);
+ $('spotViewEdit').onclick=()=>spotOpenEditor(spotActiveView);
+ $('spotFilterClose').onclick=$('spotFilterCancel').onclick=()=>{$('spotFilterDialog').hidden=true};
+ $('spotFilterDialog').addEventListener('click',e=>{if(e.target===$('spotFilterDialog')&&!e.composedPath().some(n=>n?.classList?.contains('spotFilterRule')))$('spotFilterDialog').hidden=true});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('spotFilterDialog').hidden)$('spotFilterDialog').hidden=true});
+ $('spotFilterAdd').onclick=()=>{if(spotDraft.rules.length>=10)return;spotDraft.rules.push({field:spotFeedFields.map(x=>x[1]).find(f=>!spotDraft.rules.some(r=>r.field===f))||'human:DX',op:'is',value:''});spotRulesRender()};
+ $('spotFilterSave').onclick=()=>{const name=$('spotFilterName').value.trim();if(!name||name.length>40||!spotDraft.rules.length||spotDraft.rules.some(r=>!r.value.trim())){alert('Enter a name (up to 40 characters) and complete every condition.');return}
+ if(spotDraft.rules.some(r=>r.field==='C/R'&&r.value.split(',').some(t=>! /^(?:C|R)$/i.test(t.trim())))){alert('C/R accepts C, R or C,R.');return}
+ if(spotDraft.rules.some(r=>spotRuleField(r.field)==='UTC'&&r.value.split(',').some(t=>{const m=t.trim().match(/^(\d{2}):?(\d{2})(?:\s*-\s*(\d{2}):?(\d{2}))?$/);return !m||Number(m[1])>23||Number(m[2])>59||(m[3]!==undefined&&(Number(m[3])>23||Number(m[4])>59))}))){alert('UTC accepts HHMM or HH:MM, including ranges (e.g. 0830-1200).');return}
+ if(spotDraft.rules.some(r=>spotRuleField(r.field)==='Freq'&&r.value.split(',').some(t=>!/^\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?$/.test(t.trim())))){alert('Frequency must be a kHz value or range.');return}
+ if(!spotEditing&&spotViews.length>=10){alert('Maximum 10 custom filters.');return}
+ if(spotViews.some(v=>v.id!==spotEditing&&v.name.toUpperCase()===name.toUpperCase())){alert('Filter name already exists.');return}
+ spotDraft.name=name;if(spotEditing)spotViews=spotViews.map(v=>v.id===spotEditing?spotDraft:v);else{spotDraft.id='view-'+Date.now()+'-'+Math.floor(Math.random()*100000);spotViews.push(spotDraft)}
+ spotActiveView=spotDraft.id;spotViewUnread.delete(spotActiveView);spotViewsSave();spotViewsRender();spotSortHeaders();$('spotFilterDialog').hidden=true;renderSpots()};
+ $('spotFilterDelete').onclick=()=>{if(!spotEditing||!confirm('Delete this filter?'))return;spotViews=spotViews.filter(v=>v.id!==spotEditing);spotViewUnread.delete(spotEditing);spotActiveView='all';spotViewsSave();spotViewsRender();spotSortHeaders();$('spotFilterDialog').hidden=true;renderSpots()};
+}
+// Sorting is controlled by clickable column headers; one active key per view.
+function spotSortHeaders(){
+ const v=spotViews.find(x=>x.id===spotActiveView),sort=v?.sort||spotAllSort;
+ const keys=new Set(['utc','freq','dx','spotter','comment','origin']);
+ document.querySelectorAll('#spotHeaders th[data-spot-sort]').forEach(th=>{
+  const key=th.dataset.spotSort,active=key===sort.key;
+  th.classList.toggle('spotSortActive',active);
+  th.setAttribute('aria-sort',active?(sort.dir==='asc'?'ascending':'descending'):'none');
+  const arrow=th.querySelector('.spotSortArrow');if(arrow)arrow.textContent=active?(sort.dir==='asc'?' ↑':' ↓'):'';
+ });
+}
+$('spotHeaders').addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('th[data-spot-sort]')){e.preventDefault();e.target.click()}});
+$('spotHeaders').addEventListener('click',e=>{
+ if(e.target.closest('.commentResizeHandle'))return;
+ const th=e.target.closest('th[data-spot-sort]');if(!th)return;
+ const key=th.dataset.spotSort;
+ const v=spotViews.find(x=>x.id===spotActiveView),old=v?.sort||spotAllSort;
+ const dir=old.key===key?(old.dir==='asc'?'desc':'asc'):(key==='utc'?'desc':'asc');
+ if(v){v.sort={key,dir};spotViewsSave()}
+ else{spotAllSort={key,dir};if(key==='utc'){spotNewestFirst=dir==='desc';spotOrderLabel()}spotPresentationSave()}
+ spotSortHeaders();renderSpots();
+});
+spotFilterBind();
+const spotCore=[['type','C/R',64],['utc','UTC',110],['freq','Freq',120],['dx','DX',120],['spotter','Spotter',120],['comment','Comment',80],['origin','Origin',120]];
+const spotExtras=[['loc','Locator',78],['cq','CQ Zone',65],['itu','ITU Zone',65]];
+let spotVisibleColumns=[],spotCommentPreferred=null,spotResizeActive=false,spotNewestFirst=true;
+function spotOrderLabel(){const b=$('spotOrderToggle');if(!b)return;b.textContent=spotNewestFirst?'↓ First':'↑ Last';b.title=spotNewestFirst?'Newest spots first; click to reverse':'Newest spots last; click to reverse';b.setAttribute('aria-label','Spot order: '+(spotNewestFirst?'newest first':'newest last'))}
+$('spotOrderToggle').onclick=()=>{spotNewestFirst=!spotNewestFirst;spotAllSort={key:'utc',dir:spotNewestFirst?'desc':'asc'};spotOrderLabel();if(spotActiveView==='all')spotViewsRender();spotSortHeaders();renderSpots();spotPresentationSave()};
+
+function spotSelected(){return new Set([...document.querySelectorAll('[data-spot-group]:checked')].map(e=>e.dataset.spotGroup))}
+function updateSpotLayout(){
+ const table=document.querySelector('.spotTable'),area=table?.closest('.spotResultArea');if(!area)return;
+ const style=getComputedStyle(area);
+ const available=Math.max(0,area.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)-8),selected=spotSelected();
+ // On phones, omit the C/R presentation column, not the C/R feed filters.
+ // Keep the other core fields and preserve saved optional-column preferences.
+ const geoEnabled=!!geoLocator(document.getElementById('userLocator')?.value);
+ const scale=spotFontPercent/100;
+ const mobileCompact=window.matchMedia('(max-width:760px)').matches;
+ const visibleCore=spotCore.filter(([key])=>!(mobileCompact&&key==='type'));
+ const coreWidth=visibleCore.reduce((s,x)=>s+Math.ceil(x[2]*scale),0)+(geoEnabled?Math.ceil(176*scale):0);
+ const groups=spotExtras.map(([key,name,w])=>({key,name,w,fields:(!mobileCompact&&selected.has(key))?[['Dx','DX'],['Spotter','Spotter']]:[]}));
+ let extraWidth=groups.reduce((s,g)=>s+g.fields.length*Math.ceil(g.w*scale),0);
+ for(const g of [...groups].reverse())if(extraWidth+coreWidth>available&&g.fields.length){extraWidth-=g.fields.length*Math.ceil(g.w*scale);g.fields=[]}
+ const commentMin=Math.ceil(80*scale),base=coreWidth-commentMin;
+ const comment=Math.max(commentMin,spotCommentPreferred===null?available-base-extraWidth:Math.min(spotCommentPreferred,Math.max(commentMin,available-base-extraWidth)));
+ const cols=visibleCore.map(([key,title,w])=>({key,title,w:key==='comment'?comment:Math.ceil(w*scale)}));
+ if(geoEnabled)cols.push({key:'distance',title:'Distance',w:Math.ceil(96*scale)},{key:'bearing',title:'Bearing',w:Math.ceil(80*scale)});
+ for(const g of groups)for(const [suffix,title] of g.fields)cols.push({key:g.key+suffix,title,w:Math.ceil(g.w*scale),group:g.name});
+ const originCol=cols.find(x=>x.key==='origin');if(originCol){cols.splice(cols.indexOf(originCol),1);cols.push(originCol)}
+ const signature=cols.map(x=>x.key).join('|');const previous=spotVisibleColumns.map(x=>x.key).join('|');
+ spotVisibleColumns=cols;
+ const total=cols.reduce((s,x)=>s+x.w,0);table.style.width=total+'px';table.style.minWidth=total+'px';
+ $('spotCols').innerHTML=cols.map(x=>`<col style="width:${x.w}px">`).join('');
+ if(signature!==previous){
+  const groupHeaders=groups.filter(g=>g.fields.length).map(g=>`<th colspan="${g.fields.length}">${g.name}</th>`).join('');
+  const hasExtras=!!groupHeaders;
+  const headerCell=x=>`<th ${['utc','freq','dx','spotter','comment','origin'].includes(x.key)?`data-spot-sort="${x.key}" tabindex="0" role="button"`:''} ${hasExtras?'rowspan="2"':''} class="spotField-${x.key} ${x.key==='comment'?'commentHeader':(x.key==='distance'||x.key==='bearing'?'spotGeoNumeric':'')}">${x.title}${['utc','freq','dx','spotter','comment','origin'].includes(x.key)?'<span class="spotSortArrow" aria-hidden="true"></span>':''}${x.key==='comment'?'<span class="commentResizeHandle" role="separator" aria-label="Resize Comment column" title="Drag to resize Comment"></span>':''}</th>`;
+  const ordinary=cols.filter(x=>!x.group&&x.key!=='origin').map(headerCell).join('');
+  const origin=cols.find(x=>x.key==='origin');
+  $('spotHeaders').innerHTML=`<tr class="spotHeadGroup">${ordinary}${groupHeaders}${origin?headerCell(origin):''}</tr>${hasExtras?`<tr class="spotHeadSub">${groups.map(g=>g.fields.map(f=>`<th>${f[1]}</th>`).join('')).join('')}</tr>`:''}`;
+  spotSortHeaders();renderSpots();
+ }
+}
+for(const box of document.querySelectorAll('[data-spot-group]'))box.addEventListener('change',updateSpotLayout);
+const spotArea=document.querySelector('.spotResultArea');
+if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{if(!spotResizeActive)updateSpotLayout()}).observe(spotArea.parentElement);
+else window.addEventListener('resize',updateSpotLayout);
+// Rebuild table columns on viewport breakpoint changes (including rotation).
+window.matchMedia('(max-width:760px)').addEventListener('change',updateSpotLayout);
+$('spotHeaders').addEventListener('pointerdown',e=>{
+ if(!e.target.classList.contains('commentResizeHandle'))return;
+ e.preventDefault();spotResizeActive=true;
+ const startX=e.clientX,startWidth=spotVisibleColumns.find(x=>x.key==='comment')?.w||80;
+ const move=ev=>{spotCommentPreferred=Math.max(80,Math.min(1200,startWidth+ev.clientX-startX));updateSpotLayout()};
+ const done=()=>{spotResizeActive=false;window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',done);window.removeEventListener('pointercancel',done);spotPresentationSave();updateSpotLayout()};
+ window.addEventListener('pointermove',move);window.addEventListener('pointerup',done);window.addEventListener('pointercancel',done);
+});
+window.addEventListener('load',updateSpotLayout);
+updateSpotLayout();
+// Pause only freezes the visible table; inbound bounded buffers continue.
+var spotDisplayPaused = false;
+function spotPauseSet(paused) {
+ spotDisplayPaused = Boolean(paused);
+ const button = document.getElementById('spotPauseButton');
+ if (button) { button.textContent = spotDisplayPaused ? 'Resume' : 'Pause'; button.setAttribute('aria-pressed', String(spotDisplayPaused)); }
+ if (!spotDisplayPaused) renderSpots();
+}
+function spotDownloadVisibleTxt() {
+ const body=document.getElementById('spotRows');
+ if (!body) return;
+ // Use the exact visible column model, including optional DX/Spotter pairs.
+ const cols=spotVisibleColumns.slice();
+ const headings=cols.map(c=>c.group ? `${c.group} ${c.title}` : c.title);
+ const records=[headings];
+ for(const tr of body.querySelectorAll('tr')) {
+  const cells=[...tr.querySelectorAll('td')];
+  if(cells.length!==cols.length) continue; // Notices are not spot rows.
+  records.push(cells.map(td=>td.textContent.replace(/[\r\n\t]+/g,' ').trim()));
+ }
+ const widths=headings.map((h,i)=>Math.max(h.length,...records.slice(1).map(r=>(r[i]||'').length)));
+ const lines=records.map(r=>r.map((v,i)=>v.padEnd(widths[i])).join('  ').trimEnd());
+ const view=spotViews.find(v=>v.id===spotActiveView);
+ const name=(view?.name||'All-spots').normalize('NFKD').replace(/[^a-zA-Z0-9._-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,48)||'Spots';
+ const d=new Date(), pad=n=>String(n).padStart(2,'0');
+ const stamp=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+ const blob=new Blob(['\uFEFF'+lines.join('\r\n')+'\r\n'],{type:'text/plain;charset=utf-8'});
+ const url=URL.createObjectURL(blob), link=document.createElement('a');
+ link.href=url;link.download=`Spots-${name}_${stamp}.txt`;
+ document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function spotControlsInit() {
+ const bar=document.querySelector('#spots .spotViewBar');
+ if(!bar || document.getElementById('spotPauseButton')) return;
+ const pause=document.createElement('button');pause.type='button';pause.id='spotPauseButton';pause.textContent='Pause';pause.style.marginLeft='auto';pause.onclick=()=>spotPauseSet(!spotDisplayPaused);
+ const save=document.createElement('button');save.type='button';save.id='spotSaveTxtButton';save.textContent='Save TXT';save.onclick=spotDownloadVisibleTxt;
+ // Same bar, font and button styling as All Spots and the other view tabs.
+ const edit=document.getElementById('spotViewEdit');
+ if(edit)edit.after(pause,save);else bar.append(pause,save);
+}
+if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',spotControlsInit,{once:true});
+else spotControlsInit();
+function renderSpots(){
+ if (spotDisplayPaused) return;
+ const human=$('showHuman').checked,rbn=$('showRbn').checked;
+ const view=spotViews.find(v=>v.id===spotActiveView);
+ let a=spotItems.filter(x=>x.type==='notice'?!view:(x.type==='human'&&human)||(x.type==='rbn'&&rbn));
+ if(view)a=a.filter(x=>x.type!=='notice'&&spotMatches(x,view));
+ const sort=view?.sort||spotAllSort;
+ if(sort.key==='utc'){
+  // Insertion order is authoritative: UTC HHMM alone loses date and second precision.
+  if(sort.dir==='desc')a.reverse();
+ }else{
+  a.sort((x,y)=>{
+   if(x.type==='notice')return y.type==='notice'?0:1;
+   if(y.type==='notice')return -1;
+   const v=sort.key==='freq'?Number(x.freq)-Number(y.freq):String(x[sort.key]??'').localeCompare(String(y[sort.key]??''),undefined,{numeric:true,sensitivity:'base'});
+   return v*(sort.dir==='asc'?1:-1);
+  });
+ }
+ const rows=a.slice(0,250);
+ $('spotRows').innerHTML=rows.map(x=>`<tr class="${x._newUntil>Date.now()?'spotFresh':''}" style="${x._newUntil>Date.now()?'animation-delay:-'+((3000-(x._newUntil-Date.now()))/1000).toFixed(2)+'s':''}">${x.type==='notice'?`<td colspan="${spotVisibleColumns.length}" class="spotUserNotice spotNotice-${['buddy','user','node'].includes(x.category)?x.category:'system'}">${esc(x.text)}</td>`:spotVisibleColumns.map(col=>`<td class="spotField-${col.key} ${col.key==='distance'||col.key==='bearing'?'spotGeoNumeric':''}" title="${col.key==='distance'||col.key==='bearing'?esc(geoCalculate(x).source):esc(x[col.key]??'')}">${col.key==='type'?(x.type==='human'?'C':'R'):col.key==='distance'||col.key==='bearing'?esc(geoRenderValue(x,col.key)):esc(x[col.key]??'')}</td>`).join('')}</tr>`).join('');
+ const viewport=$('spotRows').closest('.spotResultArea');if(viewport)viewport.scrollTop=sort.dir==='desc'?0:viewport.scrollHeight;
+ setCount('spots',(human?spotCounts.human:0)+(rbn?spotCounts.rbn:0));
+}
+
+function renderLog(k){const e=document.querySelector(`[data-kind="${k}"]`);if(!e)return;e.textContent=logs[k].slice(-250).join('\n');e.scrollTop=e.scrollHeight;setCount(k,logs[k].length)}
+function parseCC11(payload){if(typeof payload!=='string')return null;const f=payload.split('^');if(f[0]!=='CC11'||f.length<7)return null;return{utc:(f[4]||'').replace(/Z$/i,'').replace(/[^0-9]/g,'').slice(0,4),freq:f[1]||'',dx:f[2]||'',comment:f[5]||'',spotter:f[6]||'',origin:(f[9]||'').replace(/-#$/,''),cqDx:f[11]||'',ituDx:f[10]||'',cqSpotter:f[13]||'',ituSpotter:f[12]||'',locDx:f[18]||'',locSpotter:f[19]||''}}
+// Text notices have no request ID. While a command is pending, associate them
+// with its queued origin; spontaneous notices default to Console.
+function routeCommandNotice(target,message){
+ if(logs[target]){
+  logs[target].push(...String(message).split('\n'));
+  if(logs[target].length>500)logs[target]=logs[target].slice(-500);
+  renderLog(target);return;
+ }
+ const out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);
+ if(!out)return;
+ if(target==='console'){
+  const line=document.createElement('div');line.className='consoleResponse';line.textContent=message;out.appendChild(line);
+ }else out.textContent+=message+'\n';
+ out.scrollTop=out.scrollHeight;
+}
+function acceptFeed(m){const k=(m.feed||'').toLowerCase();if(k==='user_notice'){if(typeof m.payload?.text!=='string')return;/* Native DXSpider DX text duplicates the structured CC11 spot feed. */if(/^DX de\s+\S+:\s+\d+(?:\.\d+)?\s+\S+\s+/i.test(m.payload.text.trim()))return;/* Preserve the issuing panel for asynchronous command notices. */routeCommandNotice('console',m.payload.text);return;}if(k==='human'||k==='rbn'){const p=parseCC11(m.payload);if(!p)return;const enabled=k==='human'?$('showHuman').checked:$('showRbn').checked;
+   if(!enabled)return;
+   const spot={...p,type:k,_newUntil:Date.now()+3000};spotBufferAdd(spot);spotViewNotify(spot);
+   setTimeout(()=>{if(spotItems.some(x=>x._newUntil&&x._newUntil<=Date.now()))renderSpots()},3100);
+   spotCounts[k]=(spotCounts[k]||0)+1;renderSpots();return}if(logs[k]){logs[k].push(typeof m.payload==='string'?m.payload:JSON.stringify(m.payload));if(logs[k].length>500)logs[k].shift();renderLog(k)}}
+function networkChatRender(){
+ const channel=document.getElementById('networkChatChannel')?.value||'ERROR';
+ const output=document.getElementById('networkChatOutput');if(!output)return;
+ output.textContent=networkChatMessages.filter(m=>m.channel===channel).slice(-250).map(m=>`${m.at} ${m.from}${m.onode?'@'+m.onode:''}: ${m.text}`).join('\n');
+ output.scrollTop=output.scrollHeight;
+}
+function networkChatAccept(m){
+ if(!authenticated||authPriv<9||!m||!['ERROR','SYSOP'].includes(m.channel))return;
+ if(typeof m.text!=='string'||typeof m.from!=='string')return;
+ networkChatMessages.push({...m,at:new Date().toLocaleTimeString()});
+ if(networkChatMessages.length>500)networkChatMessages.shift();networkChatRender();
+}
+document.getElementById('networkChatChannel')?.addEventListener('change',networkChatRender);
+document.getElementById('networkChatClear')?.addEventListener('click',()=>{networkChatMessages.length=0;networkChatRender()});
+$('networkChatForm')?.addEventListener('submit',e=>{
+ e.preventDefault();if(!authenticated||authPriv<9)return;
+ const channel=$('networkChatChannel').value,text=$('networkChatMessage').value.trim();
+ if(!text || /[\r\n]/.test(text))return;
+ const btn=$('networkChatSend');btn.disabled=true;
+ setText('networkChatSendState',`Sending to ${channel}…`);
+ if(!send({type:'network_chat_send',channel,text})){btn.disabled=false;setText('networkChatSendState','Admin connection unavailable.');}
+});
+function fmtTime(v){if(!v)return '-';const d=new Date(Number(v)*1000);return Number.isNaN(d.getTime())?'-':d.toLocaleString()}
+function compactSsids(values){const a=[...new Set((Array.isArray(values)?values:[]).map(Number).filter(n=>Number.isInteger(n)&&n>=1&&n<=99))].sort((x,y)=>x-y);if(!a.length)return '-';const out=[];let start=a[0],prev=a[0];const flush=()=>out.push(start===prev?String(start):`${start}-${prev}`);for(let i=1;i<a.length;i++){const n=a[i];if(n===prev+1){prev=n;continue}flush();start=prev=n}flush();return out.join(',')}
+function ssids(r){return compactSsids(r.accepted_ssids||r.requested_ssids||r.affected_ssids||[])}
+function loadPending(){send({type:'reg_pending'})} function loadHistory(){send({type:'reg_history'})}
+$('pendingRefresh').onclick=()=>refreshUser('pendingRefresh');$('historyRefresh').onclick=()=>refreshUser('historyRefresh');
+$('regSearchForm').addEventListener('submit',e=>{e.preventDefault();const q=$('regSearch').value.trim();if(q)send({type:'reg_search',query:q})});
+function renderPending(rows){$('pendingRows').innerHTML=(rows||[]).map(r=>`<tr><td>#${esc(r.id)}</td><td>${esc(r.call)}</td><td>${esc(compactSsids(r.requested_ssids||[]))}</td><td>${esc(r.name||'-')}</td><td>${authPriv>=9?esc(r.email||'-'):'Restricted'}</td><td>${authPriv>=9?esc(r.ip||'-'):'Restricted'}</td><td>${esc(fmtTime(r.created_at))}</td><td>${authPriv>=9?esc(r.comment||'-'):'Restricted'}</td><td><div class="regActions" style="display:${authPriv>=9?'':'none'}"><button data-reg-id="${esc(r.id)}" data-reg-action="accept">Accept</button><button data-reg-id="${esc(r.id)}" data-reg-action="reject">Reject</button></div></td></tr>`).join('')||'<tr><td colspan="9">No pending registration requests.</td></tr>';document.querySelectorAll('[data-reg-action]').forEach(b=>b.onclick=()=>openDecision(b.dataset.regId,b.dataset.regAction,rows))}
+function renderHistory(rows,target='historyRows'){$(target).innerHTML=(rows||[]).map(r=>`<tr><td>#${esc(r.id)}</td><td>${esc(r.call)}</td><td>${esc(ssids(r))}</td><td class="status-${esc(r.status)}">${esc(r.status||'-')}</td><td>${esc(r.name||'-')}</td><td>${authPriv>=9?esc(r.email||'-'):'Restricted'}</td><td>${esc(fmtTime(r.created_at))}</td><td>${esc(fmtTime(r.processed_at))}</td><td>${esc(r.processed_by||'-')}</td><td>${authPriv>=9?esc(r.note??'-'):'Restricted'}</td></tr>`).join('')||'<tr><td colspan="10">No matching registration records.</td></tr>'}
+let decisionId=null;
+let decisionAction=null;
+function openDecision(id,action,rows){if(authPriv<9)return;
+ decisionId=Number(id);
+ decisionAction=action==='reject'?'reject':'accept';
+ const r=(rows||[]).find(x=>Number(x.id)===decisionId)||{};
+ $('regActionTitle').textContent=decisionAction==='accept'?'Accept registration':'Reject registration';
+ $('regActionSummary').textContent=`#${id} ${r.call||''} — ${r.email||''}${r.comment?'\n'+r.comment:''}`;
+ $('regActionNote').value='';
+ $('regActionResult').textContent='';
+ $('regAccept').hidden=decisionAction!=='accept';
+ $('regReject').hidden=decisionAction!=='reject';
+ $('regAccept').disabled=false;
+ $('regReject').disabled=false;
+ $('regActionDialog').showModal();
+}
+$('regAccept').onclick=()=>decision('accept');
+$('regReject').onclick=()=>decision('reject');
+function decision(action){if(authPriv<9)return;
+ if(!decisionId||action!==decisionAction)return;
+ $('regAccept').disabled=true;
+ $('regReject').disabled=true;
+ $('regActionResult').textContent=action==='accept'?'Accepting…':'Rejecting…';
+ if(!send({type:`reg_${action}`,request_id:decisionId,note:$('regActionNote').value.replace(/[\r\n]+/g,' ').trim()})){
+  $('regAccept').disabled=false;
+  $('regReject').disabled=false;
+  $('regActionResult').textContent='DXSpider connection is not ready.';
+ }
+}
+$('deleteUserOpen').onclick=()=>{if(authPriv<9)return;
+ $('deleteUserCall').value='';
+ $('deleteUserNote').value='';
+ $('deleteUserResult').textContent='';
+ $('deleteUserDialog').showModal();
+ $('deleteUserCall').focus();
+};
+$('deleteUserCancel').onclick=(e)=>{ e.preventDefault(); $('deleteUserDialog').close(); };
+$('regActionCancel').onclick=(e)=>{ e.preventDefault(); $('regActionDialog').close(); decisionId=null; decisionAction=null; };
+$('deleteUserForm').addEventListener('submit',e=>{
+ e.preventDefault();if(authPriv<9)return;
+ const target=$('deleteUserCall').value.trim().toUpperCase().replace(/-\d+$/,'');
+ if(!target)return;
+ $('deleteUserConfirm').disabled=true;
+ $('deleteUserResult').textContent='Deleting…';
+ if(!send({type:'reg_delete_user',target,note:$('deleteUserNote').value.trim()})){
+  $('deleteUserConfirm').disabled=false;
+  $('deleteUserResult').textContent='DXSpider connection is not ready.';
+ }
+});
+
+function responseText(m){const a=Array.isArray(m.messages)?m.messages.filter(x=>x!=null):[];return a.join('\n')+(m.error?`${a.length?'\n':''}ERROR: ${m.error}`:'')}
+function finishCommandTarget(target){
+ if(logs[target]){
+  logs[target].push('');
+  if(logs[target].length>500)logs[target]=logs[target].slice(-500);
+  renderLog(target);
+  return;
+ }
+ const out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);
+ if(!out)return;
+ if(target==='console'){
+  const spacer=document.createElement('div');
+  spacer.className='commandSeparator';
+  spacer.textContent='\u00a0';
+  out.appendChild(spacer);
+ }else{
+  out.textContent+='\n';
+ }
+ out.scrollTop=out.scrollHeight;
+}
+// Refresh is bound to a real request, never to a global click event.
+// A click while the same endpoint is in flight queues one NEW request;
+// the preceding/background reply cannot acknowledge that click.
+const refreshWait=new Map(),refreshQueued=new Map();
+function refreshClear(button){
+ if(!button)return;
+ const entry=refreshWait.get(button),queued=refreshQueued.get(button);
+ if(entry){clearTimeout(entry.timer);refreshWait.delete(button);}
+ if(queued)clearTimeout(queued.timer);
+ refreshQueued.delete(button);
+ button.classList.remove('refreshAwaiting','refreshFailed');
+ button.removeAttribute('aria-busy');
+ const title=entry?entry.title:queued?queued.title:undefined;
+ if(title!==undefined){if(title===null)button.removeAttribute('title');else button.setAttribute('title',title);}
+}
+function refreshBegin(button,types,scope){
+ if(!button)return;
+ refreshClear(button);
+ const entry={types:new Set(types),scope,title:button.getAttribute('title'),timer:null};
+ refreshWait.set(button,entry);
+ button.classList.add('refreshAwaiting');button.setAttribute('aria-busy','true');
+ button.title='Waiting for this view to update';
+ entry.timer=setTimeout(()=>{
+  if(refreshWait.get(button)!==entry)return;
+  console.warn('Refresh timed out',scope,[...entry.types]);refreshClear(button);
+ },20000);
+}
+function refreshSchedule(button,scope,types,sendRequest,isBusy){
+ if(!button||!authenticated||!ws||ws.readyState!==WebSocket.OPEN)return;
+ // Never claim a request has been sent while a background request is in flight.
+ if(isBusy()){
+  refreshClear(button);
+  const title=button.getAttribute('title');
+  button.classList.add('refreshAwaiting');button.setAttribute('aria-busy','true');
+  button.title='Waiting to send refresh after current request';
+  const timer=setTimeout(()=>{if(refreshQueued.get(button)?.timer!==timer)return;console.warn('Refresh could not be sent',scope);refreshClear(button);},20000);
+  refreshQueued.set(button,{scope,types,sendRequest,isBusy,title,timer});
+  return;
+ }
+ if(sendRequest())refreshBegin(button,types,scope);
+}
+function refreshProcess(m){
+ if(m.type==='supervisor_topology_result'&&topologyPopoutQueued){
+  topologyPopoutQueued=false;
+  if(authenticated&&m.status==='ok')supervisorRequest('topology');
+  else if(topologyPopout&&!topologyPopout.closed)topologyPopout.receiveTopology(topologyPopoutPayload());
+ }
+ // Called only AFTER the response handler has applied the snapshot.
+ for(const [button,entry] of [...refreshWait]){
+  if(!entry.types.has(m.type))continue;
+  entry.types.delete(m.type);
+  if(entry.types.size)continue;
+  if(button.id==='supervisionRefresh'&&entry.scope!==activeSupervisionPanel){refreshClear(button);continue;}
+  refreshClear(button);
+ }
+ for(const [button,q] of [...refreshQueued]){
+  if(q.isBusy())continue;
+  clearTimeout(q.timer);refreshQueued.delete(button);
+  button.classList.remove('refreshAwaiting');button.removeAttribute('aria-busy');
+  if(q.title===null)button.removeAttribute('title');else button.setAttribute('title',q.title);
+  if(button.id==='supervisionRefresh'&&q.scope!==activeSupervisionPanel)continue;
+  if(q.sendRequest())refreshBegin(button,q.types,q.scope);
+ }
+}
+function refreshUser(id){
+ const button=$(id);if(!button)return;
+ if(id==='pendingRefresh')return refreshSchedule(button,id,['reg_pending_result'],()=>send({type:'reg_pending'}),()=>false);
+ if(id==='historyRefresh')return refreshSchedule(button,id,['reg_history_result'],()=>send({type:'reg_history'}),()=>false);
+ if(id==='metricsRefresh')return refreshSchedule(button,id,['history_metrics_result'],()=>{requestMetrics();return metricsInflight;},()=>metricsInflight);
+ if(id==='timelineRefresh')return refreshSchedule(button,id,['history_timeline_result'],()=>{requestTimeline();return timelineInflight;},()=>timelineInflight);
+ if(id==='supervisionRefresh'){
+  const panel=activeSupervisionPanel;
+  if(panel==='maintenance')return refreshSchedule(button,panel,['maintenance_snapshot_result'],()=>{requestMaintenance();return maintenanceInflight;},()=>maintenanceInflight);
+  const kinds=supervisorKindsFor(panel);
+  return refreshSchedule(button,panel,kinds.map(k=>`supervisor_${k}_result`),()=>{supervisorRequest(panel);return kinds.some(k=>supervisorInflight.has(k));},()=>kinds.some(k=>supervisorInflight.has(k)));
+ }
+}
+function handle(m){handleMessage(m);refreshProcess(m);}
+function handleMessage(m){
+ if(m.type==='session_evicted'){
+   clearSessionContent();loginState(false);setLocked(true);showLogin('Session replaced by another authenticated connection.');return;
+ }
+ if((m.type==='auth'||m.type==='auth_result')&&m.error!=='Human verification failed'&&m.error!=='Turnstile configuration unavailable'&&m.error!=='Human verification busy'){adminCaptchaPassed=true;if($('adminLoginTurnstile'))$('adminLoginTurnstile').hidden=true}else if((m.type==='auth'||m.type==='auth_result')&&adminCaptchaReady){window.turnstile.reset(adminCaptchaWidget)}
+ if(m.type==='auth'&&m.error==='takeover_required'&&takeoverLogin&&m.takeover_token){
+   $('loginSubmit').disabled=false;
+   const saved=takeoverLogin;
+   if(window.confirm(`An existing session for ${saved.call} is connected. Replace it?`)){
+     $('loginSubmit').disabled=true;
+     if(!send({type:'auth',call:saved.call,password:saved.password,takeover_token:m.takeover_token})){
+       $('loginSubmit').disabled=false;takeoverLogin=null;
+       showLogin('DXSpider connection is not ready');
+     }
+   }else{takeoverLogin=null;showLogin('Existing session preserved.');}
+   return;
+ }
+ if(m.type==='auth'||m.type==='auth_result')takeoverLogin=null;
+ if(m.type==='status'){if(typeof m.enable_linux_terminal==='boolean')applyLinuxTerminalAvailability(m.enable_linux_terminal);$('status').textContent=m.state||'';if(m.node_call)$('nodeCall').textContent=m.node_call;if(m.authenticated===false){logoutPending=false;if(authenticated){terminalSshClear();clearSessionContent()}loginState(false);setLocked(true);if(m.state==='ready'&&!$('loginDialog').open)showLogin()}return}if(m.type==='auth'||m.type==='auth_result'){$('loginSubmit').disabled=false;if(m.status==='ok'){clearSessionContent();loginState(true,m);terminalSshForIdentity(authUser);send({type:'metrics_policy_get'});$('loginDialog').close();$('loginError').textContent='';setTimeout(()=>{if(authenticated&&authPriv>=9)requestMaintenance([])},2500)}else{loginState(false);$('loginError').textContent=m.error==='admin_privilege_required'?'DXSpider privilege 5 is required for login (privilege 9 for administrative actions).':m.error==='password_required'?'A valid DXSpider password is required.':(m.error||'Authentication failed');showLogin($('loginError').textContent)}return}if(m.type==='logout_result'){terminalSshClear();logoutPending=false;loginState(false);showLogin();return}if(!authenticated)return;if(m.type==='terminal_status'||m.type==='terminal_data'){terminalReceive(m);return}if(m.type==='log_window_status'||m.type==='log_window_data'){logWindowReceive(m);return}if(m.type==='live_debug_result'||m.type==='live_debug_data'){liveDebugReceive(m);return}if(m.type==='reg_pending_result'){if(m.status==='ok')renderPending(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_history_result'){if(m.status==='ok')renderHistory(m.result||[]);else notice(responseText(m));return}if(m.type==='reg_search_result'){if(m.status==='ok')renderHistory(m.result||[],'searchRows');else notice(responseText(m));return}if(m.type==='reg_accept_result'||m.type==='reg_reject_result'){const expected=decisionAction?`reg_${decisionAction}_result`:null;if(expected&&m.type!==expected){$('regActionResult').textContent=`Unexpected registration response: ${m.type}`;return}if(m.status==='ok'){const accepted=m.type==='reg_accept_result';const pw=accepted&&m.result&&m.result.password?` Password: ${m.result.password}`:'';$('regActionResult').textContent=(accepted?'Accepted.':'Rejected.')+pw;setTimeout(()=>{$('regActionDialog').close();decisionId=null;decisionAction=null;loadPending();loadHistory()},900)}else{$('regAccept').disabled=false;$('regReject').disabled=false;$('regActionResult').textContent=responseText(m)}return}if(m.type==='reg_delete_user_result'){$('deleteUserConfirm').disabled=false;if(m.status==='ok'){const calls=(m.result&&m.result.affected_calls)||[];$('deleteUserResult').textContent=`Deleted ${calls.length} DXUser record(s): ${calls.join(', ')}`;loadHistory();setTimeout(()=>$('deleteUserDialog').close(),1200)}else{$('deleteUserResult').textContent=(Array.isArray(m.messages)&&m.messages.length?m.messages.join('\n'):(m.error||'Delete failed'))}return}
+ if(m.type==='network_chat_send_result'){
+  $('networkChatSend').disabled=false;
+  if(m.status==='ok'){$('networkChatMessage').value='';setText('networkChatSendState',`Accepted by DXSpider for ${m.channel||'selected channel'}.`)}
+  else setText('networkChatSendState',`Not sent: ${m.error||'rejected'}`);
+  return;
+ }
+ if(m.type==='spot_result'){if(!$('spotDialog').open)return;$('spotSubmit').disabled=false;$('spotResult').textContent=responseText(m)||(m.status==='ok'?'Spot accepted by DXSpider':'Spot rejected');if(m.status==='ok')setTimeout(()=>$('spotDialog').close(),500);return}if(m.type==='feed'){if(m.feed==='network_chat'){networkChatAccept(m.payload);return}acceptFeed(m);return}if(m.type==='command_result'){const target=pendingCommandTargets[0]||activePanel,t=responseText(m),out=target==='console'?$('consoleOutput'):document.querySelector(`#${target} .commandOutput`);if(target==='networkChat'){if(t)setText('networkChatSendState',t);if(m.status!=='ok')setText('networkChatSendState',m.error||'Rejected by DXSpider');}else if(logs[target]){if(t){logs[target].push(...t.split('\n'));renderLog(target)}}else if(out&&t){if(target==='console'){const b=document.createElement('div');b.className='consoleResponse';b.textContent=t;out.appendChild(b)}else out.textContent+=t+'\n';out.scrollTop=out.scrollHeight}const issued=pendingCommandNames[0]||'';
+ const isFilterRead=target==='filters'&&/^show\/filter(?:\s|$)/i.test(issued);
+ if(isFilterRead){if(!vfReadActive){vfReadActive=true;vfReadLines=[]}if(t)vfReadLines.push(...t.split('\n'))}
+ if(m.final!==false){
+  if(isFilterRead){vfPopulateExisting(vfReadLines);vfReadActive=false;vfReadLines=[]}
+  if(target==='networkChat'){$('networkChatSend').disabled=false;if(m.status==='ok'){$('networkChatMessage').value='';setText('networkChatSendState',t||'Command processed by DXSpider.');}}
+  finishCommandTarget(target);pendingCommandTargets.shift();pendingCommandNames.shift();dispatchNextPanelCommand();
+  if(target==='filters'&&/^(?:(?:accept|reject)\/(?:spots|rbn)\s|clear\/(?:spots|rbn)\s)/i.test(issued)){
+   const family=issued.match(/^(?:accept|reject|clear)\/(spots|rbn)\s/i)?.[1];
+   if(family)command(`show/filter ${family}`,'filters');
+  }
+ }}}
+loginState(false);connect();
+
+
+// 0.6.1 - permanent Login/Logout control.
+
+
+let metricsWindow='24h',metricsData=null,metricsInflight=false,metricsZoom=null;
+const metricHidden=new Set();
+let metricsCollectionEnabled=false;
+function requestMetrics(){if(!authenticated)return;if(!metricsCollectionEnabled){if(activeSection==='metrics')notice('Metrics are disabled. To enable them, go to Supervision → System.');return}if(!authenticated||!ws||ws.readyState!==WebSocket.OPEN||metricsInflight)return;metricsInflight=true;setText('metricsState','Loading historical series…');const peer=$('metricsPeer')?.value||'';if(!send({type:'history_metrics',window:metricsWindow,peer})){metricsInflight=false;setText('metricsState','Admin link is not ready.')}}
+function metricFmtTime(t){const d=new Date(Number(t)*1000);return d.toLocaleString([],metricsWindow==='1y'?{month:'short',year:'2-digit'}:(metricsWindow==='30d'||metricsWindow==='7d')?{month:'short',day:'numeric'}:{hour:'2-digit',minute:'2-digit'})}
+
+function metricAxisTimes(from,to,count=5){const out=[];for(let i=0;i<count;i++)out.push(from+(to-from)*i/(count-1));return out}
+const metricChartRegistry=new Map();
+function metricLineChartSvg(id,defs,opt={}){metricChartRegistry.set(id,{defs,opt});const host=$(id);if(!host||!metricsData)return;const from0=Number(metricsData.from_at),to0=Number(metricsData.to_at),from=metricsZoom?metricsZoom[0]:from0,to=metricsZoom?metricsZoom[1]:to0;const active=defs.filter(d=>!metricHidden.has(id+':'+d.name)).map(d=>({...d,points:(d.points||[]).filter(p=>Number(p.t)>=from&&Number(p.t)<=to&&Number.isFinite(Number(p.v)))}));const vals=[];for(const d of active)for(const p of d.points)vals.push(d.negative?-Math.abs(Number(p.v)):Math.abs(Number(p.v)));if(!vals.length){host.innerHTML='<div class="emptyState metricEmpty">No samples for this range.</div>'+metricLegend(id,defs);return}const W=Math.max(760,Math.floor(host.clientWidth||920)),H=180,L=58,R=14,T=8,B=28,iw=W-L-R,ih=H-T-B;let ymin=Math.min(0,...vals),ymax=Math.max(0,...vals);let splitScale=null;if(opt.splitDivergent){let pos=Math.max(0,...vals),neg=Math.max(0,...vals.map(v=>-v));if(!(pos>0))pos=1;if(!(neg>0))neg=1;pos*=1.08;neg*=1.08;ymin=-neg;ymax=pos;splitScale={pos,neg}}else if(opt.symmetric){let m=Math.max(Math.abs(ymin),Math.abs(ymax));if(!(m>0))m=1;else m*=1.08;ymin=-m;ymax=m}else if(ymax===ymin){ymax=ymin+1}if(opt.integerAxis&&!splitScale){if(opt.symmetric){const step=Math.max(1,Math.ceil(Math.max(Math.abs(ymin),Math.abs(ymax))/4));ymin=-step*4;ymax=step*4}else{const lo=Math.min(0,Math.floor(ymin)),hi=Math.max(0,Math.ceil(ymax));const step=Math.max(1,Math.ceil((hi-lo)/4));ymin=lo<0?-Math.ceil(Math.abs(lo)/step)*step:0;ymax=Math.max(step*4,Math.ceil(hi/step)*step)}}const sx=t=>L+(Number(t)-from)/(to-from)*iw,sy=v=>splitScale?(v>=0?T+(ih/2)*(1-v/splitScale.pos):T+ih/2+(ih/2)*((-v)/splitScale.neg)):T+ih-(Number(v)-ymin)/(ymax-ymin)*ih,fmt=opt.fmt||((v)=>Math.abs(v)>=1000?Math.abs(v).toLocaleString(undefined,{maximumFractionDigits:0}):Math.abs(v).toFixed(Math.abs(v)<10?2:1));let svg=`<svg class="metricSvg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" data-chart="${esc(id)}">`;const gridVals=splitScale?[splitScale.pos,splitScale.pos/2,0,-splitScale.neg/2,-splitScale.neg]:Array.from({length:5},(_,i)=>ymax-(ymax-ymin)*i/4);for(const v of gridVals){const y=sy(v);svg+=`<line class="chartGrid" x1="${L}" y1="${y}" x2="${W-R}" y2="${y}"/><text class="chartAxis" x="${L-7}" y="${y+4}" text-anchor="end">${esc(fmt(v))}</text>`}if(ymin<0&&ymax>0){const z=sy(0);svg+=`<line class="chartZero" x1="${L}" y1="${z}" x2="${W-R}" y2="${z}"/>`}for(const d of active){if(!d.points.length)continue;let path='',area='',prev=null;for(const q of d.points){const vv=d.negative?-Math.abs(Number(q.v)):Math.abs(Number(q.v)),gap=prev&&Number(q.t)-Number(prev.t)>Number(metricsData.bucket_seconds||1)*1.8;path+=(path&&!gap?' L':' M')+sx(q.t).toFixed(1)+','+sy(vv).toFixed(1);prev=q}if(d.area){const base=sy(0).toFixed(1),first=d.points[0],last=d.points[d.points.length-1];area=`<path class="chartArea ${d.cls||''}" d="M${sx(first.t).toFixed(1)},${base} ${path.replace(/^ M/,'L')} L${sx(last.t).toFixed(1)},${base} Z"/>`}svg+=area+`<path class="chartSeries ${d.cls||''}" d="${path}"/>`}svg+=`<rect class="chartHit" x="${L}" y="${T}" width="${iw}" height="${ih}"/><line class="chartCursor" x1="0" y1="${T}" x2="0" y2="${T+ih}"/><rect class="chartBrush" x="0" y="${T}" width="0" height="${ih}"/>`;for(const [i,t] of metricAxisTimes(from,to,5).entries()){const x=sx(t),anchor=i===0?'start':i===4?'end':'middle';svg+=`<line class="chartTick" x1="${x}" y1="${T+ih}" x2="${x}" y2="${T+ih+4}"/><text class="chartAxis chartTime" x="${x}" y="${H-7}" text-anchor="${anchor}">${esc(metricFmtTime(t))}</text>`}svg+='</svg>';host.innerHTML=svg+`<div class="metricTooltip"></div>`+metricLegend(id,defs);wireMetricChart(host,id,defs,{L,R,T,B,W,H,from,to,fmt,opt})}
+function metricLegend(id,defs){return `<div class="chartLegend interactive">${defs.map(d=>`<button class="legendItem ${metricHidden.has(id+':'+d.name)?'off':''}" data-series="${esc(id+':'+d.name)}"><i class="${esc(d.cls||'')}"></i>${esc(d.name)}</button>`).join('')}</div>`}
+function wireMetricChart(host,id,defs,g){host.querySelectorAll('.legendItem').forEach(b=>b.onclick=()=>{const k=b.dataset.series;metricHidden.has(k)?metricHidden.delete(k):metricHidden.add(k);renderMetricCharts()});const svg=host.querySelector('svg'),tip=host.querySelector('.metricTooltip'),cursor=host.querySelector('.chartCursor'),brush=host.querySelector('.chartBrush');if(!svg)return;let drag=null;const pos=e=>{const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const ctm=svg.getScreenCTM();if(!ctm)return g.L;const q=pt.matrixTransform(ctm.inverse());return Math.max(g.L,Math.min(g.W-g.R,q.x))};const time=x=>g.from+(x-g.L)/(g.W-g.L-g.R)*(g.to-g.from);const clientX=x=>{const pt=svg.createSVGPoint();pt.x=x;pt.y=0;return pt.matrixTransform(svg.getScreenCTM()).x};svg.onpointerdown=e=>{drag=pos(e);svg.setPointerCapture?.(e.pointerId)};svg.onpointermove=e=>{const x=pos(e),t=time(x);cursor.setAttribute('x1',x);cursor.setAttribute('x2',x);cursor.style.opacity='1';let lines=[];for(const d of defs){if(metricHidden.has(id+':'+d.name))continue;const pts=(d.points||[]).filter(p=>Number(p.t)>=g.from&&Number(p.t)<=g.to);if(!pts.length)continue;let best=pts.reduce((a,b)=>Math.abs(Number(b.t)-t)<Math.abs(Number(a.t)-t)?b:a);lines.push(`<span class="tipSeries ${esc(d.cls||'')}"><i></i><em>${esc(d.name)}</em><b>${esc(g.fmt(Number(best.v)))}</b></span>`)}tip.innerHTML=`<strong>${esc(metricFmtTime(t))}</strong>${lines.join('')}`;tip.style.display='block';const hr=host.getBoundingClientRect(),cx=clientX(x)-hr.left,tw=Math.max(170,tip.offsetWidth||190),gap=18;tip.style.transform='none';tip.style.left=(cx+gap+tw<hr.width?cx+gap:Math.max(4,cx-gap-tw))+'px';if(drag!=null){const x0=Math.min(drag,x),x1=Math.max(drag,x);brush.setAttribute('x',x0);brush.setAttribute('width',x1-x0);brush.style.opacity='1'}};svg.onpointerup=e=>{if(drag==null)return;const x=pos(e);if(Math.abs(x-drag)>18){metricsZoom=[time(Math.min(drag,x)),time(Math.max(drag,x))];renderMetricCharts()}drag=null};svg.onpointerleave=()=>{cursor.style.opacity='0';brush.style.opacity='0';tip.style.display='none'}}
+function renderPeerMetric(){if(!metricsData)return;const s=metricsData.series||{},peer=metricsData.selected_peer||'';let defs=[];if(peer){const pcs=[...new Set(Object.keys(s).filter(k=>/^peer_PC\d+_(?:in|out)$/.test(k)).map(k=>k.match(/^peer_(PC\d+)_/)[1]))].sort((a,b)=>Number(a.slice(2))-Number(b.slice(2)));let i=0;for(const pc of pcs){const cls='s'+((i++%10)+1);if(s[`peer_${pc}_in`])defs.push({name:`${pc} IN`,points:s[`peer_${pc}_in`],cls,area:true,rate:false});if(s[`peer_${pc}_out`])defs.push({name:`${pc} OUT`,points:s[`peer_${pc}_out`],cls,area:true,negative:true,rate:false})}}if(!defs.length)defs=[{name:peer?`${peer} IN`:'All IN',points:s.peer_in_bps||[],cls:'s1',area:true,rate:false},{name:peer?`${peer} OUT`:'All OUT',points:s.peer_out_bps||[],cls:'s2',area:true,negative:true,rate:false}];metricLineChart('chartPeer',defs,{symmetric:true,integerAxis:true,fmt:metricPacketFmt})}
+function protocolMetricDefs(s){const names=Object.keys(s).filter(k=>/^protocol_PC\d+_(?:in|out)$/.test(k));const pcs=[...new Set(names.map(k=>k.match(/^protocol_(PC\d+)_/)[1]))].filter(pc=>!['PC11','PC12','PC18','PC20','PC22','PC41','PC51','PC61','PC73','PC84','PC85','PC92','PC93'].includes(pc)).sort((a,b)=>Number(a.slice(2))-Number(b.slice(2)));let i=0,out=[];for(const pc of pcs){const cls='s'+((i++%10)+1);if(s[`protocol_${pc}_in`])out.push({name:`${pc} IN`,points:s[`protocol_${pc}_in`],cls,area:true});if(s[`protocol_${pc}_out`])out.push({name:`${pc} OUT`,points:s[`protocol_${pc}_out`],cls,area:true,negative:true})}return out}
+function metricRateFmt(v,unit){const n=Math.abs(Number(v)||0);const x=n<0.001?n.toFixed(4):n<0.01?n.toFixed(3):n<1?n.toFixed(2):n<10?n.toFixed(1):Math.round(n).toLocaleString();return x+' '+unit}
+function metricPacketFmt(v){return Math.round(Math.abs(Number(v)||0)).toLocaleString()+' pkt'}
+function renderMetricCharts(){if(!metricsData)return;const s=metricsData.series||{},P=k=>s[k]||[];
+ const covered=(kind)=>Number(metricsData?.kind_coverage?.[kind]?.samples||0)>1;
+ const Z=(kind,k)=>{const p=P(k);return p.length?p:(covered(kind)?[{t:Number(metricsData.from_at),v:0},{t:Number(metricsData.to_at),v:0}]:[]);};
+ const ranks=metricsData.spot_rankings||{};metricRankBarChart('chartTopDx',ranks.top_dx||[],30,'#ef4444');metricRankBarChart('chartTopSpotters',ranks.top_spotters||[],30,'#f59e0b');metricRankBarChart('chartTopOriginNodes',ranks.top_origin_nodes||[],30,'#3b82f6');
+ metricLineChart('chartTransport',[{name:'RX',points:P('transport_rx_bps'),cls:'s1',area:true,rate:false},{name:'TX',points:P('transport_tx_bps'),cls:'s2',area:true,negative:true,rate:false}],{symmetric:true,fmt:v=>fmtBytes(Math.abs(v))+' / bucket'});
+ const pc92Generated=[],pc92Received=[];let ci=0;for(const sub of ['A','C','D','K']){const cls='s'+((ci++%10)+1);pc92Generated.push({name:`PC92${sub} Generated`,points:P(`pc92_generated_${sub}`),cls,area:true,rate:false});pc92Received.push({name:`PC92${sub} Received`,points:P(`pc92_received_${sub}`),cls,area:true,rate:false})}metricLineChart('chartPc92Generated',pc92Generated,{integerAxis:true,fmt:metricPacketFmt});metricLineChart('chartPc92Received',pc92Received,{integerAxis:true,fmt:metricPacketFmt});const pc92GeneratedSamples=pc92Generated.reduce((n,x)=>n+(x.points||[]).length,0);const pc92Host=$('chartPc92Generated');if(pc92Host)pc92Host.dataset.generatedSamples=String(pc92GeneratedSamples);
+ const spotProto=[];for(const [pc,cls] of [['PC11','s3'],['PC61','s4']]){spotProto.push({name:`${pc} IN`,points:P(`protocol_${pc}_in`),cls,area:true,rate:false});spotProto.push({name:`${pc} OUT`,points:P(`protocol_${pc}_out`),cls,area:true,negative:true,rate:false})}metricLineChart('chartSpotProtocols',spotProto,{symmetric:true,integerAxis:true,fmt:metricPacketFmt});
+ metricLineChart('chartProtocol',protocolMetricDefs(s),{symmetric:true,integerAxis:true,fmt:metricPacketFmt});
+ const pc4173=[{name:'PC41',points:P('protocol_PC41_in'),cls:'s1',area:true,rate:false},{name:'PC73',points:P('protocol_PC73_in'),cls:'s3',area:true,rate:false},{name:'PC12',points:P('protocol_PC12_in'),cls:'s5',area:true,negative:true,rate:false},{name:'PC93',points:P('protocol_PC93_in'),cls:'s7',area:true,negative:true,rate:false}];metricLineChart('chartPc4173',pc4173,{symmetric:true,integerAxis:true,fmt:metricPacketFmt});
+ const pc182022=[{name:'PC18',points:P('protocol_PC18_in'),cls:'s1',area:true,rate:false},{name:'PC20',points:P('protocol_PC20_in'),cls:'s3',area:true,rate:false},{name:'PC22',points:P('protocol_PC22_in'),cls:'s5',area:true,rate:false},{name:'PC51',points:P('protocol_PC51_in'),cls:'s7',area:true,negative:true,rate:false}];metricLineChart('chartPc182022',pc182022,{symmetric:true,integerAxis:true,fmt:metricPacketFmt});
+ const dxcss=[{name:'PC84',points:Z('traffic','protocol_PC84_in'),cls:'s1',area:true,rate:false},{name:'PC85',points:Z('traffic','protocol_PC85_in'),cls:'s7',area:true,negative:true,rate:false}];metricLineChart('chartDxcss',dxcss,{symmetric:true,integerAxis:true,fmt:metricPacketFmt});
+ renderPeerMetric();
+ const peerCard=$('peerMetricCard');if(peerCard)peerCard.classList.toggle('hasPeer',!!(metricsData.selected_peer||''));
+ metricLineChart('chartNodes',[{name:'Direct peers',points:P('direct_nodes'),cls:'s3',area:true},{name:'Network total',points:P('network_nodes'),cls:'s1'}],{fmt:v=>Math.round(Math.abs(v))+' nodes'});
+ metricLineChart('chartUsers',[{name:'Network total',points:P('network_users'),cls:'s1',area:true},{name:'Local node',points:P('local_users'),cls:'s3'},{name:'Web',points:P('web'),cls:'s5'}],{fmt:v=>Math.round(Math.abs(v))+' users'});
+ metricLineChart('chartPressure',[{name:'History writer queue',points:P('web_history_queue'),cls:'s1',area:true},{name:'Fanout queue',points:P('web_fanout_queue'),cls:'s3'},{name:'Pending requests',points:P('web_pending_requests'),cls:'s5'},{name:'Queued browser clients',points:P('web_queued_clients'),cls:'s7'}],{integerAxis:true,fmt:v=>Math.round(Math.abs(Number(v)||0)).toLocaleString()+' items'});
+ metricLineChart('chartBackpressureEvents',[{name:'History dropped',points:P('web_history_dropped'),cls:'s2',area:true},{name:'WS dropped',points:P('web_ws_dropped'),cls:'s4'},{name:'Slow disconnects',points:P('web_slow_disconnects'),cls:'s6'}],{integerAxis:true,fmt:v=>Math.round(Math.abs(Number(v)||0)).toLocaleString()+' events'});
+ metricLineChart('chartRejectedDropped',[
+  {name:'Connection badip',points:Z('connections','connection_badip'),cls:'s10',area:true}
+ ],{integerAxis:true,fmt:v=>Math.round(Math.abs(Number(v)||0)).toLocaleString()+' events'});
+ metricLineChart('chartRejects',[{name:'Malformed',points:P('reject_malformed'),cls:'s2',area:true,rate:false},{name:'Unknown protocol',points:P('reject_unknown'),cls:'s7',area:true,rate:false}],{integerAxis:true,fmt:metricPacketFmt});
+ metricLineChart('chartBadlists',[{name:'Bad DX',points:P('badlist_baddx'),cls:'s1',area:true},{name:'Bad spotter',points:P('badlist_badspotter'),cls:'s3'},{name:'Bad node',points:P('badlist_badnode'),cls:'s5'},{name:'Bad word',points:P('badlist_badword'),cls:'s7'}],{integerAxis:true,fmt:v=>Math.round(Math.abs(Number(v)||0)).toLocaleString()+' spots'});
+ metricLineChart('chartPc61Drops',[{name:'badip',points:P('pc61_drop_badip'),cls:'s2',area:true},{name:'Non-public IP',points:P('pc61_drop_non_public_ip'),cls:'s6'}],{integerAxis:true,fmt:v=>Math.round(Math.abs(Number(v)||0)).toLocaleString()+' spots'});
+ metricLineChart('chartConnectionEvents',[{name:'Connect',points:P('connections_connect'),cls:'s1',area:true},{name:'Disconnect',points:P('connections_disconnect'),cls:'s3'},{name:'Too many',points:P('connections_too_many'),cls:'s7'}],{integerAxis:true,fmt:v=>Math.round(Math.abs(Number(v)||0)).toLocaleString()+' events'});
+ metricLineChart('chartReconnectControl',[{name:'Connection attempts',points:Z('connections','login_attempts'),cls:'s1',area:true},{name:'Successful connections',points:Z('connections','login_successful'),cls:'s3'},{name:'Rapid-login throttled',points:Z('connections','login_rapid_throttled'),cls:'s7'}],{integerAxis:true,fmt:v=>Math.round(Math.abs(Number(v)||0)).toLocaleString()+' attempts'});
+ metricLineChart('chartLocalDupes',[{name:'Local duplicate spots',points:Z('traffic','spot_local_duplicate'),cls:'s4',area:true}],{integerAxis:true,fmt:v=>Math.round(Math.abs(Number(v)||0)).toLocaleString()+' spots'});
+ metricLineChart('chartRbnFlow',[{name:'Raw',points:P('rbn_raw_minute'),cls:'s1',area:true},{name:'Retrieved',points:P('rbn_retrieved_minute'),cls:'s3'},{name:'Delivered',points:P('rbn_delivered_minute'),cls:'s5'}],{integerAxis:true,fmt:v=>Math.round(Math.abs(Number(v)||0)).toLocaleString()+' RBN/min'});
+ const mem=P('host_mem_used').map(x=>{const totals=P('host_mem_total');if(!totals.length)return null;let q=totals.reduce((a,b)=>Math.abs(Number(b.t)-Number(x.t))<Math.abs(Number(a.t)-Number(x.t))?b:a);return{t:x.t,v:Number(q.v)>0?100*Number(x.v)/Number(q.v):0}}).filter(Boolean);const cpu=P('cpu_self_ratio').map(x=>({t:x.t,v:Number(x.v)*100}));
+ metricLineChart('chartCpu',[{name:'CPU',points:cpu,cls:'s1',area:true}],{fmt:v=>Math.abs(v).toFixed(1)+'%'});
+ metricLineChart('chartRam',[{name:'RAM',points:mem,cls:'s5',area:true}],{fmt:v=>Math.abs(v).toFixed(1)+'%'});
+ metricLineChart('chartDisk',[{name:'Disk',points:P('fs_used_percent'),cls:'s7',area:true}],{fmt:v=>Math.abs(v).toFixed(1)+'%'});
+}
+function renderMetrics(r){metricsData=r||{};metricsInflight=false;metricsZoom=null;renderRateSummary(metricsData);const peers=Array.isArray(r.peers)?r.peers:[],sel=$('metricsPeer'),old=sel.value;sel.innerHTML='<option value="">All peers</option>'+peers.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');if(peers.includes(old))sel.value=old;renderMetricCharts()}
+document.querySelectorAll('#metricsWindows button[data-window]').forEach(b=>b.onclick=()=>{metricsWindow=b.dataset.window;metricsZoom=null;document.querySelectorAll('#metricsWindows button').forEach(x=>x.classList.toggle('active',x===b));requestMetrics()});$('metricsRefresh').onclick=()=>refreshUser('metricsRefresh');$('metricsPeer').onchange=()=>{metricsZoom=null;requestMetrics()};$('metricsResetZoom').onclick=()=>{metricsZoom=null;renderMetricCharts()};
+
+function openMetricExpand(chartId){const src=metricChartRegistry.get(chartId),modal=$('metricExpandModal'),target=$('metricModalChart');if(!src||!modal||!target)return;const r={defs:src.defs,opt:src.opt,kind:src.kind,items:src.items,color:src.color};const card=$(chartId)?.closest('.metricChartCard,.resourcePane');setText('metricModalTitle',card?.querySelector('h3,b')?.textContent||'Metric');modal.classList.add('open');modal.setAttribute('aria-hidden','false');target.innerHTML='';requestAnimationFrame(()=>{if(r.kind==='rankbar')metricRankBarChart('metricModalChart',r.items||[],30,r.color||'#3b82f6');else metricLineChart('metricModalChart',r.defs,r.opt);requestAnimationFrame(()=>dxEchartsInstances.get('metricModalChart')?.resize())})}
+document.addEventListener('click',e=>{const b=e.target.closest?.('.metricExpand');if(b){openMetricExpand(b.dataset.expand);return}if(e.target?.id==='metricModalClose'||e.target?.id==='metricExpandModal'){const m=$('metricExpandModal');m?.classList.remove('open');m?.setAttribute('aria-hidden','true')}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('metricExpandModal')?.classList.remove('open');$('metricExpandModal')?.setAttribute('aria-hidden','true')}});
+
+function updateLog(line){const out=$('maintenanceUpdateOutput');if(!out)return;const ts=new Date().toLocaleTimeString();out.textContent+=`[${ts}] ${line}\n`;out.scrollTop=out.scrollHeight}
+function runUpdateCommand(cmd){if(!cmd)return;updateLog(`> ${cmd}`);command(cmd,'maintenanceUpdates')}
+document.querySelectorAll('[data-update-cmd]').forEach(b=>b.onclick=()=>runUpdateCommand(b.dataset.updateCmd));
+document.querySelectorAll('[data-update-seq]').forEach(b=>b.onclick=()=>{let seq=[];try{seq=JSON.parse(b.dataset.updateSeq||'[]')}catch{};seq.forEach(runUpdateCommand)});
+document.querySelectorAll('[data-update-action]').forEach(b=>b.onclick=()=>{const action=b.dataset.updateAction;if(!action)return;updateLog(`> ${b.textContent.trim()} ${b.closest('.updateRow')?.querySelector('strong')?.textContent||action}`);b.disabled=true;b.dataset.running='1';send({type:'maintenance_update_action',action})});
+let timelineWindow='15m',timelineInflight=false;
+function requestTimeline(){if(!authenticated||!ws||ws.readyState!==WebSocket.OPEN||timelineInflight)return;timelineInflight=true;setText('timelineState','Loading historical events…');if(!send({type:'history_timeline',window:timelineWindow})){timelineInflight=false;setText('timelineState','Admin link is not ready.')}}
+function timelineValue(v){return v===null||v===undefined||v===''?'—':String(v)}
+function renderTimeline(r){timelineInflight=false;const ev=Array.isArray(r.events)?r.events:[];const body=$('timelineRows');if(!body)return;body.innerHTML=ev.map(e=>`<tr><td class="timelineTime">${esc(new Date(Number(e.at)*1000).toLocaleString())}</td><td>${esc(e.kind||'event')}</td><td><strong>${esc(e.label||e.field||'Change')}</strong><small class="timelineField">${esc(e.field||'')}</small></td><td>${esc(e.kind==='boot'?'previous session':timelineValue(e.before))}</td><td>${esc(e.kind==='boot'?'current session':timelineValue(e.after))}</td></tr>`).join('')||'<tr><td colspan="5" class="emptyCell">No demonstrated events in this window.</td></tr>'}
+document.querySelectorAll('#timelineWindows button[data-window]').forEach(b=>b.onclick=()=>{timelineWindow=b.dataset.window;document.querySelectorAll('#timelineWindows button').forEach(x=>x.classList.toggle('active',x===b));requestTimeline()});$('timelineRefresh').onclick=()=>refreshUser('timelineRefresh');
+
+
+
+let maintenanceInflight=false,maintenanceActionInflight=false,maintenancePath=[],maintenanceItems=[];
+function requestMaintenance(path=maintenancePath){if(!authenticated||!ws||ws.readyState!==WebSocket.OPEN||maintenanceInflight)return;maintenanceInflight=true;if(!send({type:'maintenance_snapshot',history_path:path})){maintenanceInflight=false;setText('supervisionState','Admin link is not ready.')}}
+function historyKindLabel(k){return k==='year'?'Year':k==='directory'?'Directory':k==='file'?'File':k||'—'}
+function renderHistoryMaintenance(r){const b=r.history_browser||{};maintenancePath=Array.isArray(b.path)?b.path:[];maintenanceItems=Array.isArray(b.items)?b.items:[];const crumb=['Historical data',...maintenancePath].map(esc).join(' › ');setText('historyBreadcrumb',crumb);const up=$('historyUp');if(up)up.disabled=!maintenancePath.length;const body=$('historyMaintenanceRows');if(!body)return;const allBox=$('historySelectAll');if(allBox){allBox.checked=false;allBox.disabled=false}body.innerHTML=maintenanceItems.map(x=>{const prot=!!x.protected;const nav=!!x.navigable;const name=nav?`<button type="button" class="historyNav" data-history-id="${esc(x.id)}">${esc(x.name)}</button>`:`<span class="historyLeaf">${esc(x.name)}</span>`;return `<tr><td>${prot?'—':`<input class="historyItemCheck" type="checkbox" value="${esc(x.id)}" aria-label="Select ${esc(x.name)}">`}</td><td>${name}</td><td>${esc(historyKindLabel(x.kind))}</td><td>${prot?'<span class="stateBadge ok">ACTIVE / PROTECTED</span>':(x.contains_active?'<span class="stateBadge neutral">CONTAINS ACTIVE</span>':'<span class="stateBadge neutral">HISTORICAL</span>')}</td><td>${Number(x.files||0).toLocaleString()}</td><td>${Number(x.dirs||0).toLocaleString()}</td><td>${fmtBytes(Number(x.bytes||0))}</td></tr>`}).join('')||'<tr><td colspan="7" class="emptyCell">This location is empty.</td></tr>';document.querySelectorAll('.historyNav').forEach(btn=>btn.onclick=()=>historyNavigate(btn.dataset.historyId));setText('historyMaintenanceState','')}
+function historyNavigate(id){const x=maintenanceItems.find(i=>i.id===id);if(!x||!x.navigable)return;if(x.kind==='year')maintenancePath=[String(x.year)];else if(x.kind==='directory'&&maintenancePath.length===1)maintenancePath=[String(x.year),String(x.family)];else if(x.kind==='directory'&&maintenancePath.length>=2)maintenancePath=[...maintenancePath,String(x.name)];else return;requestMaintenance(maintenancePath)}
+function selectedHistoryIds(){return [...document.querySelectorAll('.historyItemCheck:checked')].map(x=>x.value).filter(Boolean)}
+function historyAction(action){if(maintenanceActionInflight)return;const ids=selectedHistoryIds();if(!ids.length){setText('historyMaintenanceState','Select at least one historical item.');return}const names=ids.map(id=>maintenanceItems.find(x=>x.id===id)?.name||id);const verb=action==='delete'?'DELETE permanently':'COMPRESS';if(!confirm(`${verb}: ${names.join(', ')}?${action==='delete'?' Only these server-validated items will be removed.':''}`))return;maintenanceActionInflight=true;setText('historyMaintenanceState',`${action==='delete'?'Deleting':'Compressing'} ${names.join(', ')}…`);if(!send({type:'maintenance_history_action',action,ids})){maintenanceActionInflight=false;setText('historyMaintenanceState','Admin link is not ready.')}}
+function renderMaintenance(r){maintenanceInflight=false;const sys=r.system||{},ok=String(r.quick_check||'').toLowerCase()==='ok';setText('maintDbState',ok?'OK':String(r.quick_check||'UNKNOWN').toUpperCase());setText('maintDbSize',fmtBytes(Number(r.db_bytes||0)));setText('maintSamples',Number(r.samples||0).toLocaleString());const cov=(r.oldest_at&&r.newest_at)?Math.max(0,Number(r.newest_at)-Number(r.oldest_at)):0;setText('maintCoverage',cov?fmtDuration(cov)+' stored':'no coverage');setText('maintBackups',Number(r.backup_count||0));setText('maintLatestBackup',r.latest_backup?.name||'none found');setText('maintAdminPid',sys.admin_pid||'—');setText('maintAdminProcess',`${fmtBytes(Number(sys.admin_rss_bytes||0))} RSS · ${Number(sys.admin_fds||0)} FDs`);$('maintHistory').innerHTML=metricRows([['Integrity',ok?'OK':String(r.quick_check||'UNKNOWN').toUpperCase()],['Database',fmtBytes(Number(r.db_bytes||0))],['WAL',fmtBytes(Number(r.wal_bytes||0))],['SHM',fmtBytes(Number(r.shm_bytes||0))],['Samples',Number(r.samples||0).toLocaleString()],['Oldest sample',r.oldest_at?new Date(Number(r.oldest_at)*1000).toLocaleString():'—'],['Newest sample',r.newest_at?new Date(Number(r.newest_at)*1000).toLocaleString():'—'],['Filesystem used',r.fs_total_bytes?`${fmtBytes(Number(r.fs_used_bytes||0))} / ${fmtBytes(Number(r.fs_total_bytes||0))} (${Number(r.fs_used_percent||0)}%)`:'—'],['Filesystem free',r.fs_total_bytes?fmtBytes(Number(r.fs_available_bytes||0)):'—']]);$('maintSystem').innerHTML=metricRows([['Host uptime',fmtDuration(Number(sys.host_uptime_seconds||0))],['Load',`${Number(sys.load1||0).toFixed(2)} / ${Number(sys.load5||0).toFixed(2)} / ${Number(sys.load15||0).toFixed(2)}`],['RAM used',fmtBytes(Number(sys.mem_used_bytes||0))],['RAM available',fmtBytes(Number(sys.mem_available_bytes||0))],['Admin PID',sys.admin_pid||'—'],['Admin RSS',fmtBytes(Number(sys.admin_rss_bytes||0))],['Admin FDs',Number(sys.admin_fds||0)]]);$('maintBackup').innerHTML=metricRows([['Backups found',Number(r.backup_count||0)],['Latest',r.latest_backup?.name||'—'],['Latest time',r.latest_backup?.mtime?new Date(Number(r.latest_backup.mtime)*1000).toLocaleString():'—'],['Scope','DXWeb Admin backups in DXSpider local_data'],['Mode','controlled local maintenance']]);const dbs=Array.isArray(r.databases)?r.databases:[];$('maintDatabases').innerHTML=dbs.map(x=>`<div class="dbInventoryRow"><strong>${esc(x.name)}</strong><span>${fmtBytes(Number(x.total_bytes||0))}</span><small title="${esc(x.path)}">${esc(x.path)}</small></div>`).join('')||'No databases found in local_data';setText('maintMaxRows',Number(r.max_rows||0).toLocaleString());setText('maintRecordCount',Number(r.samples||0).toLocaleString());if(document.activeElement!==$('maintLimitInput'))$('maintLimitInput').value=String(r.max_rows||'');renderHistoryMaintenance(r);setText('supervisionState','')}
+let pendingLimit=null;
+$('maintLimitForm')?.addEventListener('submit',e=>{e.preventDefault();const limit=$('maintLimitInput').value;if(!/^[1-9][0-9]{0,11}$/.test(limit)){setText('maintLimitState','Enter a positive integer.');return}pendingLimit=null;setText('maintLimitState','Checking current records…');send({type:'history_limit_preview',limit});});
+const maintenanceRefresh=$('maintenanceRefresh');if(maintenanceRefresh)maintenanceRefresh.onclick=()=>requestMaintenance(maintenancePath);
+const historyUp=$('historyUp');if(historyUp)historyUp.onclick=()=>{maintenancePath=maintenancePath.slice(0,-1);requestMaintenance(maintenancePath)};
+const historySelectAll=$('historySelectAll');if(historySelectAll)historySelectAll.onchange=()=>document.querySelectorAll('.historyItemCheck:not(:disabled)').forEach(x=>x.checked=historySelectAll.checked);
+const historyCompress=$('historyCompress');if(historyCompress)historyCompress.onclick=()=>historyAction('compress');
+const historyDelete=$('historyDelete');if(historyDelete)historyDelete.onclick=()=>historyAction('delete');
+
+// DXSpider supervision v0.3: readable, navigable, read-only dashboard. No background polling.
+let activeSupervisionPanel='overview',supervisorLastCollectedAt=0,supervisorStatusCache=null;
+let supervisorConnectionsCache=[],supervisorTrafficCache=null,connectionKind='all',trafficPrevious=null;
+function setHealth(id,text,state='unknown'){const e=$(id);if(!e)return;e.textContent=text;e.className=`healthPill ${state}`}
+function setText(id,v){const e=$(id);if(e)e.textContent=v}
+function updateSupervisorBanner(r){
+ if(r&&r.node){$('supervisionNode').textContent=r.node;supervisorStatusCache=r}
+ const st=supervisorStatusCache;
+ if(st){$('supervisionNode').textContent=st.node||'—';$('supervisionUptime').textContent=`uptime ${fmtDuration(st.uptime_seconds||0)}`;setHealth('supervisionDxsState','DXS UP','ok')}
+ setHealth('supervisionAdminState',ws&&ws.readyState===WebSocket.OPEN?'ADMIN LINK UP':'ADMIN LINK DOWN',ws&&ws.readyState===WebSocket.OPEN?'ok':'bad');
+ if(supervisorLastCollectedAt){const age=Math.max(0,Date.now()/1000-supervisorLastCollectedAt);$('supervisionAge').textContent=`data age ${age<10?age.toFixed(1)+'s':Math.floor(age)+'s'}`}
+}
+function fmtDuration(v){let s=Math.max(0,Math.floor(Number(v)||0));const d=Math.floor(s/86400);s%=86400;const h=Math.floor(s/3600);s%=3600;const m=Math.floor(s/60);return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m}m`}
+function sessionPolicyRender(policy){
+ const box=$('sessionPolicyRows');if(!box)return;
+ box.replaceChildren();
+ for(const [key,label] of [['dxweb','DXWeb'],['dxweb_admin','DXWeb Admin']]){
+  const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0';
+  const title=document.createElement('strong');title.textContent=label;
+  const toggle=document.createElement('input');toggle.type='checkbox';toggle.id='policy-'+key+'-enabled';toggle.checked=policy[key]?.enabled===true;
+  const toggleLabel=document.createElement('label');toggleLabel.htmlFor=toggle.id;toggleLabel.textContent='Expire after inactivity';
+  const mins=document.createElement('input');mins.type='number';mins.min='1';mins.max='2147483647';mins.step='1';mins.value=String(policy[key]?.minutes??15);mins.id='policy-'+key+'-minutes';mins.style.width='110px';mins.disabled=!toggle.checked;toggle.addEventListener('change',()=>{mins.disabled=!toggle.checked});
+  const minsLabel=document.createElement('label');minsLabel.htmlFor=mins.id;minsLabel.textContent='Minutes';
+  row.append(title,toggle,toggleLabel,minsLabel,mins);box.append(row);
+ }
+}
+function sessionPolicySave(){
+ const policy={};for(const key of ['dxweb','dxweb_admin']){
+  const minutes=Number($('policy-'+key+'-minutes').value);
+  if(!Number.isSafeInteger(minutes)||minutes<1||minutes>2147483647){setText('sessionPolicyState','Minutes must be 1–2147483647');return}
+  policy[key]={enabled:$('policy-'+key+'-enabled').checked,minutes};
+ }
+ setText('sessionPolicyState','Saving…');send({type:'session_policy_set',policy});
+}
+$('sessionPolicySave')?.addEventListener('click',sessionPolicySave);
+$('metricsPolicySave')?.addEventListener('click',()=>{
+ setText('metricsPolicyState','Saving…');
+ send({type:'metrics_policy_set',enabled:!!$('metricsPolicyEnabled').checked});
+});
+
+function supervisorKindsFor(panel){return panel==='neighbours'?['connections','status']:panel==='overview'?['overview']:panel==='diagnostics'?['self_health']:panel==='system'?['system']:panel==='nodes'?['connections','web']:panel==='connections'?['connections','web']:panel==='users'?['connections','web']:panel==='peers'?['connections','traffic']:[panel]}
+function supervisorRequest(panel=activeSupervisionPanel){if(!authenticated||!ws||ws.readyState!==WebSocket.OPEN)return;if(panel==='maintenance'){requestMaintenance();return}if(panel==='system'){send({type:'session_policy_get'});send({type:'metrics_policy_get'});}const todo=supervisorKindsFor(panel).filter(what=>!supervisorInflight.has(what));if(!todo.length)return;$('supervisionState').textContent='';for(const what of todo){supervisorInflight.add(what);if(!send({type:`supervisor_${what}`}))supervisorInflight.delete(what)}}
+function selectSupervision(id){if(activeSupervisionPanel!==(id||'overview')&&$('supervisionRefresh'))refreshClear($('supervisionRefresh'));activeSupervisionPanel=id||'overview';if(activeSupervisionPanel==='neighbours')neighboursRender();if(activeSupervisionPanel==='overview')refreshSoftwareVersions();document.querySelectorAll('#supervisionTabs button[data-superpanel]').forEach(b=>b.classList.toggle('active',b.dataset.superpanel===activeSupervisionPanel));document.querySelectorAll('#supervision .superPanel').forEach(p=>p.classList.toggle('active',p.id===activeSupervisionPanel));if(authenticated){supervisorRequest(activeSupervisionPanel);if(activeSupervisionPanel==='diagnostics')requestMetrics()}}
+document.querySelectorAll('#supervisionTabs button[data-superpanel]').forEach(b=>b.onclick=()=>selectSupervision(b.dataset.superpanel));
+if($('supervisionRefresh'))$('supervisionRefresh').onclick=()=>refreshUser('supervisionRefresh');
+function fmtBytes(n){n=Number(n)||0;for(const u of ['B','KiB','MiB','GiB','TiB']){if(Math.abs(n)<1024||u==='TiB')return `${n.toFixed(u==='B'?0:1)} ${u}`;n/=1024}}
+function valueUnit(value,unit=''){return `<span class=\"vu\"><span class=\"vuValue\">${esc(value)}</span><span class=\"vuUnit\">${esc(unit)}</span></span>`}
+function bytesVU(n,suffix=''){const p=fmtBytes(n).split(' ');return valueUnit(p[0],`${p[1]||''}${suffix}`)}
+function metricRowsHtml(rows){return rows.map(([k,v,cls=''])=>`<div class=\"metricRow\"><dt>${esc(k)}</dt><dd class=\"${esc(cls)}\">${v}</dd></div>`).join('')}
+function fmtAge(ts){const n=Number(ts)||0;if(!n)return '-';return fmtDuration(Date.now()/1000-n)}
+function metricRows(rows){return rows.map(([k,v,cls=''])=>`<div class="metricRow"><dt>${esc(k)}</dt><dd class="${esc(cls)}">${esc(v)}</dd></div>`).join('')}
+function statusBadge(text,state='neutral'){return `<span class="stateBadge ${esc(state)}">${esc(text)}</span>`}
+function yn(v){return v===true||v===1?'Yes':v===false||v===0?'No':'—'}
+function dash(v){return v===undefined||v===null||v===''?'—':String(v)}
+function renderConnections(){
+ const q=($('connSearch')?.value||'').trim().toUpperCase();
+ const all=allConnectionRows(),online=all.filter(x=>x.online).length,offline=all.filter(x=>!x.online).length,repeated=all.filter(x=>Number(x.connect_count||0)>1).length,too=all.filter(x=>Number(x.too_many_count||0)>0).length;
+ setText('connAllCount',all.length);setText('connConnectedCount',online);setText('connDisconnectedCount',offline);setText('connRepeatedCount',repeated);setText('connTooManyCount',too);
+ const match=x=>connectionKind==='all'||(connectionKind==='connected'&&x.online)||(connectionKind==='disconnected'&&!x.online)||(connectionKind==='repeated'&&Number(x.connect_count)>1)||(connectionKind==='too_many'&&Number(x.too_many_count)>0);
+ const rows=all.filter(x=>match(x)&&(!q||String(x.call||'').toUpperCase().includes(q)));
+ $('supervisorConnections').innerHTML=rows.map(x=>`<tr><td class="callCell">${esc(x.call)}</td><td>${statusBadge(x.online?'ONLINE':'OFFLINE',x.online?'ok':'neutral')}</td><td>${statusBadge(x.kind||'-','neutral')}</td><td>${esc(x.logical_web?'WEB':x.outbound===true||x.outbound===1?'OUT':x.outbound===false||x.outbound===0?'IN':'—')}</td><td>${esc(dash(x.ip))}</td><td>${esc(yn(x.registered))}</td><td>${esc(yn(x.password_configured))}</td><td>${esc(x.state||'-')}</td><td>${x.online?esc(fmtAge(x.connected_since)):'—'}</td><td>${esc(dash(x.cnum))}</td><td class="${Number(x.queue_depth)>0?'warnText':''}">${x.logical_web?'—':esc(x.queue_depth||0)}</td><td class="${Number(x.errors)>0?'badText':''}">${x.logical_web?'—':esc(x.errors||0)}</td><td>${x.logical_web?'—':Number(x.connect_count||0).toLocaleString()}</td><td>${x.logical_web?'—':Number(x.disconnect_count||0).toLocaleString()}</td><td>${x.last_event?esc(fmtAge(x.last_event)):'—'}</td><td class="${Number(x.too_many_count)>0?'badText':''}">${x.logical_web?'—':Number(x.too_many_count||0).toLocaleString()}</td><td class="unitCell">${x.online&&!x.logical_web?bytesVU(x.bytes_in):'—'}</td><td class="unitCell">${x.online&&!x.logical_web?bytesVU(x.bytes_out):'—'}</td></tr>`).join('')||'<tr><td colspan="18" class="emptyCell">No matching connections.</td></tr>';
+ renderNodes();
+}
+
+let userKind='online';
+let supervisorWebLogicalUsers=[];
+let supervisorAdminBrowserUsers=[];
+function logicalWebRows(){
+ // A logical Web user has no independent DXChannel, cnum, queue or transport counters.
+ const logical=supervisorWebLogicalUsers.map(u=>({call:u.call,kind:'web',online:true,outbound:null,ip:u.ip,registered:u.registered,password_configured:u.password_configured,connected_since:u.startt,state:'WEB',cnum:null,queue_depth:null,errors:null,connect_count:null,disconnect_count:null,last_event:null,bytes_in:null,bytes_out:null,logical_web:true}));
+ // Admin browser sessions are a fallback if not represented in DXSpider's web_users.
+ const known=new Set(logical.map(u=>String(u.call||'').toUpperCase()));
+ for(const u of supervisorAdminBrowserUsers){
+  if(!u.call||known.has(String(u.call).toUpperCase()))continue;
+  logical.push({call:u.call,kind:'web',online:true,outbound:null,ip:u.ip,registered:u.registered,password_configured:null,connected_since:u.startt,state:'WEB',cnum:null,queue_depth:null,errors:null,connect_count:null,disconnect_count:null,last_event:null,bytes_in:null,bytes_out:null,logical_web:true});
+ }
+ return logical;
+}
+function connectionCallSort(a,b){
+ const ac=String(a.call||'').toUpperCase(),bc=String(b.call||'').toUpperCase();
+ const at=ac.startsWith('#WEB'),bt=bc.startsWith('#WEB');
+ return at!==bt?(at?-1:1):ac.localeCompare(bc,undefined,{sensitivity:'base'});
+}
+function allConnectionRows(){return supervisorConnectionsCache.concat(logicalWebRows()).sort(connectionCallSort)}
+function userConnectionRows(){
+ return allConnectionRows().filter(x=>String(x.kind||'').toLowerCase()==='user'||x.logical_web||String(x.kind||'').toLowerCase()==='web');
+}
+function renderUsers(){
+ const body=$('supervisorUsers');if(!body)return;
+ const all=userConnectionRows(),online=all.filter(x=>x.online),q=($('userSearch')?.value||'').trim().toUpperCase();
+ setText('userOnlineCount',online.length);setText('userObservedCount',all.length);
+ setText('userKpiOnline',online.length);
+ setText('userKpiRegistered',online.filter(x=>x.registered===true||x.registered===1).length);
+ setText('userKpiPassword',online.filter(x=>x.password_configured===true||x.password_configured===1).length);
+ setText('userKpiReconnects',all.reduce((n,x)=>n+Math.max(0,Number(x.connect_count||0)-1),0));
+ const rows=all.filter(x=>(userKind==='all'||x.online)&&(!q||String(x.call||'').toUpperCase().includes(q)));
+ body.innerHTML=rows.map(x=>`<tr><td class="callCell">${esc(x.call)}</td><td>${statusBadge(x.online?'ONLINE':'OFFLINE',x.online?'ok':'neutral')}</td><td>${esc(x.logical_web?'WEB':x.outbound===true||x.outbound===1?'OUT':x.outbound===false||x.outbound===0?'IN':'—')}</td><td>${esc(dash(x.ip))}</td><td>${esc(yn(x.registered))}</td><td>${esc(yn(x.password_configured))}</td><td>${x.online?esc(fmtAge(x.connected_since)):'—'}</td><td>${esc(dash(x.state))}</td><td>${esc(dash(x.cnum))}</td><td class="${Number(x.queue_depth)>0?'warnText':''}">${x.logical_web?'—':esc(x.queue_depth||0)}</td><td class="${Number(x.errors)>0?'badText':''}">${x.logical_web?'—':esc(x.errors||0)}</td><td>${x.logical_web?'—':Number(x.connect_count||0).toLocaleString()}</td><td>${x.logical_web?'—':Number(x.disconnect_count||0).toLocaleString()}</td><td>${x.last_event?esc(fmtAge(x.last_event)):'—'}</td><td class="unitCell">${x.online&&!x.logical_web?bytesVU(x.bytes_in):'—'}</td><td class="unitCell">${x.online&&!x.logical_web?bytesVU(x.bytes_out):'—'}</td></tr>`).join('')||'<tr><td colspan="16" class="emptyCell">No matching user connections.</td></tr>';
+}
+document.querySelectorAll('.userFilter').forEach(b=>b.onclick=()=>{userKind=b.dataset.kind;document.querySelectorAll('.userFilter').forEach(x=>x.classList.toggle('active',x===b));renderUsers()});
+if($('userSearch'))$('userSearch').oninput=renderUsers;
+
+function renderConnectionAttention(){
+ const items=[];
+ supervisorConnectionsCache.filter(x=>Number(x.too_many_count)>0).sort((a,b)=>Number(b.last_too_many)-Number(a.last_too_many)).slice(0,8).forEach(x=>items.push(`<div class="attentionRow"><b>${esc(x.call)}</b><span>Too many connections ×${esc(x.too_many_count)}</span><span>${esc(fmtAge(x.last_too_many))}</span></div>`));
+ supervisorConnectionsCache.filter(x=>Number(x.connect_count)>1&&!Number(x.too_many_count)).sort((a,b)=>Number(b.connect_count)-Number(a.connect_count)).slice(0,8).forEach(x=>items.push(`<div class="attentionRow"><b>${esc(x.call)}</b><span>Repeated successful connections ×${esc(x.connect_count)}</span><span>${esc(fmtAge(x.last_event))}</span></div>`));
+ $('connectionAttentionRows').innerHTML=items.join('')||'<div class="emptyCell">No connection events need attention.</div>';
+}
+function updateReferenceValue(kind){
+ const c=updateStatusCache?.comparisons?.[kind];if(!c||c.comparable!==true)return null;
+ for(const k of ['remote','remote_value','expected','expected_value','reference','reference_value','official','official_value','upstream','upstream_value'])if(c[k]!=null&&String(c[k]).trim()!=='')return String(c[k]).trim();
+ return null;
+}
+function normUpdateValue(kind,v){let s=String(v??'').trim();if(kind==='commit'){s=s.replace(/\[r\]$/i,'').toLowerCase()}if(kind==='version'){s=s.replace(/^v/i,'')}return s}
+function updateValueMismatch(kind,value){
+ const c=updateStatusCache?.comparisons?.[kind];if(!c||c.comparable!==true||value==null||String(value).trim()==='')return false;
+ const got=normUpdateValue(kind,value),ref=updateReferenceValue(kind);
+ if(ref!=null){const want=normUpdateValue(kind,ref);return kind==='commit'?!(got.startsWith(want)||want.startsWith(got)):got!==want}
+ const local=kind==='branch'?supervisorStatusCache?.git_branch:kind==='version'?(supervisorStatusCache?.version??supervisorStatusCache?.dxspider_version):kind==='build'?supervisorStatusCache?.build:supervisorStatusCache?.git_version;
+ if(local==null||String(local).trim()==='')return false;
+ const same=kind==='commit'?(normUpdateValue(kind,local).startsWith(got)||got.startsWith(normUpdateValue(kind,local))):normUpdateValue(kind,local)===got;
+ return same?c.match===false:(c.match===true);
+}
+function updateCellClass(kind,value){return updateValueMismatch(kind,value)?'updateMismatch':''}
+function renderNodes(){
+ const body=$('supervisorNodes');if(!body)return;const proto=supervisorTrafficCache?.protocol||{},pp=proto.peers||{},by=new Map();
+ for(const x of supervisorConnectionsCache){if(x.is_self||x.kind!=='node')continue;by.set(String(x.call||'').toUpperCase(),x)}
+ const q=($('nodeSearch')?.value||'').trim().toUpperCase(),rows=[];for(const [call,c] of [...by.entries()].sort((a,b)=>a[0].localeCompare(b[0]))){if(q&&!call.includes(q))continue;const pcs=pp[call]||pp[c.call]||{};let ip=0,op=0,ib=0,ob=0,types=0;for(const v of Object.values(pcs)){const i=v?.in||{},o=v?.out||{},a=Number(i.packets||0),b=Number(o.packets||0);ip+=a;op+=b;ib+=Number(i.bytes||0);ob+=Number(o.bytes||0);if(a||b)types++}rows.push({call,c,ip,op,ib,ob,types,reconnects:Math.max(0,Number(c.connect_count||0)-1)})}
+ const vals=[...by.values()];setText('nodeKpiTotal',by.size);setText('nodeKpiOnline',vals.filter(c=>c.online).length);setText('nodeKpiPc9x',vals.filter(c=>c.online&&(c.do_pc9x===true||c.do_pc9x===1)).length);setText('nodeKpiReconnects',vals.reduce((a,c)=>a+Math.max(0,Number(c.connect_count||0)-1),0));
+ body.innerHTML=rows.map(({call,c,ip,op,ib,ob,types,reconnects})=>`<tr><td class="callCell">${esc(call)}</td><td>${statusBadge(c.online?'ONLINE':'OFFLINE',c.online?'ok':'neutral')}</td><td>${esc(c.outbound===true||c.outbound===1?'OUT':c.outbound===false||c.outbound===0?'IN':'—')}</td><td>${esc(dash(c.ip))}</td><td>${c.online?esc(fmtAge(c.connected_since)):'—'}</td><td>${esc(yn(c.do_pc9x))}</td><td class="${updateCellClass('version',c.dxspider_version)}">${esc(dash(c.dxspider_version))}</td><td class="${updateCellClass('build',c.build)}">${esc(dash(c.build))}</td><td class="${updateCellClass('commit',c.git_version)}">${esc(dash(c.git_version))}</td><td>${ip.toLocaleString()}</td><td>${op.toLocaleString()}</td><td class="unitCell">${bytesVU(ib)}</td><td class="unitCell">${bytesVU(ob)}</td><td>${types}</td><td class="${reconnects?'warnText':''}">${reconnects}</td><td>${c.pingave!=null?esc(Number(c.pingave).toFixed(3)):'—'}</td></tr>`).join('')||'<tr><td colspan="16" class="emptyCell">No matching direct node peers.</td></tr>';
+}
+if($('nodeSearch'))$('nodeSearch').oninput=renderNodes;
+document.querySelectorAll('.connFilter').forEach(b=>b.onclick=()=>{connectionKind=b.dataset.kind;document.querySelectorAll('.connFilter').forEach(x=>x.classList.toggle('active',x===b));renderConnections()});
+if($('connSearch'))$('connSearch').oninput=renderConnections;
+let updateStatusCache=null;async function refreshUpdateStatus(){try{const r=await fetch(`update-status.json?_=${Date.now()}`,{cache:'no-store'});if(!r.ok)throw new Error(String(r.status));updateStatusCache=await r.json()}catch(e){updateStatusCache={status:'CHECK_FAILED',error:String(e)}}renderUpdateStatus()}
+function effectiveUpdateStatus(r){if(!r)return'CHECK_FAILED';if(r.status==='CHECK_FAILED')return'CHECK_FAILED';const cs=['branch','version','build','commit'].map(k=>r?.comparisons?.[k]);if(cs.some(c=>c?.comparable===true&&c.match===false))return'NOT_UPDATED';if(cs.every(c=>c?.comparable===true&&c.match===true))return'UPDATED';return'CHECK_FAILED'}
+function renderUpdateStatus(){const b=$('updateStatusBadge'),r=updateStatusCache;if(!b)return;if(!r){b.textContent='UPDATE CHECK…';b.className='stateBadge neutral';return}const st=effectiveUpdateStatus(r);b.textContent=st.replaceAll('_',' ');b.className=`stateBadge ${st==='UPDATED'?'ok':st==='NOT_UPDATED'?'warn':'neutral'}`;b.title='The update status is determined by comparing the running DXSpider version and build against the latest available version and build on the official stable `mojo` branch. The official DXSpider repository is checked first, with the GitHub mirror used as a fallback.';for(const n of ['branch','version','build','commit'])document.querySelectorAll(`.update${n[0].toUpperCase()+n.slice(1)}Field`).forEach(e=>e.classList.toggle('updateMismatch',r?.comparisons?.[n]?.comparable===true&&r.comparisons[n].match===false));renderNodes()}
+refreshUpdateStatus();setInterval(refreshUpdateStatus,60000);
+
+let topologyState={nodes:[],edges:[],byCall:new Map(),adj:new Map(),positions:new Map(),root:'',selected:null,hops:'all',baseBox:{x:0,y:0,w:1400,h:900},box:{x:0,y:0,w:1400,h:900},drag:null};
+function topologySetBox(box){const svg=$('topologyGraph');if(!svg)return;topologyState.box={...box};svg.setAttribute('viewBox',`${box.x} ${box.y} ${box.w} ${box.h}`);const ratio=box.w/topologyState.baseBox.w;svg.classList.toggle('labelsCompact',ratio>0.72);svg.classList.toggle('labelsSparse',ratio>0.42&&ratio<=0.72)}
+function topologyFit(){const b=topologyState.baseBox;topologySetBox({...b})}
+function topologyZoom(factor,cx=.5,cy=.5){const b=topologyState.box,base=topologyState.baseBox;let nw=b.w*factor,nh=b.h*factor;const minW=base.w*.08,maxW=base.w*3;if(nw<minW){nh*=minW/nw;nw=minW}if(nw>maxW){nh*=maxW/nw;nw=maxW}topologySetBox({x:b.x+(b.w-nw)*cx,y:b.y+(b.h-nh)*cy,w:nw,h:nh})}
+function topologyNeighbours(call,maxHops=1){const seen=new Set([call]),q=[[call,0]];while(q.length){const [a,d]=q.shift();if(d>=maxHops)continue;for(const b of topologyState.adj.get(a)||[])if(!seen.has(b)){seen.add(b);q.push([b,d+1])}}return seen}
+function topologyApplyFocus(){const svg=$('topologyGraph'),sel=topologyState.selected;if(!svg)return;const hops=topologyState.hops==='all'?null:Number(topologyState.hops),visible=sel&&hops?topologyNeighbours(sel,hops):null,near=sel?topologyNeighbours(sel,1):new Set();svg.querySelectorAll('.topoNode').forEach(g=>{const c=g.dataset.call;g.classList.toggle('selected',c===sel);g.classList.toggle('neighbour',!!sel&&c!==sel&&near.has(c));g.classList.toggle('dim',!!visible&&!visible.has(c))});svg.querySelectorAll('.topoEdge').forEach(l=>{const a=l.dataset.from,b=l.dataset.to;const active=!!sel&&(a===sel||b===sel);l.classList.toggle('selected',active);l.classList.toggle('dim',!!visible&&(!visible.has(a)||!visible.has(b)))})}
+function topologyInspector(call){const box=$('topologyInspector'),n=topologyState.byCall.get(call);if(!box||!n)return;const rel=[...(topologyState.adj.get(call)||[])].sort();const type=n.self?'Local node':n.direct?'Direct neighbour':n.do_pc9x?'PC9X node':'Non-PC9X node';box.innerHTML=`<div class="topologyInspectorTitle"><h3>${esc(n.call)}</h3><strong class="topoType">${esc(type)}</strong></div><dl><dt>Connection</dt><dd>${n.self?'Local':n.direct?'Direct':'Known route'}</dd><dt>Protocol</dt><dd>${n.do_pc9x?'PC9X':'Other'}</dd><dt>PC92K users</dt><dd><strong>${n.pc92_users==null?'—':Number(n.pc92_users).toLocaleString()}</strong></dd><dt>Known users</dt><dd>${Number(n.user_count||0).toLocaleString()}</dd><dt>PC92K nodes</dt><dd><strong>${n.pc92_nodes==null?'—':Number(n.pc92_nodes).toLocaleString()}</strong></dd><dt>Known children</dt><dd>${Number(n.child_count||0).toLocaleString()}</dd><dt>Adjacent links</dt><dd>${rel.length.toLocaleString()}</dd></dl><div class="topoRelations"><strong>Adjacent nodes</strong><div class="topoRelationList">${rel.slice(0,80).map(c=>`<button type="button" class="topoRelation" data-call="${esc(c)}">${esc(c)}</button>`).join('')||'<span class="panelSub">None in this snapshot</span>'}</div></div>`;box.querySelectorAll('.topoRelation').forEach(b=>b.onclick=()=>topologySelect(b.dataset.call,true))}
+function topologySelect(call,center=false){if(!topologyState.byCall.has(call))return false;topologyState.selected=call;topologyInspector(call);topologyApplyFocus();if(center){const p=topologyState.positions.get(call),b=topologyState.box;if(p)topologySetBox({x:p[0]-b.w/2,y:p[1]-b.h/2,w:b.w,h:b.h})}return true}
+function topologyFind(){const input=$('topologySearch');if(!input)return;const q=input.value.trim().toUpperCase(),box=$('topologyInspector');if(!q)return;const exact=topologyState.nodes.find(n=>String(n.call).toUpperCase()===q),partial=topologyState.nodes.find(n=>String(n.call).toUpperCase().includes(q)),n=exact||partial;if(!n){if(box)box.innerHTML=`<div class="topologyInspectorEmpty">No node matching <strong>${esc(q)}</strong> in this snapshot.</div>`;return}topologySelect(n.call,true);const g=$('topologyGraph')?.querySelector(`.topoNode[data-call="${CSS.escape(n.call)}"]`);if(g){g.classList.add('searchHit');setTimeout(()=>g.classList.remove('searchHit'),1200)}}
+function topologyBindControls(){const svg=$('topologyGraph');if(!svg||svg.dataset.interactive==='1')return;svg.dataset.interactive='1';$('topologyZoomIn').onclick=()=>topologyZoom(.72);$('topologyZoomOut').onclick=()=>topologyZoom(1.38);$('topologyFit').onclick=topologyFit;$('topologyReset').onclick=()=>{const b=topologyState.baseBox;topologySetBox({x:b.x+b.w*.25,y:b.y+b.h*.25,w:b.w*.5,h:b.h*.5})};$('topologyFind').onclick=topologyFind;$('topologySearch').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();topologyFind()}});document.querySelectorAll('.topologyHop').forEach(b=>b.onclick=()=>{topologyState.hops=b.dataset.hops;document.querySelectorAll('.topologyHop').forEach(x=>x.classList.toggle('active',x===b));topologyApplyFocus()});const om=$('topologyOpenMap');if(om)om.onclick=topologyOpenMap;svg.addEventListener('wheel',e=>{e.preventDefault();const r=svg.getBoundingClientRect(),cx=(e.clientX-r.left)/r.width,cy=(e.clientY-r.top)/r.height;topologyZoom(e.deltaY<0?.82:1.22,cx,cy)},{passive:false});svg.addEventListener('pointerdown',e=>{if(e.target.closest('.topoNode'))return;svg.setPointerCapture(e.pointerId);topologyState.drag={x:e.clientX,y:e.clientY,box:{...topologyState.box}};svg.parentElement.classList.add('dragging')});svg.addEventListener('pointermove',e=>{const d=topologyState.drag;if(!d)return;const r=svg.getBoundingClientRect(),dx=(e.clientX-d.x)*d.box.w/r.width,dy=(e.clientY-d.y)*d.box.h/r.height;topologySetBox({x:d.box.x-dx,y:d.box.y-dy,w:d.box.w,h:d.box.h})});const endDrag=e=>{if(topologyState.drag){topologyState.drag=null;svg.parentElement.classList.remove('dragging')}};svg.addEventListener('pointerup',endDrag);svg.addEventListener('pointercancel',endDrag)}
+
+let topologyPopout=null;
+function topologyPopoutPayload(){
+ return {
+  nodes:topologyState.nodes.map(n=>({...n})),
+  edges:topologyState.edges.map(e=>({...e})),
+  selected:topologyState.selected||null,
+  hops:topologyState.hops,
+  root:topologyState.root||''
+ };
+}
+let topologyPopoutQueued=false;
+function topologyRefreshFromPopout(){
+ if(!authenticated||!ws||ws.readyState!==WebSocket.OPEN)return false;
+ if(supervisorInflight.has('topology')){topologyPopoutQueued=true;return true;}
+ supervisorRequest('topology');return supervisorInflight.has('topology');
+}
+function topologySyncPopout(){
+ if(topologyPopoutQueued)return;
+ if(!topologyPopout||topologyPopout.closed){topologyPopout=null;return}
+ try{if(typeof topologyPopout.receiveTopology==='function')topologyPopout.receiveTopology(topologyPopoutPayload())}catch(e){}
+}
+function topologyOpenMap(){
+ if(topologyPopout&&!topologyPopout.closed){topologyPopout.focus();topologySyncPopout();return}
+ topologyPopout=window.open('','dxspider-topology-map','popup=yes,width=1500,height=950,resizable=yes,scrollbars=no');
+ if(!topologyPopout)return;
+ const d=topologyPopout.document;
+ d.open();
+ d.write(`<!doctype html><html><head><meta charset="utf-8"><title>DXSpider Topology Map</title>
+ <style>
+ *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font:13px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#173f55;background:#f4f8fa}
+ body{display:grid;grid-template-rows:auto minmax(0,1fr) auto}
+ button,input{font:inherit}button{border:1px solid #b9cbd5;background:#fff;color:#173f55;border-radius:5px;padding:6px 9px;cursor:pointer}button:hover{background:#eef6f9}button.active{background:#174f6b;color:#fff;border-color:#174f6b}
+ .bar{display:flex;align-items:center;gap:6px;white-space:nowrap;padding:8px 10px;border-bottom:1px solid #ccd9e2;background:#fff}
+ .bar input{width:20ch;max-width:20ch;padding:6px 8px;border:1px solid #b9cbd5;border-radius:5px}
+ .spacer{flex:1}.legend{display:flex;gap:10px;margin-left:8px;color:#607681;font-size:11px}.legend span{display:flex;gap:4px;align-items:center}.dot{width:10px;height:10px;border-radius:50%;display:inline-block;border:1px solid rgba(0,0,0,.12)}.self{background:#083b66}.direct{background:#007c91}.pc92{background:#5b50a6}.legacy{background:#a96b00}
+ #stage{position:relative;min-height:0;background:#fbfdfe;overflow:hidden;cursor:grab;user-select:none}#stage.dragging{cursor:grabbing}svg{display:block;width:100%;height:100%}
+ .edge{stroke:#cbd8df;stroke-width:1;opacity:.72}.edge.pc92{stroke:#8d86bd}.edge.direct{stroke:#00849a;stroke-width:2;opacity:.95}.edge.dim{opacity:.05}.edge.selected{stroke:#d45500;stroke-width:2.8;opacity:1}
+ .node{cursor:pointer}.node circle{stroke:#fff;stroke-width:1.5}.node.self circle{fill:#083b66;stroke-width:3}.node.direct circle{fill:#007c91}.node.pc92 circle{fill:#5b50a6}.node.legacy circle{fill:#a96b00}.node text{font-size:10px;fill:#314f5f;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round;pointer-events:none}.node.self text,.node.direct text{font-weight:750;fill:#173f55}.node.selected circle{stroke:#e75b00;stroke-width:4}.node.neighbour circle{stroke:#00a0b8;stroke-width:3}.node.dim{opacity:.13}
+ .hint{position:absolute;left:10px;bottom:8px;padding:4px 7px;border-radius:4px;background:rgba(255,255,255,.9);color:#718590;font-size:10px;pointer-events:none}
+ #info{border-top:1px solid #ccd9e2;background:#fff;padding:8px 10px;min-height:44px;max-height:112px;overflow:auto}
+ .infoTop{display:flex;align-items:baseline;gap:16px;white-space:nowrap}.infoTop h3{font-size:18px;margin:0}.type{margin-left:auto;font-weight:750}.metrics{display:flex;gap:20px;margin-left:8px}.metrics b{font-weight:750}.adj{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px}.adj strong{margin-right:3px}.adj button{font-size:13px;font-weight:650;padding:3px 7px}
+ </style></head><body>
+ <div class="bar"><input id="q" type="search" autocomplete="off" placeholder="Find Node"><button id="find">Find</button><button id="zin">+</button><button id="zout">−</button><button id="fit">Fit</button><button id="reset">100%</button><button class="hop active" data-hops="all">All</button><button class="hop" data-hops="1">1 hop</button><button class="hop" data-hops="2">2 hops</button><span class="spacer"></span><div class="legend"><span><i class="dot self"></i>Local</span><span><i class="dot direct"></i>Direct</span><span><i class="dot pc92"></i>PC9X</span><span><i class="dot legacy"></i>Non-PC9X</span></div><button id="refresh">Refresh</button></div>
+ <div id="stage"><svg id="g"></svg><div class="hint">Wheel: zoom · Drag: pan · Click: inspect · Double click: focus</div></div>
+ <div id="info">Select a node to inspect it.</div>
+ <script>
+ let st={nodes:[],edges:[],by:new Map(),adj:new Map(),pos:new Map(),selected:null,hops:'all',base:{x:0,y:0,w:1400,h:900},box:{x:0,y:0,w:1400,h:900},drag:null};
+ const $=id=>document.getElementById(id), esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ function box(b){st.box={...b};$('g').setAttribute('viewBox',b.x+' '+b.y+' '+b.w+' '+b.h)}
+ function fit(){box({...st.base})} function zoom(f,cx=.5,cy=.5){let b=st.box,nw=b.w*f,nh=b.h*f,min=st.base.w*.08,max=st.base.w*3;if(nw<min){nh*=min/nw;nw=min}if(nw>max){nh*=max/nw;nw=max}box({x:b.x+(b.w-nw)*cx,y:b.y+(b.h-nh)*cy,w:nw,h:nh})}
+ function neighbours(call,max=1){const seen=new Set([call]),q=[[call,0]];while(q.length){const [a,d]=q.shift();if(d>=max)continue;for(const b of st.adj.get(a)||[])if(!seen.has(b)){seen.add(b);q.push([b,d+1])}}return seen}
+ function focus(){const sel=st.selected,h=st.hops==='all'?null:Number(st.hops),vis=sel&&h?neighbours(sel,h):null,near=sel?neighbours(sel,1):new Set();document.querySelectorAll('.node').forEach(g=>{let c=g.dataset.call;g.classList.toggle('selected',c===sel);g.classList.toggle('neighbour',!!sel&&c!==sel&&near.has(c));g.classList.toggle('dim',!!vis&&!vis.has(c))});document.querySelectorAll('.edge').forEach(l=>{let a=l.dataset.from,b=l.dataset.to;l.classList.toggle('selected',!!sel&&(a===sel||b===sel));l.classList.toggle('dim',!!vis&&(!vis.has(a)||!vis.has(b)))})}
+ function inspect(call){const n=st.by.get(call);if(!n)return;const rel=[...(st.adj.get(call)||[])].sort(),type=n.self?'Local node':n.direct?'Direct neighbour':n.do_pc9x?'PC9X node':'Non-PC9X node';$('info').innerHTML='<div class="infoTop"><h3>'+esc(n.call)+'</h3><div class="metrics"><span>Connection <b>'+(n.self?'Local':n.direct?'Direct':'Known route')+'</b></span><span>Protocol <b>'+(n.do_pc9x?'PC9X':'Other')+'</b></span><span>PC92K users <b>'+(n.pc92_users==null?'—':Number(n.pc92_users).toLocaleString())+'</b></span><span>Known users <b>'+Number(n.user_count||0).toLocaleString()+'</b></span><span>PC92K nodes <b>'+(n.pc92_nodes==null?'—':Number(n.pc92_nodes).toLocaleString())+'</b></span><span>Known children <b>'+Number(n.child_count||0).toLocaleString()+'</b></span><span>Adjacent links <b>'+rel.length.toLocaleString()+'</b></span></div><strong class="type">'+esc(type)+'</strong></div><div class="adj"><strong>Adjacent nodes</strong>'+ (rel.slice(0,80).map(c=>'<button data-call="'+esc(c)+'">'+esc(c)+'</button>').join('')||'<span>None in this snapshot</span>')+'</div>';$('info').querySelectorAll('button[data-call]').forEach(b=>b.onclick=()=>select(b.dataset.call,true))}
+ function select(call,center=false){if(!st.by.has(call))return;st.selected=call;inspect(call);focus();if(center){let p=st.pos.get(call),b=st.box;if(p)box({x:p[0]-b.w/2,y:p[1]-b.h/2,w:b.w,h:b.h})}}
+ function find(){let q=$('q').value.trim().toUpperCase();if(!q)return;let n=st.nodes.find(n=>String(n.call).toUpperCase()===q)||st.nodes.find(n=>String(n.call).toUpperCase().includes(q));if(n)select(n.call,true)}
+ function draw(){const nodes=st.nodes,edges=st.edges,W=1400,H=Math.max(760,Math.min(1400,540+nodes.length*.95)),cx=W/2,cy=H/2,root=st.root||nodes.find(n=>n.self)?.call||'';st.by=new Map(nodes.map(n=>[n.call,n]));st.adj=new Map(nodes.map(n=>[n.call,new Set()]));for(const e of edges)if(st.adj.has(e.from)&&st.adj.has(e.to)){st.adj.get(e.from).add(e.to);st.adj.get(e.to).add(e.from)}const depth=new Map(),q=[];if(root&&st.by.has(root)){depth.set(root,0);q.push(root)}while(q.length){let a=q.shift(),d=depth.get(a);for(const b of st.adj.get(a)||[])if(!depth.has(b)){depth.set(b,d+1);q.push(b)}}let maxd=Math.max(1,...depth.values());for(const n of nodes)if(!depth.has(n.call))depth.set(n.call,maxd+1);maxd=Math.max(...depth.values());const rings=new Map();for(const n of nodes){let d=depth.get(n.call);if(!rings.has(d))rings.set(d,[]);rings.get(d).push(n)}st.pos=new Map();for(const [d,arr] of [...rings.entries()].sort((a,b)=>a[0]-b[0])){arr.sort((a,b)=>String(a.call).localeCompare(String(b.call)));if(d===0){for(const n of arr)st.pos.set(n.call,[cx,cy]);continue}let rad=Math.min(W*.43,H*.43)*(d/Math.max(1,maxd));arr.forEach((n,i)=>{let a=-Math.PI/2+2*Math.PI*i/arr.length;st.pos.set(n.call,[cx+Math.cos(a)*rad,cy+Math.sin(a)*rad])})}st.base={x:0,y:0,w:W,h:H};st.box={...st.base};const NS='http://www.w3.org/2000/svg',svg=$('g');svg.innerHTML='';let ge=document.createElementNS(NS,'g'),gn=document.createElementNS(NS,'g');svg.append(ge,gn);for(const e of edges){let a=st.pos.get(e.from),b=st.pos.get(e.to);if(!a||!b)continue;let l=document.createElementNS(NS,'line');l.setAttribute('x1',a[0]);l.setAttribute('y1',a[1]);l.setAttribute('x2',b[0]);l.setAttribute('y2',b[1]);l.dataset.from=e.from;l.dataset.to=e.to;l.setAttribute('class','edge'+(e.direct?' direct':'')+(e.pc92?' pc92':''));ge.append(l)}for(const n of nodes){let p=st.pos.get(n.call);if(!p)continue;let g=document.createElementNS(NS,'g'),cls=n.self?'self':n.direct?'direct':n.do_pc9x?'pc92':'legacy';g.setAttribute('class','node '+cls);g.dataset.call=n.call;g.setAttribute('transform','translate('+p[0]+' '+p[1]+')');let c=document.createElementNS(NS,'circle');c.setAttribute('r',n.self?10:n.direct?8:5);let t=document.createElementNS(NS,'text');t.setAttribute('x',n.self?14:n.direct?12:8);t.setAttribute('y','4');t.textContent=n.call;g.append(c,t);g.onclick=e=>{e.stopPropagation();select(n.call)};g.ondblclick=e=>{e.stopPropagation();select(n.call,true);zoom(.55)};gn.append(g)}fit();if(st.selected&&st.by.has(st.selected))select(st.selected);else if(root)select(root)}
+ window.receiveTopology=p=>{if(window._refreshTimeout){clearTimeout(window._refreshTimeout);window._refreshTimeout=null;$('refresh').style.background='';$('refresh').style.color='';}let old=st.selected;st.nodes=p.nodes||[];st.edges=p.edges||[];st.root=p.root||'';st.hops=p.hops||'all';st.selected=p.selected||old;document.querySelectorAll('.hop').forEach(b=>b.classList.toggle('active',b.dataset.hops===st.hops));draw()}
+ $('find').onclick=find;$('q').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();find()}};$('zin').onclick=()=>zoom(.72);$('zout').onclick=()=>zoom(1.38);$('fit').onclick=fit;$('reset').onclick=()=>{let b=st.base;box({x:b.x+b.w*.25,y:b.y+b.h*.25,w:b.w*.5,h:b.h*.5})};document.querySelectorAll('.hop').forEach(b=>b.onclick=()=>{st.hops=b.dataset.hops;document.querySelectorAll('.hop').forEach(x=>x.classList.toggle('active',x===b));focus()});$('refresh').onclick=()=>{if(window.opener&&!window.opener.closed){$('refresh').style.background='#d59b22';$('refresh').style.color='#171717';window._refreshTimeout=setTimeout(()=>{$('refresh').style.background='';$('refresh').style.color='';window._refreshTimeout=null;},20000);if(!window.opener.topologyRefreshFromPopout()){clearTimeout(window._refreshTimeout);window._refreshTimeout=null;$('refresh').style.background='';$('refresh').style.color='';}}};
+ const svg=$('g');svg.onwheel=e=>{e.preventDefault();let r=svg.getBoundingClientRect();zoom(e.deltaY<0?.82:1.22,(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height)};svg.onpointerdown=e=>{if(e.target.closest('.node'))return;svg.setPointerCapture(e.pointerId);st.drag={x:e.clientX,y:e.clientY,box:{...st.box}};$('stage').classList.add('dragging')};svg.onpointermove=e=>{if(!st.drag)return;let r=svg.getBoundingClientRect(),dx=(e.clientX-st.drag.x)*st.drag.box.w/r.width,dy=(e.clientY-st.drag.y)*st.drag.box.h/r.height;box({x:st.drag.box.x-dx,y:st.drag.box.y-dy,w:st.drag.box.w,h:st.drag.box.h})};svg.onpointerup=svg.onpointercancel=()=>{st.drag=null;$('stage').classList.remove('dragging')};
+ if(window.opener&&!window.opener.closed)window.opener.topologySyncPopout();
+ <\/script></body></html>`);
+ d.close();
+ topologyPopout.focus();
+}
+
+function renderTopology(r){
+ const rawNodes=Array.isArray(r.nodes)?r.nodes:[],rawEdges=Array.isArray(r.edges)?r.edges:[];
+ const compact=r.wire_format==='compact-v1'||r.wire_format==='compact-v2';
+ const nodes=compact?rawNodes.map(n=>({call:n[0],self:!!n[1],direct:!!n[2],do_pc9x:n[3],user_count:Number(n[4]||0),child_count:Number(n[5]||0),pc92_users:r.wire_format==='compact-v2'&&n[6]!=null?Number(n[6]):null,pc92_nodes:r.wire_format==='compact-v2'&&n[7]!=null?Number(n[7]):null})):rawNodes;
+ const edges=compact?rawEdges.map(e=>({from:rawNodes[e[0]]?.[0],to:rawNodes[e[1]]?.[0],direct:!!e[2],pc92:!!e[3]})):rawEdges;
+ const svg=$('topologyGraph'),empty=$('topologyEmpty');
+ setText('topoNodes',Number(r.node_count??nodes.length).toLocaleString());setText('topoEdges',`${Number(r.edge_count??edges.length).toLocaleString()} links`);setText('topoDirect',Number(r.direct_count||0).toLocaleString());setText('topoPc9x',Number(r.pc92_count||0).toLocaleString());setText('topoNonPc9x',Number(r.non_pc92_count||0).toLocaleString());setText('topoTruncated',r.truncated?'snapshot truncated':'known nodes');
+ if(!svg)return;if(!nodes.length){svg.innerHTML='';if(empty)empty.style.display='flex';return}if(empty)empty.style.display='none';
+ const W=1400,H=Math.max(760,Math.min(1400,540+nodes.length*.95)),cx=W/2,cy=H/2,root=r.root||nodes.find(n=>n.self)?.call||'';
+ const byCall=new Map(nodes.map(n=>[n.call,n])),adj=new Map(nodes.map(n=>[n.call,new Set()]));for(const e of edges){if(adj.has(e.from)&&adj.has(e.to)){adj.get(e.from).add(e.to);adj.get(e.to).add(e.from)}}
+ const depth=new Map(),q=[];if(root&&byCall.has(root)){depth.set(root,0);q.push(root)};while(q.length){const a=q.shift(),d=depth.get(a);for(const b of adj.get(a)||[])if(!depth.has(b)){depth.set(b,d+1);q.push(b)}}
+ let maxd=Math.max(1,...depth.values());for(const n of nodes)if(!depth.has(n.call))depth.set(n.call,maxd+1);maxd=Math.max(...depth.values());const rings=new Map();for(const n of nodes){const d=depth.get(n.call);if(!rings.has(d))rings.set(d,[]);rings.get(d).push(n)};const pos=new Map();
+ for(const [d,arr] of [...rings.entries()].sort((a,b)=>a[0]-b[0])){arr.sort((a,b)=>String(a.call).localeCompare(String(b.call)));if(d===0){for(const n of arr)pos.set(n.call,[cx,cy]);continue}const rad=Math.min(W*.43,H*.43)*(d/Math.max(1,maxd));arr.forEach((n,i)=>{const a=-Math.PI/2+2*Math.PI*i/arr.length;pos.set(n.call,[cx+Math.cos(a)*rad,cy+Math.sin(a)*rad])})}
+ topologyState={...topologyState,nodes,edges,byCall,adj,positions:pos,root,selected:topologyState.selected&&byCall.has(topologyState.selected)?topologyState.selected:null,baseBox:{x:0,y:0,w:W,h:H},box:{x:0,y:0,w:W,h:H}};
+ const NS='http://www.w3.org/2000/svg';svg.innerHTML='';const gE=document.createElementNS(NS,'g'),gN=document.createElementNS(NS,'g');gE.setAttribute('class','topoEdges');gN.setAttribute('class','topoNodes');svg.append(gE,gN);
+ for(const e of edges){const a=pos.get(e.from),b=pos.get(e.to);if(!a||!b)continue;const l=document.createElementNS(NS,'line');l.setAttribute('x1',a[0]);l.setAttribute('y1',a[1]);l.setAttribute('x2',b[0]);l.setAttribute('y2',b[1]);l.setAttribute('data-from',e.from);l.setAttribute('data-to',e.to);l.setAttribute('class',`topoEdge${e.direct?' direct':''}${e.pc92?' pc92':''}`);gE.append(l)}
+ for(const n of nodes){const p=pos.get(n.call);if(!p)continue;const g=document.createElementNS(NS,'g'),cls=n.self?'self':n.direct?'direct':n.do_pc9x?'pc92':'legacy';g.setAttribute('class',`topoNode ${cls}`);g.setAttribute('data-call',n.call);g.setAttribute('transform',`translate(${p[0]} ${p[1]})`);const c=document.createElementNS(NS,'circle');c.setAttribute('r',n.self?10:n.direct?8:5);const t=document.createElementNS(NS,'text');t.setAttribute('x',n.self?14:n.direct?12:8);t.setAttribute('y','4');t.textContent=n.call;const title=document.createElementNS(NS,'title');title.textContent=`${n.call} · ${n.direct?'direct · ':''}${n.do_pc9x?'PC9X':'non-PC9X'} · children ${n.child_count||0} · users ${n.user_count||0}`;g.append(c,t,title);g.addEventListener('click',e=>{e.stopPropagation();topologySelect(n.call,false)});g.addEventListener('dblclick',e=>{e.stopPropagation();topologySelect(n.call,true);topologyZoom(.55)});gN.append(g)}
+ topologyBindControls();topologyFit();if(topologyState.selected)topologySelect(topologyState.selected,false);else if(root)topologySelect(root,false);topologySyncPopout();
+}
+
+function renderProtocolInputDiagnostics(proto){
+ const d=proto?.input_diagnostics||{},mal=d.malformed||{},unk=d.unknown_protocol||{},byPc=mal.by_pc||{},peers=d.peers||{};
+ const pcNames=Object.keys(byPc).sort((a,b)=>Number(a.slice(2))-Number(b.slice(2))),peerNames=Object.keys(peers).sort();
+ setText('diagMalformed',Number(mal.packets||0).toLocaleString());setText('diagUnknown',Number(unk.packets||0).toLocaleString());setText('diagAffectedPc',pcNames.length);setText('diagAffectedPeers',peerNames.length);
+ const pcBody=$('diagPcRows');if(pcBody)pcBody.innerHTML=pcNames.map(name=>{const v=byPc[name]||{},fields=v.fields||{};const fs=Object.keys(fields).sort((a,b)=>Number(a)-Number(b)).map(f=>`#${esc(f)} ×${Number(fields[f]||0).toLocaleString()}`).join(', ')||'—';return `<tr><td class="callCell">${esc(name)}</td><td>${Number(v.packets||0).toLocaleString()}</td><td class="unitCell">${bytesVU(Number(v.bytes||0))}</td><td>${fs}</td></tr>`}).join('')||'<tr><td colspan="4" class="emptyCell">No malformed protocol input observed.</td></tr>';
+ const peerBody=$('diagPeerRows');if(peerBody)peerBody.innerHTML=peerNames.map(peer=>{const v=peers[peer]||{},m=v.malformed||{},u=v.unknown_protocol||{},pcs=Object.keys(m.by_pc||{}).sort((a,b)=>Number(a.slice(2))-Number(b.slice(2))).map(x=>`${esc(x)} ×${Number(m.by_pc[x]?.packets||0).toLocaleString()}`).join(', ')||'—';return `<tr><td class="callCell">${esc(peer)}</td><td>${Number(m.packets||0).toLocaleString()}</td><td>${Number(u.packets||0).toLocaleString()}</td><td>${pcs}</td></tr>`}).join('')||'<tr><td colspan="4" class="emptyCell">No protocol input faults observed.</td></tr>';
+}
+
+function renderFilteringDiagnostics(r){
+ const op=r?.operator_events||{},defs=[['badlist','baddx','badlist','baddx'],['badlist','badspotter','badlist','badspotter'],['badlist','badnode','badlist','badnode'],['badlist','badword','badlist','badword'],['pc61_drop','badip','pc61_drop','badip'],['pc61_drop','non_public_ip','pc61_drop','non_public_ip'],['spots','duplicate_local_user','spots','duplicate_local_user'],['connections','badip','connections','badip']];
+ const rows=[],origins=new Map(),neighbours=new Map();
+ for(const [family,reason,fk,rk] of defs){const e=op?.[fk]?.[rk]||{};const total=Number(e.total||0);rows.push([family,reason,total]);for(const [k,v] of Object.entries(e.by_origin||{}))origins.set(k,(origins.get(k)||0)+Number(v||0));for(const [k,v] of Object.entries(e.by_neighbour||e.by_peer||{}))neighbours.set(k,(neighbours.get(k)||0)+Number(v||0));}
+ const body=$('diagFilteringRows');if(body)body.innerHTML=rows.map(x=>`<tr><td>${esc(x[0])}</td><td>${esc(x[1])}</td><td>${x[2].toLocaleString()}</td></tr>`).join('');
+ const top=m=>[...m.entries()].sort((a,b)=>b[1]-a[1]||String(a[0]).localeCompare(String(b[0]))).slice(0,20);
+ const ob=$('diagOriginRows');if(ob)ob.innerHTML=top(origins).map(([k,v])=>`<tr><td class="callCell">${esc(k)}</td><td>${v.toLocaleString()}</td></tr>`).join('')||'<tr><td colspan="2" class="emptyCell">No origin-scoped filtering decisions observed.</td></tr>';
+ const nb=$('diagNeighbourRows');if(nb)nb.innerHTML=top(neighbours).map(([k,v])=>`<tr><td class="callCell">${esc(k)}</td><td>${v.toLocaleString()}</td></tr>`).join('')||'<tr><td colspan="2" class="emptyCell">No neighbour-scoped filtering decisions observed.</td></tr>';
+}
+
+function renderRateSummary(r){
+ const tr=r?.traffic_rates||{},fmt=x=>x==null?'—':Number(x).toFixed(2),ratio=x=>x==null?'—':Number(x).toFixed(2)+'×';
+ const make=(id,arr,key)=>{const b=$(id);if(!b)return;b.innerHTML=(Array.isArray(arr)?arr:[]).slice(0,20).map(x=>`<tr><td class="callCell">${esc(x[key]||'—')}</td><td>${fmt(x.latest_pps)}</td><td>${fmt(x.baseline_pps)}</td><td>${ratio(x.deviation_ratio)}</td><td>${x.burst?'YES':'no'}</td><td>${esc(x.dominant_pc||'—')}</td></tr>`).join('')||`<tr><td colspan="6" class="emptyCell">No ${key==='origin'?'logical-origin':'neighbour'} rate samples.</td></tr>`};
+ make('metricsOriginRows',tr.origin_summary,'origin');make('metricsNeighbourRows',tr.neighbour_summary,'neighbour');
+}
+
+function renderOverviewSnapshot(r){
+ const snaps=r?.snapshots||{},st=snaps.status||{},tr=snaps.traffic||{},h=snaps.self_health||{},hist=r?.history||{},sys=r?.system||{};
+ const bi=Number(tr.transport?.bytes_in||0),bo=Number(tr.transport?.bytes_out||0),li=Number(tr.transport?.lines_in||0),lo=Number(tr.transport?.lines_out||0),sp=Number(tr.spots?.total||0);
+ setText('ovChannels',st.channels??'—');setText('ovChannelMix',`${st.users||0} users · ${st.nodes||0} nodes · ${st.rbn||0} RBN · ${st.web||0} Web`);
+ setText('ovTraffic',`${fmtBytes(bi)} / ${fmtBytes(bo)}`);setText('ovLines',`${li.toLocaleString()} RX · ${lo.toLocaleString()} TX lines`);
+ setText('ovSpots',sp.toLocaleString());setText('ovSpotMix',`${tr.spots?.hf||0} HF · ${tr.spots?.vhf||0} VHF`);
+ setText('ovQueues',st.input_queue_max??'—');setText('ovQueueDetail',`${st.input_queue_total||0} total · ${st.pending_connects||0} pending connects`);
+ setText('ovRbn',`${st.rbn||0} feeds`);setText('ovRbnDetail','latest stored status');setText('ovWeb',`${st.web||0} channels`);setText('ovWebDetail','latest stored status');
+ const age=Math.max(...Object.values(r?.snapshot_age_seconds||{}).map(Number).filter(Number.isFinite),0);supervisorLastCollectedAt=Date.now()/1000-age;
+ $('supervisorStatus').innerHTML=metricRows([['Node',st.node||'-'],['Branch',dash(st.git_branch),`updateBranchField${updateStatusCache?.comparisons?.branch?.comparable===true&&updateStatusCache.comparisons.branch.match===false?' updateMismatch':''}`],['Version',dash(st.version??st.dxspider_version),`updateVersionField${updateStatusCache?.comparisons?.version?.comparable===true&&updateStatusCache.comparisons.version.match===false?' updateMismatch':''}`],['Build',dash(st.build),`updateBuildField${updateStatusCache?.comparisons?.build?.comparable===true&&updateStatusCache.comparisons.build.match===false?' updateMismatch':''}`],['Git commit',dash(st.git_version),`updateCommitField${updateStatusCache?.comparisons?.commit?.comparable===true&&updateStatusCache.comparisons.commit.match===false?' updateMismatch':''}`],['Uptime',fmtDuration(st.uptime_seconds||0)]]);
+ $('supervisorOverviewTraffic').innerHTML=metricRows([['RX bytes',fmtBytes(bi)],['RX lines',li.toLocaleString()],['TX bytes',fmtBytes(bo)],['TX lines',lo.toLocaleString()],['Spots total',sp.toLocaleString()],['History coverage',fmtDuration(hist.window_coverage_seconds||0)]]);
+ $('supervisorOverviewRbn').innerHTML=`<div class="compactRow"><strong>${Number(st.rbn||0)}</strong><span>RBN channels</span><span>stored snapshot ${age.toFixed(1)}s old</span></div>`;
+ $('supervisorOverviewWeb').innerHTML=`<div class="compactRow"><strong>${Number(st.web||0)}</strong><span>Web channels</span><span>Admin RSS ${fmtBytes(sys.admin_rss_bytes||0)}</span></div>`;
+ updateSupervisorBanner(st);updateSupervisorBanner();
+}
+
+function renderSupervisor(kind,r){
+ if(!r)return;
+ supervisorLastCollectedAt=Number(r.collected_at)||Date.now()/1000;
+ $('supervisionState').textContent='';
+ if(r.generation_ms!=null)setText('supervisionSnapshotCost',`snapshot ${Number(r.generation_ms||0).toFixed(3)} ms`);
+ if(kind==='status'){
+  updateSupervisorBanner(r);neighboursRender();
+  $('supervisorStatus').innerHTML=metricRows([['Node',r.node||'-'],['Branch',dash(r.git_branch),`updateBranchField${updateStatusCache?.comparisons?.branch?.comparable===true&&updateStatusCache.comparisons.branch.match===false?' updateMismatch':''}`],['Version',dash(r.version??r.dxspider_version),`updateVersionField${updateStatusCache?.comparisons?.version?.comparable===true&&updateStatusCache.comparisons.version.match===false?' updateMismatch':''}`],['Build',dash(r.build),`updateBuildField${updateStatusCache?.comparisons?.build?.comparable===true&&updateStatusCache.comparisons.build.match===false?' updateMismatch':''}`],['Git commit',dash(r.git_version),`updateCommitField${updateStatusCache?.comparisons?.commit?.comparable===true&&updateStatusCache.comparisons.commit.match===false?' updateMismatch':''}`],['Uptime',fmtDuration(r.uptime_seconds||0)]]);
+  setText('ovChannels',r.channels||0);setText('ovChannelMix',`${r.users||0} users · ${r.nodes||0} nodes · ${r.rbn||0} RBN · ${r.web||0} Web`);
+  setText('ovQueues',r.input_queue_max||0);setText('ovQueueDetail',`${r.input_queue_total||0} total · ${r.pending_connects||0} pending connects`);
+ }
+ if(kind==='traffic'){
+  supervisorTrafficCache=r;
+  renderProtocolInputDiagnostics(r.protocol);
+  renderFilteringDiagnostics(r);
+  const bi=Number(r.transport?.bytes_in)||0,bo=Number(r.transport?.bytes_out)||0,li=Number(r.transport?.lines_in)||0,lo=Number(r.transport?.lines_out)||0,sp=Number(r.spots?.total)||0;
+  const rows=[['RX bytes',fmtBytes(bi)],['RX lines',li.toLocaleString()],['TX bytes',fmtBytes(bo)],['TX lines',lo.toLocaleString()],['Spots total',sp.toLocaleString()],['HF / VHF',`${r.spots?.hf||0} / ${r.spots?.vhf||0}`]];
+  $('supervisorTraffic').innerHTML=metricRowsHtml([['RX',bytesVU(bi)],['RX lines',valueUnit(li.toLocaleString(),'lines')],['TX',bytesVU(bo)],['TX lines',valueUnit(lo.toLocaleString(),'lines')],['Spots',valueUnit(sp.toLocaleString(),'spots')],['HF / VHF',valueUnit(`${r.spots?.hf||0} / ${r.spots?.vhf||0}`,'spots')]]);$('supervisorOverviewTraffic').innerHTML=metricRows(rows);
+  setText('ovTraffic',`${fmtBytes(bi)} / ${fmtBytes(bo)}`);setText('ovLines',`${li.toLocaleString()} RX · ${lo.toLocaleString()} TX lines`);setText('ovSpots',sp.toLocaleString());setText('ovSpotMix',`${r.spots?.hf||0} HF · ${r.spots?.vhf||0} VHF`);
+  setText('trRx',fmtBytes(bi));setText('trRxLines',`${li.toLocaleString()} lines`);setText('trTx',fmtBytes(bo));setText('trTxLines',`${lo.toLocaleString()} lines`);setText('trSpots',sp.toLocaleString());setText('trSpotMix',`${r.spots?.hf||0} HF · ${r.spots?.vhf||0} VHF`);
+  const pcs=r.pc_spots;
+  const proto=r.protocol;
+  const protoPackets=(name,dir)=>Number(proto?.protocols?.[name]?.[dir]?.packets||0);
+  const logicalPackets=(name,kind)=>Number(proto?.logical?.[name]?.[kind]?.packets||0);
+  const logicalSupported=(name,kind)=>!!proto?.capabilities?.[name]?.[kind];
+  const logicalSummary=(name,kind)=>logicalSupported(name,kind)?valueUnit(logicalPackets(name,kind).toLocaleString(),'pkt'):'<span class="naValue">—</span>';
+  if(pcs){
+   const p11=$('pc11Stats');if(p11)p11.innerHTML=metricRowsHtml([
+    ['Physical IN',valueUnit(protoPackets('PC11','in').toLocaleString(),'pkt')],['Accepted',logicalSummary('PC11','accepted')],['Physical OUT',valueUnit(protoPackets('PC11','out').toLocaleString(),'pkt')],['Promoted by PC61',valueUnit(Number(pcs.pc11_promoted_by_pc61||0).toLocaleString(),'pkt')],['Promoted route / IP',valueUnit(Number(pcs.pc11_promoted_by_route||0).toLocaleString(),'pkt')],['Promotions total',valueUnit(Number(pcs.pc11_promotions||0).toLocaleString(),'pkt')],['PC11 share',valueUnit(Number(pcs.pc11_percent||0).toFixed(1),'%')],['Promotion rate',valueUnit(Number(pcs.promotions_percent||0).toFixed(1),'%')]]);
+   const p61=$('pc61Stats');if(p61)p61.innerHTML=metricRowsHtml([['Physical IN',valueUnit(protoPackets('PC61','in').toLocaleString(),'pkt')],['Accepted',logicalSummary('PC61','accepted')],['Physical OUT',valueUnit(protoPackets('PC61','out').toLocaleString(),'pkt')]]);
+  }
+  if(proto&&typeof proto==='object'){
+   const protocols=proto.protocols||{},names=Object.keys(protocols).sort((a,b)=>Number(a.slice(2))-Number(b.slice(2)));
+   let tip=0,tib=0,top=0,tob=0;const logicalTotals={generated:0,accepted:0,forwarded:0,reply:0};
+   const logical=proto.logical||{},caps=proto.capabilities||{};
+   const logicalCell=(name,kind)=>{
+    if(name==='PC92'){const m={generated:'generated',accepted:'received',forwarded:'forwarded'}[kind];if(!m)return '<span class="naValue">—</span>';const b=r.pc92?.logical?.[m]||{};const n=['A','D','C','K'].reduce((a,x)=>a+Number(b?.[x]?.packets||0),0);return n.toLocaleString()}
+    if(!caps?.[name]?.[kind])return '<span class="naValue">—</span>';return Number(logical?.[name]?.[kind]?.packets||0).toLocaleString();
+   };
+   const rows=names.map(name=>{const v=protocols[name]||{},i=v.in||{},o=v.out||{};const ip=Number(i.packets||0),ib=Number(i.bytes||0),op=Number(o.packets||0),ob=Number(o.bytes||0);tip+=ip;tib+=ib;top+=op;tob+=ob;for(const kind of Object.keys(logicalTotals)){if(name==='PC92'){const m={generated:'generated',accepted:'received',forwarded:'forwarded'}[kind];if(m)logicalTotals[kind]+=['A','D','C','K'].reduce((a,x)=>a+Number(r.pc92?.logical?.[m]?.[x]?.packets||0),0)}else if(caps?.[name]?.[kind])logicalTotals[kind]+=Number(logical?.[name]?.[kind]?.packets||0)}return `<tr><td class="callCell">${esc(name)}</td><td>${ip.toLocaleString()}</td><td class="unitCell">${bytesVU(ib)}</td><td>${op.toLocaleString()}</td><td class="unitCell">${bytesVU(ob)}</td><td>${logicalCell(name,'generated')}</td><td>${logicalCell(name,'accepted')}</td><td>${logicalCell(name,'forwarded')}</td><td>${logicalCell(name,'reply')}</td></tr>`}).join('');
+   const pg=$('protocolGlobalRows');if(pg)pg.innerHTML=rows||'<tr><td colspan="9" class="emptyCell">No PC protocol traffic observed yet.</td></tr>';
+   setText('protocolActiveCount',`${names.length} active`);setText('protocolTotalInPackets',tip.toLocaleString());const tibE=$('protocolTotalInBytes');if(tibE)tibE.innerHTML=bytesVU(tib);setText('protocolTotalOutPackets',top.toLocaleString());const tobE=$('protocolTotalOutBytes');if(tobE)tobE.innerHTML=bytesVU(tob);setText('protocolTotalGenerated',logicalTotals.generated.toLocaleString());setText('protocolTotalAccepted',logicalTotals.accepted.toLocaleString());setText('protocolTotalForwarded',logicalTotals.forwarded.toLocaleString());setText('protocolTotalReply',logicalTotals.reply.toLocaleString());
+   setText('localGeneratedSpots',`Local user spots: ${Number(proto.local_spots_generated||0).toLocaleString()}`);
+   const peers=proto.peers||{},peerRows=[];
+   for(const peer of Object.keys(peers).sort())for(const name of Object.keys(peers[peer]||{}).sort((a,b)=>Number(a.slice(2))-Number(b.slice(2)))){const v=peers[peer][name]||{},i=v.in||{},o=v.out||{};peerRows.push(`<tr><td class="callCell">${esc(peer)}</td><td class="callCell">${esc(name)}</td><td>${Number(i.packets||0).toLocaleString()}</td><td class="unitCell">${bytesVU(Number(i.bytes||0))}</td><td>${Number(o.packets||0).toLocaleString()}</td><td class="unitCell">${bytesVU(Number(o.bytes||0))}</td></tr>`)}
+   const pp=$('protocolPeerRows');if(pp)pp.innerHTML=peerRows.join('')||'<tr><td colspan="6" class="emptyCell">No per-neighbour PC traffic observed yet.</td></tr>';
+  }
+  const p92=r.pc92;
+  if(p92){
+   const sorts=['A','D','C','K'];
+   const logical=[['gen','generated'],['recv','received'],['fwd','forwarded']];
+   const slot=(bucket,x)=>bucket?.[x]||{};
+   const cell=s=>`${valueUnit(Number(s?.packets||0).toLocaleString(),'pkt')}<small>${bytesVU(Number(s?.bytes||0))}</small>`;
+   for(const [pfx,key] of logical)for(const x of sorts){const e=$(`pc92${pfx}${x}`);if(e)e.innerHTML=cell(slot(p92.logical?.[key],x))}
+   for(const x of sorts){const ei=$(`pc92pin${x}`),eo=$(`pc92pout${x}`);if(ei)ei.innerHTML=cell(slot(p92.totals?.in,x));if(eo)eo.innerHTML=cell(slot(p92.totals?.out,x))}
+
+   const sum=bucket=>sorts.reduce((a,x)=>({packets:a.packets+Number(bucket?.[x]?.packets||0),bytes:a.bytes+Number(bucket?.[x]?.bytes||0)}),{packets:0,bytes:0});
+   const current={
+    generated:sum(p92.logical?.generated),
+    accepted:sum(p92.logical?.received),
+    forwarded:sum(p92.logical?.forwarded),
+    physical_in:sum(p92.totals?.in),
+    physical_out:sum(p92.totals?.out)
+   };
+   const now=Number(r.collected_at)||Date.now()/1000,boot=(r.boot_id??null);
+   let rateOK=false,dt=0;
+   if(pc92Previous&&now>pc92Previous.t){
+    dt=now-pc92Previous.t;
+    const sameBoot=boot==null||pc92Previous.boot==null||boot===pc92Previous.boot;
+    const monotonic=Object.keys(current).every(k=>current[k].packets>=pc92Previous.values[k].packets&&current[k].bytes>=pc92Previous.values[k].bytes);
+    rateOK=sameBoot&&monotonic;
+   }
+   for(const [key,pfx] of [['generated','Gen'],['accepted','Acc'],['forwarded','Fwd'],['physical_in','Pin'],['physical_out','Pout']]){
+    const v=current[key],prev=pc92Previous?.values?.[key];
+    const ep=$(`pc92Total${pfx}Packets`),eb=$(`pc92Total${pfx}Bytes`),er=$(`pc92Total${pfx}Pps`),ebr=$(`pc92Total${pfx}Bps`);
+    if(ep)ep.innerHTML=valueUnit(v.packets.toLocaleString(),'pkt');if(eb)eb.innerHTML=bytesVU(v.bytes);
+    if(er)er.innerHTML=rateOK?valueUnit(((v.packets-prev.packets)/dt).toFixed(2),'pkt/s'):'—';
+    if(ebr)ebr.innerHTML=rateOK?bytesVU((v.bytes-prev.bytes)/dt,'/s'):'—';
+   }
+   pc92Previous={t:now,boot,values:current};
+
+   const neighbours=new Set([...Object.keys(p92.physical?.in||{}),...Object.keys(p92.physical?.out||{})]);
+   const names=[...neighbours].sort();const renderNeighbour=n=>{let cells=`<td class="callCell">${esc(n)}</td>`;for(const x of sorts){cells+=`<td class="pc92CountCell">${cell(slot(p92.physical?.in?.[n],x))}</td><td class="pc92CountCell">${cell(slot(p92.physical?.out?.[n],x))}</td>`}return `<tr>${cells}</tr>`};
+   const cut=Math.ceil(names.length/2),empty='<tr><td colspan="9" class="emptyCell">—</td></tr>';
+   const left=$('pc92NeighbourRowsA'),right=$('pc92NeighbourRowsB');
+   if(left)left.innerHTML=names.slice(0,cut).map(renderNeighbour).join('')||(names.length?empty:'<tr><td colspan="9" class="emptyCell">No direct PC92 A/D/C/K traffic observed since node start.</td></tr>');
+   if(right)right.innerHTML=names.slice(cut).map(renderNeighbour).join('')||empty;
+  }
+  if(trafficPrevious&&Number(r.collected_at)>trafficPrevious.t){const dt=Number(r.collected_at)-trafficPrevious.t;setText('trRate',`${fmtBytes(Math.max(0,bi-trafficPrevious.bi)/dt)}/s RX`);setText('trRateDetail',`${fmtBytes(Math.max(0,bo-trafficPrevious.bo)/dt)}/s TX · ${((Math.max(0,li-trafficPrevious.li))/dt).toFixed(1)} / ${((Math.max(0,lo-trafficPrevious.lo))/dt).toFixed(1)} lines/s`)}
+  trafficPrevious={t:Number(r.collected_at)||Date.now()/1000,bi,bo,li,lo};
+ }
+ renderNodes();
+ if(kind==='web'){
+  const rows=r.channels||[];const dropped=rows.reduce((a,x)=>a+(Number(x.feed_dropped)||0),0),pending=rows.reduce((a,x)=>a+(Number(x.bytes_waiting)||0),0),sat=rows.filter(x=>x.feed_saturated).length;
+  const table=rows.map(x=>`<tr><td class="callCell">${esc(x.call)}</td><td>${esc(x.role||'-')}</td><td>${esc(x.logical_users||0)}</td><td>${esc(fmtBytes(x.bytes_waiting))}</td><td class="${Number(x.feed_dropped)>0?'warnText':''}">${esc(x.feed_dropped||0)}</td><td>${x.feed_saturated?statusBadge('YES','bad'):statusBadge('No','ok')}</td><td>${statusBadge(x.feed_saturated?'SATURATED':'OK',x.feed_saturated?'bad':'ok')}</td></tr>`).join('')||'<tr><td colspan="7" class="emptyCell">No Web channels.</td></tr>';
+  $('supervisorWeb').innerHTML=table;
+  $('supervisorOverviewWeb').innerHTML=rows.map(x=>`<div class="compactRow"><strong>${esc(x.call)}</strong><span>${esc(x.role||'-')}</span><span>${fmtBytes(x.bytes_waiting)} queued</span>${statusBadge(x.feed_saturated?'SATURATED':'OK',x.feed_saturated?'bad':'ok')}</div>`).join('')||'<div class="emptyCell">No Web channels.</div>';
+  setText('ovWeb',`${rows.length} channels`);setText('ovWebDetail',`${fmtBytes(pending)} queued · ${dropped} dropped · ${sat} saturated`);
+  const users=rows.flatMap(ch=>(ch.users||[]).map(u=>({...u,channel:ch.call})));
+  supervisorWebLogicalUsers=users;supervisorAdminBrowserUsers=Array.isArray(r.browser_clients?.users)?r.browser_clients.users:[];renderConnections();renderUsers();
+  const bc=r.browser_clients||{};
+  const summary=$('webSessionSummary');
+  if(summary) summary.innerHTML=metricRows([
+   ['Clients',Number(bc.clients||0)],['Anonymous',Number(bc.anonymous||0)],['Authenticated',Number(bc.authenticated||0)],
+   ['DXSpider logical users',users.length],['Registered',users.filter(u=>u.registered).length],
+   ['Password configured',users.filter(u=>u.password_configured).length],['Unique real IPs',new Set(users.map(u=>u.ip).filter(Boolean)).size]
+  ]);
+  const body=$('webLogicalUsers');
+  if(body) body.innerHTML=users.map(u=>`<tr><td>${esc(u.channel||'—')}</td><td class="callCell">${esc(u.call||'—')}</td><td>${esc(dash(u.ip))}</td><td>${esc(yn(u.registered))}</td><td>${esc(yn(u.password_configured))}</td><td>${esc(yn(u.password_used))}</td><td>${esc(yn(u.authenticated))}</td><td>${esc(dash(u.priv))}</td><td>${esc(fmtAge(u.startt))}</td></tr>`).join('')||'<tr><td colspan="9" class="emptyCell">No logical Web users in the current snapshot.</td></tr>';
+ }
+ if(kind==='rbn'){
+  const rows=r.channels||[],q=rows.reduce((a,x)=>a+(Number(x.queue_depth)||0),0);
+  $('supervisorRbn').innerHTML=rows.map(x=>`<div class="rbnCard"><div class="rbnHead"><strong>${esc(x.call)}</strong><span>Queue ${esc(x.queue_depth||0)}</span></div><table class="miniTable"><thead><tr><th>Window</th><th>Raw</th><th>Retrieved</th><th>Delivered</th><th>Users</th></tr></thead><tbody>${[['1 min',x.minute],['10 min',x.ten_minute||x['10_minute']],['1 hour',x.hour]].map(([w,v])=>`<tr><td>${w}</td><td>${Number(v?.raw||0).toLocaleString()}</td><td>${Number(v?.retrieved||0).toLocaleString()}</td><td>${Number(v?.delivered||0).toLocaleString()}</td><td>${Number(v?.users||0).toLocaleString()}</td></tr>`).join('')}</tbody></table></div>`).join('')||'<div class="emptyCell">No RBN channels.</div>';
+  $('supervisorOverviewRbn').innerHTML=rows.map(x=>`<div class="compactRow"><strong>${esc(x.call)}</strong><span>queue ${esc(x.queue_depth||0)}</span><span>${Number(x.minute?.raw||0).toLocaleString()} raw/min</span><span>${Number(x.minute?.delivered||0).toLocaleString()} delivered/min</span></div>`).join('')||'<div class="emptyCell">No RBN channels.</div>';
+  setText('ovRbn',`${rows.length} feeds`);setText('ovRbnDetail',`${q} queued · ${rows.reduce((a,x)=>a+(Number(x.minute?.raw)||0),0).toLocaleString()} raw/min`);
+ }
+ if(kind==='connections'){
+  supervisorConnectionsCache=r.connections||[]; neighboursSnapshotAt=Number(r.collected_at)||0;neighboursRender();
+  const totals=r.connection_totals||{};
+  const connected=allConnectionRows().filter(x=>x.online).length, disconnected=supervisorConnectionsCache.filter(x=>!x.online).length, repeated=supervisorConnectionsCache.filter(x=>Number(x.connect_count)>1).length, tooMany=supervisorConnectionsCache.filter(x=>Number(x.too_many_count)>0).length;
+  setText('connAllCount',supervisorConnectionsCache.length);setText('connConnectedCount',connected);setText('connDisconnectedCount',disconnected);setText('connRepeatedCount',repeated);setText('connTooManyCount',tooMany);
+  setText('connKpiConnected',connected);setText('connKpiConnects',totals.connects??0);setText('connKpiDisconnects',totals.disconnects??0);setText('connKpiTooMany',totals.too_many??0);renderConnections();renderConnectionAttention();renderNodes();renderUsers();
+ }
+ if(kind==='self_health'){
+  const h=r.health||{},errors=Number(h.errors)||0;setHealth('diagHealth',errors?'ATTENTION':'HEALTHY',errors?'bad':'ok');
+  $('supervisorDiagnostics').innerHTML=metricRows([['Schema',r.schema_version??'-'],['Supervisor',r.supervisor_version??'-'],['Requests',h.requests??'-'],['Errors',errors],['Last request',h.last_request?new Date(Number(h.last_request)*1000).toLocaleString():'-'],['Boot ID',r.boot_id||'-']]);
+  $('supervisorPerformance').innerHTML=metricRows([['Current snapshot',`${Number(r.generation_ms||0).toFixed(3)} ms`],['Last generation',`${Number(h.last_generation_ms||0).toFixed(3)} ms`],['Maximum generation',`${Number(h.max_generation_ms||0).toFixed(3)} ms`],['Collected',new Date(Number(r.collected_at||0)*1000).toLocaleString()]]);
+
+ }
+ if(kind==='topology'){renderTopology(r)}
+ if(kind==='system'){
+  $('systemHost').innerHTML=metricRows([['Host uptime',fmtDuration(r.host_uptime_seconds||0)],['DXWeb uptime',r.dxweb_uptime_seconds==null?'—':fmtDuration(r.dxweb_uptime_seconds)],['DXWeb Admin uptime',r.admin_uptime_seconds==null?'—':fmtDuration(r.admin_uptime_seconds)],['Load 1 min',Number(r.load1||0).toFixed(2)],['Load 5 min',Number(r.load5||0).toFixed(2)],['Load 15 min',Number(r.load15||0).toFixed(2)]]);
+  $('systemMemory').innerHTML=metricRows([['RAM used',fmtBytes(r.mem_used_bytes)],['RAM available',fmtBytes(r.mem_available_bytes)],['RAM total',fmtBytes(r.mem_total_bytes)],['Swap used',fmtBytes(r.swap_used_bytes)],['Swap total',fmtBytes(r.swap_total_bytes)]]);
+  $('systemAdmin').innerHTML=metricRows([['RSS',fmtBytes(r.admin_rss_bytes)],['Collector','dxweb-admin'],['DXSpider host reads','None']]);
+ }
+ updateSupervisorBanner();
+}
+// Extend the existing message handler without changing its authentication path.
+const _dxwebSupervisorHandle=handle;
+handle=function(m){
+ if(m.type==='maintenance_update_action_result'){if(!authenticated)return;const a=m.action||'';const btn=document.querySelector(`[data-update-action="${a}"]`);if(btn){btn.disabled=false;delete btn.dataset.running}const lines=Array.isArray(m.output)?m.output:[];lines.forEach(x=>updateLog(x));if(m.status==='ok'){updateLog(`${a}: OK`);const next=btn?.dataset.updateNext;if(next)runUpdateCommand(next)}else updateLog(`${a}: ERROR ${m.error||'unknown'}`);return;}
+ if(m.type==='maintenance_history_action_result'){maintenanceActionInflight=false;if(!authenticated)return;if(m.status==='ok'){const rs=m.result?.results||[];setText('historyMaintenanceState',rs.map(x=>x.action==='compress'?`Compressed ${x.id}: ${Number(x.files||0)} file(s)`:`Deleted ${x.id}`).join(' · ')||'Maintenance action completed.');requestMaintenance(maintenancePath)}else setText('historyMaintenanceState',`Maintenance action failed: ${m.error||'unknown'}`);return;}
+ if(m.type==='history_limit_preview_result'){
+  if(m.status!=='ok'){setText('maintLimitState',m.error||'Preview failed');return}
+  const r=m.result||{};pendingLimit={limit:r.limit,count:r.current};
+  const msg=`Change maximum to ${Number(r.limit).toLocaleString()}? Current: ${Number(r.current).toLocaleString()}. ${Number(r.delete_count).toLocaleString()} oldest records will be permanently deleted.`;
+  if(confirm(msg)){setText('maintLimitState','Applying confirmed limit…');send({type:'history_limit_apply',limit:r.limit,expected_count:r.current});}else{pendingLimit=null;setText('maintLimitState','Cancelled; no changes made.')}
+  return;
+ }
+ if(m.type==='history_limit_apply_result'){pendingLimit=null;setText('maintLimitState',m.status==='ok'?`Saved. Deleted ${Number(m.result?.deleted||0).toLocaleString()} oldest records.`:`Not applied: ${m.error||'unknown'}. Review again.`);requestMaintenance(maintenancePath);return;}
+ if(m.type==='metrics_policy_get_result'||m.type==='metrics_policy_set_result'){
+  if(m.status==='ok'){
+   metricsCollectionEnabled=m.enabled===true;
+   $('metricsPolicyEnabled').checked=metricsCollectionEnabled;
+   setText('metricsPolicyState',m.type==='metrics_policy_set_result'?'Configuration saved.':'');
+   if(metricsCollectionEnabled&&activeSection==='metrics')requestMetrics();
+  }else setText('metricsPolicyState','Unable to load or save metrics configuration.');
+  return;
+ }
+ if(m.type==='session_policy_get_result'||m.type==='session_policy_set_result'){
+  if(m.status==='ok'){sessionPolicyRender(m.policy);setText('sessionPolicyState',m.type==='session_policy_set_result'?'Configuration saved (not yet enforced).':'');}
+  else setText('sessionPolicyState','Unable to load or save session policy');return;
+ }
+ if(m.type==='maintenance_snapshot_result'){maintenanceInflight=false;if(!authenticated)return;if(m.status==='ok')renderMaintenance(m.result||{});else {const detail=`Maintenance error: ${m.error||'unknown'}`;setText('supervisionState',detail);setText('historyMaintenanceState',detail);const body=$('historyMaintenanceRows');if(body)body.innerHTML=`<tr><td colspan="7" class="emptyCell">${esc(detail)}</td></tr>`;}refreshProcess(m);return;}
+ if(m.type==='history_metrics_result'){metricsInflight=false;if(!authenticated)return;if(m.status==='ok')renderMetrics(m.result||{});else if(m.error==='metrics_disabled'){metricsCollectionEnabled=false;setText('metricsState','Metrics are disabled. Enable them in Supervision → System.');if(activeSection==='metrics')notice('Metrics are disabled. To enable them, go to Supervision → System.');}else setText('metricsState',`History error: ${m.error||'unknown'}`);refreshProcess(m);return;}
+ if(m.type==='history_timeline_result'){timelineInflight=false;if(!authenticated)return;if(m.status==='ok')renderTimeline(m.result||{});else setText('timelineState',`History error: ${m.error||'unknown'}`);refreshProcess(m);return;}
+ if(/^supervisor_(overview|status|connections|traffic|web|rbn|self_health|system|topology)_result$/.test(m.type||'')){
+  const kind=RegExp.$1;supervisorInflight.delete(kind);if(!authenticated)return;if(m.status==='ok'){if(kind==='overview')renderOverviewSnapshot(m.result);else renderSupervisor(kind,m.result)}else $('supervisionState').textContent=`Supervisor error: ${m.error||'unknown'}`;refreshProcess(m);return;
+ }
+ return _dxwebSupervisorHandle(m);
+};
+
+// DXSpider Web Supervision — UI v2 theme layer (interface only).
+(()=>{
+ const root=document.documentElement,btn=document.getElementById('themeToggle');
+ const valid=new Set(['auto','dark','light']);
+ let theme=localStorage.getItem('dxweb-theme')||'auto'; if(!valid.has(theme))theme='auto';
+ const label={auto:'◐ Auto',dark:'☾ Dark',light:'☀ Light'};
+ const apply=t=>{theme=t;root.dataset.theme=t;localStorage.setItem('dxweb-theme',t);if(btn){btn.textContent=label[t];btn.title=`Theme: ${t}`;}setTimeout(()=>{if(typeof metricsData!=='undefined'&&metricsData&&typeof renderMetricCharts==='function')renderMetricCharts();},0);};
+ apply(theme);
+ if(btn)btn.addEventListener('click',()=>apply(theme==='auto'?'dark':theme==='dark'?'light':'auto'));
+})();
+
+/* DXWeb Admin v2 shell navigation — new visual structure, original button model. */
+(()=>{
+ const titles={operation:['Operation','Spots, announcements and operator tools'],registration:['Registration','Registration workflow'],supervision:['Supervision','Overview, connections, traffic, nodes and diagnostics'],metrics:['Metrics','Historical observability and trends'],timeline:['Timeline','Historical state changes'],networkChatSection:['Network Chat','DXSpider PC93 group messages'],liveDebugSection:['Debug','DXSpider log readers and searches'],terminalSection:['Terminal Linux','SSH to localhost'],console:['Console','DXSpider command console']};
+ const nav=document.querySelectorAll('.v2NavBtn');
+ function sectionClick(name){const b=document.querySelector(`.mainTabs [data-section="${name}"]`);if(b)b.click()}
+ function mark(name){nav.forEach(b=>b.classList.toggle('active',b.dataset.v2Target===name));const t=titles[name]||[name,''];setText('v2PageTitle',t[0]);setText('v2PageSubtitle',t[1]);document.body.classList.toggle('v2-console-wide',name==='console')}
+ function go(name){if(name==='terminalSection'&&!linuxTerminalEnabled)return;if(authenticated&&(name==='liveDebugSection'||name==='terminalSection'||name==='networkChatSection')&&authPriv<9)return;if(authenticated&&authPriv<5&&SYSOP_SECTIONS.has(name))return;mark(name);if(name==='liveDebugSection'||name==='terminalSection'||name==='networkChatSection'){selectSection(name)}else if(name==='console'){selectSection('consoleSection');setTimeout(()=>document.getElementById('consoleCommand')?.focus(),0)}else{sectionClick(name);if(name==='operation')setTimeout(()=>document.querySelector('#operationTabs [data-panel="spots"]')?.click(),0)}}
+ nav.forEach(b=>b.addEventListener('click',()=>{if(b.disabled||b.getAttribute('aria-disabled')==='true')return;go(b.dataset.v2Target)}));
+ const st=document.getElementById('status'),side=document.getElementById('v2SideStatus');if(st&&side)new MutationObserver(()=>side.textContent=st.textContent||'DXSpider link').observe(st,{childList:true,subtree:true,characterData:true});
+ setTimeout(()=>go('operation'),0);
+})();
+
+/* DXWeb Admin v2.1 — ECharts metrics renderer. Existing history/API semantics are unchanged. */
+const dxEchartsInstances=new Map();
+const dxMetricPalette=['#3b82f6','#8b5cf6','#f97316','#ef4444','#06b6d4','#e879f9','#f59e0b','#6366f1','#ec4899','#94a3b8'];
+function dxThemeIsDark(){const t=document.documentElement.dataset.theme||'auto';return t==='dark'||(t==='auto'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)}
+function dxMetricColors(){const dark=dxThemeIsDark();return dark?{text:'#cbd5e1',muted:'#94a3b8',grid:'rgba(148,163,184,.14)',axis:'rgba(148,163,184,.30)',tip:'#111c2d',tipBorder:'#334155'}:{text:'#334155',muted:'#64748b',grid:'rgba(100,116,139,.13)',axis:'rgba(100,116,139,.26)',tip:'#ffffff',tipBorder:'#dbe4ee'}}
+function dxDisposeMetric(id){const old=dxEchartsInstances.get(id);if(old){try{old.dispose()}catch(e){}dxEchartsInstances.delete(id)}}
+function metricLineChart(id,defs,opt={}){
+ metricChartRegistry.set(id,{defs,opt});const host=$(id);if(!host||!metricsData)return;
+ if(!window.echarts){dxDisposeMetric(id);return metricLineChartSvg(id,defs,opt)}
+ const from0=Number(metricsData.from_at),to0=Number(metricsData.to_at),from=metricsZoom?metricsZoom[0]:from0,to=metricsZoom?metricsZoom[1]:to0;
+ const active=defs.filter(d=>!metricHidden.has(id+':'+d.name)).map(d=>({...d,points:(d.points||[]).filter(p=>Number(p.t)>=from&&Number(p.t)<=to&&Number.isFinite(Number(p.v)))}));
+ if(!active.some(d=>d.points.length)){dxDisposeMetric(id);host.innerHTML='<div class="emptyState metricEmpty">No samples for this range.</div>';return}
+ dxDisposeMetric(id);host.innerHTML='';const chart=echarts.init(host,null,{renderer:'canvas'});dxEchartsInstances.set(id,chart);const c=dxMetricColors();
+ const fmt=opt.fmt||((v)=>Math.abs(v)>=1000?Math.abs(v).toLocaleString(undefined,{maximumFractionDigits:0}):Math.abs(v).toFixed(Math.abs(v)<10?2:1));
+ const series=active.map((d,i)=>({name:d.name,type:'line',showSymbol:false,symbol:'none',smooth:.22,connectNulls:false,sampling:'lttb',animation:false,lineStyle:{width:2.0,color:dxMetricPalette[i%dxMetricPalette.length]},itemStyle:{color:dxMetricPalette[i%dxMetricPalette.length]},areaStyle:d.area?{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:dxMetricPalette[i%dxMetricPalette.length]},{offset:1,color:'rgba(0,0,0,0)'}]},opacity:dxThemeIsDark()?.16:.10}:undefined,data:d.points.map(p=>[Number(p.t)*1000,d.negative?-Math.abs(Number(p.v)):Math.abs(Number(p.v))])}));
+ let yMin=null,yMax=null;const vals=[];series.forEach(s=>s.data.forEach(p=>vals.push(Number(p[1]))));if(opt.symmetric&&vals.length){const m=Math.max(1,...vals.map(v=>Math.abs(v)))*1.08;yMin=-m;yMax=m}
+ chart.setOption({backgroundColor:'transparent',color:dxMetricPalette,textStyle:{color:c.text,fontFamily:'Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'},animation:false,grid:{left:64,right:20,top:18,bottom:96,containLabel:false},legend:{type:'scroll',bottom:48,left:'center',icon:'roundRect',itemWidth:14,itemHeight:4,itemGap:16,textStyle:{color:c.muted,fontSize:12},selectedMode:true},tooltip:{trigger:'axis',confine:true,backgroundColor:c.tip,borderColor:c.tipBorder,borderWidth:1,textStyle:{color:c.text,fontSize:11},axisPointer:{type:'cross',label:{backgroundColor:c.tip,color:c.text},lineStyle:{color:c.muted,width:1,opacity:.32},crossStyle:{color:c.muted,width:1,opacity:.32}},valueFormatter:v=>fmt(Number(v))},xAxis:{type:'time',min:from*1000,max:to*1000,boundaryGap:false,axisLine:{lineStyle:{color:c.axis}},axisTick:{show:false},axisLabel:{color:c.muted,fontSize:12,hideOverlap:true,margin:12},splitLine:{show:true,lineStyle:{color:c.grid}}},yAxis:{type:'value',min:yMin,max:yMax,scale:false,axisLine:{show:false},axisTick:{show:false},axisLabel:{color:c.muted,fontSize:12,formatter:v=>fmt(Number(v))},splitLine:{show:true,lineStyle:{color:c.grid}}},dataZoom:[{type:'inside',filterMode:'none',zoomOnMouseWheel:true,moveOnMouseMove:false,moveOnMouseWheel:false},{type:'slider',filterMode:'none',height:20,bottom:14,borderColor:c.axis,fillerColor:dxThemeIsDark()?'rgba(59,130,246,.18)':'rgba(37,99,235,.12)',backgroundColor:'transparent',textStyle:{color:c.muted},showDetail:false,brushSelect:true}],toolbox:{show:false,feature:{dataZoom:{xAxisIndex:0,yAxisIndex:'none'}}},series});
+ try{chart.dispatchAction({type:'takeGlobalCursor',key:'dataZoomSelect',dataZoomSelectActive:true})}catch(e){}
+ chart.on('legendselectchanged',e=>{for(const d of defs){const k=id+':'+d.name;if(e.selected[d.name]===false)metricHidden.add(k);else metricHidden.delete(k)}});
+ chart.on('datazoom',()=>{});setTimeout(()=>chart.resize(),0)
+}
+function metricRankBarChart(id,items,limit=30,color='#3b82f6'){
+ const all=Array.isArray(items)?items.filter(x=>x&&typeof x.name==='string'&&Number.isFinite(Number(x.count))):[];metricChartRegistry.set(id,{kind:'rankbar',items:all,color});const host=$(id);if(!host)return;const rows=all.slice(0,Math.max(1,limit)).sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:'base'}));
+ if(!rows.length){dxDisposeMetric(id);host.innerHTML='<div class="emptyState metricEmpty">No accepted spot samples for this range.</div>';return}
+ if(!window.echarts){dxDisposeMetric(id);host.innerHTML='<div class="rankFallback">'+rows.map(x=>`<div><b>${esc(x.name)}</b><span>${Number(x.count).toLocaleString()}</span></div>`).join('')+'</div>';return}
+ dxDisposeMetric(id);host.innerHTML='';const chart=echarts.init(host,null,{renderer:'canvas'});dxEchartsInstances.set(id,chart);const c=dxMetricColors();
+ chart.setOption({backgroundColor:'transparent',animation:false,textStyle:{color:c.text,fontFamily:'Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'},grid:{left:48,right:18,top:28,bottom:88,containLabel:false},tooltip:{trigger:'axis',axisPointer:{type:'shadow'},confine:true,backgroundColor:c.tip,borderColor:c.tipBorder,borderWidth:1,textStyle:{color:c.text},formatter:p=>{const q=p&&p[0];return q?`<strong>${esc(q.name)}</strong><br>Spots&nbsp;&nbsp;<b>${Number(q.value).toLocaleString()}</b><br>Range&nbsp;&nbsp;${esc(metricsWindow)}`:''}},xAxis:{type:'category',data:rows.map(x=>x.name),axisLine:{lineStyle:{color:c.axis}},axisTick:{show:false},axisLabel:{color:c.text,fontSize:10,interval:0,rotate:48,margin:12,hideOverlap:false}},yAxis:{type:'value',min:0,minInterval:1,axisLine:{show:false},axisTick:{show:false},axisLabel:{color:c.muted,formatter:v=>Number(v).toLocaleString()},splitLine:{show:true,lineStyle:{color:c.grid}}},series:[{type:'bar',data:rows.map(x=>x.count),barMaxWidth:22,itemStyle:{color,borderRadius:[3,3,0,0]},label:{show:true,position:'top',distance:3,color:c.muted,fontSize:9,formatter:p=>Number(p.value).toLocaleString()}}]});setTimeout(()=>chart.resize(),0)
+}
+window.addEventListener('resize',()=>dxEchartsInstances.forEach(c=>{try{c.resize()}catch(e){}}));
+if(window.matchMedia)window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{if((document.documentElement.dataset.theme||'auto')==='auto'&&metricsData)renderMetricCharts()});
+
+// The running server is authoritative for the displayed Admin release.
+fetch("./admin-version.json",{cache:"no-store"}).then(r=>{if(!r.ok)throw Error("version endpoint");return r.json()}).then(v=>{document.querySelectorAll(".adminVersion").forEach(e=>e.textContent=v.version)}).catch(()=>{document.querySelectorAll(".adminVersion").forEach(e=>e.textContent="unverified")});
+
+/* v0.41: fill explanatory hover text where legacy markup has no title. */
+function v041InstallHelp(){
+ const help={
+  metricsRefresh:'Refresh historical metrics for the selected window. A recent cached result may be reused.',
+  metricsResetZoom:'Restore every Metrics chart to the complete selected time window.',
+  timelineRefresh:'Refresh demonstrated historical state changes for the selected Timeline window.',
+  maintenanceRefresh:'Refresh database, host, backup and historical-data maintenance information.',
+  historyUp:'Move one level up in the historical local_data browser.',
+  historyCompress:'Create archives for the selected eligible historical directories. Active periods remain protected.',
+  historyDelete:'Delete only selected historical entries that the maintenance policy marks as eligible.'
+ };
+ for(const [id,t] of Object.entries(help)){const e=document.getElementById(id);if(e&&!e.title)e.title=t}
+ document.querySelectorAll('.metricExpand').forEach(e=>{if(!e.title)e.title='Open this chart in the larger Metrics view.'});
+ document.querySelectorAll('#diagnostics h3,#maintenance h3,#timeline h3,#metrics h3').forEach(e=>{if(!e.title){const n=(e.textContent||'').trim();if(n)e.title=`${n}: hover chart points, labels or controls for the values available in this view.`}});
+ document.querySelectorAll('#diagnostics th,#maintenance th,#timeline th').forEach(e=>{if(!e.title){const n=(e.textContent||'').trim();if(n)e.title=`${n} column.`}});
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',v041InstallHelp);else v041InstallHelp();
+
+// Per-callsign presentation settings; browser-local and independent for each application.
+const spotPresentationKeyBase='dxspider.dxweb-admin.spotPresentation.';
+function spotPresentationSave(){
+ if(!authenticated||!authUser)return;
+ const settings={human:$('showHuman').checked,rbn:$('showRbn').checked,
+  font:spotFontPercent,locator:$('userLocator').value.trim().toUpperCase(),
+  groups:[...document.querySelectorAll('[data-spot-group]:checked')].map(x=>x.dataset.spotGroup),
+  commentWidth:spotCommentPreferred,newestFirst:spotNewestFirst,allSort:spotAllSort};
+ try{localStorage.setItem(spotPresentationKeyBase+authUser.toUpperCase(),JSON.stringify(settings))}catch(_){}
+}
+function spotPresentationRestore(){
+ let saved=null;
+ if(authenticated&&authUser){try{saved=JSON.parse(localStorage.getItem(spotPresentationKeyBase+authUser.toUpperCase()))}catch(_){}}
+ spotNewestFirst=saved&&typeof saved.newestFirst==='boolean'?saved.newestFirst:true;spotOrderLabel();
+ spotAllSort=saved&&saved.allSort&&['utc','freq','dx','spotter','comment','origin'].includes(saved.allSort.key)&&['asc','desc'].includes(saved.allSort.dir)?saved.allSort:{key:'utc',dir:spotNewestFirst?'desc':'asc'};spotViewsRender();
+ const groups=new Set(saved&&Array.isArray(saved.groups)?saved.groups:[]);
+ for(const box of document.querySelectorAll('[data-spot-group]'))box.checked=groups.has(box.dataset.spotGroup);
+ const loc=saved&&typeof saved.locator==='string'?saved.locator:'';
+ $('userLocator').value=geoLocator(loc)?loc:'';
+ spotCommentPreferred=saved&&Number.isFinite(saved.commentWidth)&&saved.commentWidth>=80&&saved.commentWidth<=1200?saved.commentWidth:null;
+ if(saved&&typeof saved.human==='boolean'&&typeof saved.rbn==='boolean'){
+  $('showHuman').checked=saved.human;$('showRbn').checked=saved.rbn;
+ }else{$('showHuman').checked=true;$('showRbn').checked=false}
+ spotFontApply(saved&&Number.isFinite(saved.font)?saved.font:100,false);
+ spotItems=[];spotCounts={human:0,rbn:0};spotViewUnread.clear();spotViewsUnreadRender();
+ updateSpotLayout();renderSpots();
+}
+function spotPresentationBind(){
+ for(const id of ['showHuman','showRbn'])$(id).addEventListener('change',spotPresentationSave);
+ for(const box of document.querySelectorAll('[data-spot-group]'))box.addEventListener('change',spotPresentationSave);
+ $('userLocator').addEventListener('input',()=>{if($('userLocator').validity.valid)spotPresentationSave()});
+}
+
+spotPresentationBind();
+
+// Software versions are read from the live processes and the installed files.
+async function refreshSoftwareVersions(){
+ const body=document.getElementById('softwareVersionsBody');if(!body)return;
+ try{
+  const response=await fetch('./software-versions.json',{cache:'no-store'});
+  if(!response.ok)throw new Error('Version endpoint unavailable');
+  const data=await response.json();
+  body.innerHTML=[['DXWeb',data.dxweb],['DXWeb Admin',data.admin]].map(([name,v])=>{
+   const running=v?.running||'—',installed=v?.installed||'—';
+   return `<tr><td>${esc(name)}</td><td>${esc(running)}</td><td>${esc(installed)}</td></tr>`;
+  }).join('');
+ }catch(e){body.innerHTML='<tr><td colspan="3">Version information unavailable</td></tr>'}
+}
+refreshSoftwareVersions();
+
+// Live Debug: on-demand file reader; pause retains server offset, follow only scrolls.
+let liveDebugFollowing=false,liveDebugPaused=false,liveDebugFollow=true,liveDebugChunks=[],liveDebugSize=0;
+function liveDebugState(s){const e=$('liveDebugState');if(e)e.textContent=s}
+function liveDebugStop(){if(liveDebugFollowing)send({type:'live_debug_stop'});liveDebugFollowing=false;liveDebugPaused=false;$('liveDebugPause').textContent='Pause';liveDebugState('Stopped')}
+function liveDebugStart(){if(!authenticated||authPriv<9)return;if(liveDebugFollowing)liveDebugStop();liveDebugFollowing=true;liveDebugPaused=false;$('liveDebugPause').textContent='Pause';liveDebugChunks=[];liveDebugSize=0;liveDebugRender();liveDebugState('Connecting…');if(!send({type:'live_debug_start',source:$('liveDebugSource').value,date:$('liveDebugDate').value})){liveDebugFollowing=false;liveDebugState('Connection unavailable')}}
+function liveDebugRender(){
+ const q='',out=$('liveDebugOutput'),text=liveDebugChunks.join('');out.replaceChildren();
+ if(!q)out.textContent=text;
+ else{let at=0;const lower=text.toLowerCase();while(at<text.length){const found=lower.indexOf(q,at);if(found<0){out.appendChild(document.createTextNode(text.slice(at)));break}if(found>at)out.appendChild(document.createTextNode(text.slice(at,found)));const mark=document.createElement('mark');mark.className='liveDebugMatch';mark.textContent=text.slice(found,found+q.length);out.appendChild(mark);at=found+q.length}}
+ if(liveDebugFollow)out.scrollTop=out.scrollHeight;
+}
+function liveDebugReceive(m){
+ if(m.status==='error'){liveDebugFollowing=false;liveDebugState(m.error||'Error');return}
+ if(m.type==='live_debug_result'){liveDebugState(m.path||'Following');return}
+ if(!liveDebugFollowing)return;
+ if(m.text){liveDebugChunks.push(m.text);liveDebugSize+=m.text.length;while(liveDebugSize>240000&&liveDebugChunks.length>1){liveDebugSize-=liveDebugChunks.shift().length}liveDebugRender();for(const w of logWindows.values()){if(w.mode!=='raw')continue;w.text+=m.text;if(w.text.length>240000)w.text=w.text.slice(-240000);w.output.textContent=w.text;if(w.follow.checked)w.output.scrollTop=w.output.scrollHeight}}
+ if(m.rotated)liveDebugState('File changed');
+}
+{const d=new Date();$('liveDebugDate').value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+$('liveDebugStart').onclick=liveDebugStart;$('liveDebugStop').onclick=liveDebugStop;
+$('liveDebugPause').onclick=()=>{if(!liveDebugFollowing)return;const next=!liveDebugPaused;if(send({type:'live_debug_pause',paused:next})){liveDebugPaused=next;$('liveDebugPause').textContent=next?'Resume':'Pause';liveDebugState(next?'Paused':'Following')}};
+
+$('liveDebugClear').onclick=()=>{liveDebugChunks=[];liveDebugSize=0;liveDebugRender()};
+$('liveDebugSource').onchange=()=>{if(liveDebugFollowing)liveDebugStop()};$('liveDebugDate').onchange=()=>{if(liveDebugFollowing)liveDebugStop()};
+
+// Multiple independent WATCH/GREP consoles; original RAW viewer stays unchanged.
+const logWindows=new Map();let logNextId=0,logTop=5;
+function logWindowsCloseAll(){for(const w of [...logWindows.values()])logWindowClose(w,true)}
+function logWindowClose(w,localOnly=false){if(w.mode!=='raw'&&w.mode!=='raw-paused'&&!localOnly)send({type:'log_window_stop',window_id:w.id});w.el.remove();logWindows.delete(w.id)}
+function logWindowReceive(m){const w=logWindows.get(m.window_id);if(!w)return;
+ if(m.type==='log_window_status'){w.state.textContent=m.detail?`${m.status}: ${m.detail}`:m.status;if(m.status!=='running')w.active=false;return}
+ if(m.text){w.text+=m.text;if(w.text.length>240000)w.text=w.text.slice(-240000);w.output.textContent=w.text;if(w.follow.checked)w.output.scrollTop=w.output.scrollHeight}
+}
+function logWindowOpen(mode,copy){
+ if(!authenticated||authPriv<9)return;if(logWindows.size>=8){notice('Maximum 8 log windows');return}
+ const id='log'+(++logNextId),el=document.createElement('div');el.className='logFloat';el.style.left=(12+(logNextId%5)*28)+'px';el.style.top=(12+(logNextId%5)*25)+'px';el.style.zIndex=String(++logTop);
+ const head=document.createElement('div');head.className='logFloatHead';const title=document.createElement('strong');title.textContent=mode.toUpperCase();head.append(title);
+ const controls=document.createElement('span');controls.className='logFloatActions';
+ const btn=(text,fn)=>{const b=document.createElement('button');b.type='button';b.textContent=text;b.onclick=fn;return b};
+ const w={id,mode,el,text:'',active:false,zoom:100};
+ controls.append(btn('Duplicate',()=>logWindowOpen(mode,w)),btn('−',()=>{w.zoom=Math.max(70,w.zoom-10);w.output.style.fontSize=w.zoom+'%';zoom.textContent=w.zoom+'%'}));
+ const zoom=btn('100%',()=>{w.zoom=100;w.output.style.fontSize='100%';zoom.textContent='100%'});zoom.title='Reset text zoom to 100%';controls.append(zoom,btn('+',()=>{w.zoom=Math.min(150,w.zoom+10);w.output.style.fontSize=w.zoom+'%';zoom.textContent=w.zoom+'%'}),btn('□',()=>el.classList.toggle('logMax')),btn('×',()=>logWindowClose(w)));
+ head.append(controls);el.append(head);
+ const bar=document.createElement('div');bar.className='logFloatBar';const filter=document.createElement('input');filter.placeholder='Perl regex terms (AND), !exclude';filter.setAttribute('aria-label','Filter expressions');filter.value=copy?.filter?.value||'';
+ const context=document.createElement('input');context.type='number';context.min='0';context.max='20';context.value=copy?.context?.value||'0';context.title='Lines before match (0 = only matching line; 2 = two preceding lines)';context.setAttribute('aria-label','Lines before');context.style.width='4rem';
+ const date=document.createElement('input');date.type='date';date.value=copy?.date?.value||document.getElementById('liveDebugDate').value;
+ const state=document.createElement('span');state.className='logFloatState';state.textContent='Stopped';
+ const output=document.createElement('pre');output.className='logFloatOutput';output.setAttribute('aria-label',mode+' output');
+ const follow=document.createElement('input');follow.type='checkbox';follow.checked=true;
+ const start=()=>{if(mode==='raw'){w.mode='raw';w.text=liveDebugChunks.join('');output.textContent=w.text;state.textContent='Following Live Debug';return}if(w.active)send({type:'log_window_stop',window_id:id});w.text='';output.textContent='';w.active=true;state.textContent='Starting…';if(!send({type:'log_window_start',window_id:id,mode,filter:filter.value,context:context.value,date:date.value})){w.active=false;state.textContent='Disconnected';return}setTimeout(()=>{if(w.active&&state.textContent==='Starting…'){w.active=false;state.textContent='No server response — check DXWeb Admin journal'}},8000)};
+ const stop=()=>{if(mode==='raw'){state.textContent='Paused RAW mirror';w.mode='raw-paused';return}send({type:'log_window_stop',window_id:id});w.active=false;state.textContent='Stopped'};
+ if(mode!=='raw'){const ctxLabel=document.createElement('label');ctxLabel.textContent='Before';ctxLabel.title=context.title;ctxLabel.append(context);bar.append(filter,ctxLabel)}if(mode==='grep')bar.append(date);if(mode!=='raw')bar.append(btn(mode==='grep'?'Search':'Start',start),btn('Stop',stop));if(mode==='raw'){bar.append(btn('Start',liveDebugStart),btn('Stop',liveDebugStop),btn('Pause / Resume',()=>document.getElementById('liveDebugPause').click()),btn('Clear',()=>{w.text='';output.textContent=''}))}else bar.append(btn('Clear',()=>{w.text='';output.textContent=''}));
+ const followLabel=document.createElement('label');followLabel.title='Follow: automatically scroll to newest lines; turning off does not stop data reception.';follow.title=followLabel.title;followLabel.append(follow,document.createTextNode(' Follow'));bar.append(followLabel);
+ el.append(bar,output,state);if(mode==='raw'){w.text=liveDebugChunks.join('');output.textContent=w.text;state.textContent='Following Live Debug (shared source)'}w.output=output;w.state=state;w.follow=follow;w.filter=filter;w.context=context;w.date=date;
+ let x=0,y=0,left=0,top=0;head.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;x=e.clientX;y=e.clientY;left=el.offsetLeft;top=el.offsetTop;head.setPointerCapture(e.pointerId)});head.addEventListener('pointermove',e=>{if(!head.hasPointerCapture(e.pointerId))return;el.style.left=Math.max(0,left+e.clientX-x)+'px';el.style.top=Math.max(0,top+e.clientY-y)+'px'});head.addEventListener('pointerup',e=>{if(head.hasPointerCapture(e.pointerId))head.releasePointerCapture(e.pointerId)});
+ el.addEventListener('pointerdown',()=>{el.style.zIndex=String(++logTop)});document.getElementById('logWorkspace').append(el);logWindows.set(id,w);
+}
+$('logAddRaw').onclick=()=>logWindowOpen('raw');
+$('logAddWatch').onclick=()=>logWindowOpen('watch');$('logAddGrep').onclick=()=>logWindowOpen('grep');
+function logTileWindows(){
+ const ws=[...logWindows.values()];if(!ws.length)return;
+ const desk=$('logWorkspace'),gap=8,available=Math.max(260,desk.clientWidth-2);
+ const cols=available<560?1:available<900?2:Math.min(4,Math.ceil(Math.sqrt(ws.length)));
+ const rows=Math.ceil(ws.length/cols),width=Math.floor((available-gap*(cols+1))/cols);
+ const availableHeight=Math.max(300,window.innerHeight-desk.getBoundingClientRect().top-28);
+ const height=Math.max(190,Math.floor((availableHeight-gap*(rows+1))/rows));
+ desk.style.minHeight=Math.max(300,rows*(height+gap)+gap)+'px';
+ ws.forEach((w,i)=>{const el=w.el;el.classList.remove('logMax');el.style.left=(gap+(i%cols)*(width+gap))+'px';el.style.top=(gap+Math.floor(i/cols)*(height+gap))+'px';el.style.width=width+'px';el.style.height=height+'px'});
+}
+$('logTile').onclick=logTileWindows;
+$('logHelp').onclick=()=>$('logHelpDialog').showModal();
+$('logHelpClose').onclick=()=>$('logHelpDialog').close();
+
+/* Terminal Linux: xterm.js client, SSH authentication occurs inside OpenSSH PTY. */
+function terminalLocalClose(){terminalActive=false;terminalStarting=false;const e=$('terminalState');if(e)e.textContent='Disconnected'}
+function terminalDisconnect(){if(terminalActive||terminalStarting)send({type:'terminal_disconnect'});terminalLocalClose()}
+function terminalFit(){if(!terminalTerm||!terminalFitAddon)return;try{terminalFitAddon.fit();if(terminalActive||terminalStarting)send({type:'terminal_resize',cols:terminalTerm.cols,rows:terminalTerm.rows})}catch(_){}}
+function terminalInit(){
+ if(terminalTerm)return true;
+ if(!window.Terminal||!window.FitAddon){$('terminalState').textContent='Terminal emulator unavailable (xterm.js assets)';return false}
+ terminalTerm=new window.Terminal({cursorBlink:true,scrollback:2500,convertEol:false,fontFamily:'ui-monospace,Consolas,monospace',fontSize:Math.round(13*(panelZoomLevels.terminal||100)/100),theme:{background:'#0b1220',foreground:'#e5e7eb'}});
+ terminalFitAddon=new window.FitAddon.FitAddon();terminalTerm.loadAddon(terminalFitAddon);terminalTerm.open($('terminalOutput'));
+ terminalTerm.onData(data=>{if(!terminalActive&&!terminalStarting)return;const bytes=new TextEncoder().encode(data);let binary='';for(const b of bytes)binary+=String.fromCharCode(b);send({type:'terminal_input',data:btoa(binary)})});
+ new ResizeObserver(()=>terminalFit()).observe($('terminalOutput'));
+ terminalFit();return true;
+}
+function terminalReceive(m){
+ if(m.type==='terminal_status'){$('terminalState').textContent=m.message||m.status||'';terminalStarting=m.status==='starting';terminalActive=m.status==='connected';if(terminalStarting||terminalActive){terminalInit();terminalFit();terminalTerm?.focus()}return}
+ if((!terminalActive&&!terminalStarting)||!terminalTerm||!m.data)return;
+ try{const raw=atob(m.data);const bytes=Uint8Array.from(raw,c=>c.charCodeAt(0));terminalTerm.write(bytes)}catch(_){}
+}
+$('terminalConnect').onclick=()=>{if(!linuxTerminalEnabled||!authenticated||authPriv<9||!terminalInit())return;terminalSshSave();terminalTerm.clear();terminalStarting=true;$('terminalState').textContent='Starting SSH…';send({type:'terminal_connect',user:$('terminalUser').value.trim(),port:Number($('terminalPort').value)})};
+$('terminalDisconnect').onclick=terminalDisconnect;
+
+/* DXWeb Neighbours: native supervision view; no independent network polling. */
+let neighboursZoom=1,neighboursSnapshotAt=0;
+function neighboursRender(){
+ const svg=document.getElementById('neighboursSvg'),detail=document.getElementById('neighboursDetail'),note=document.getElementById('neighboursNote');
+ if(!svg||!detail)return;
+ const self=String(supervisorStatusCache?.node||document.getElementById('supervisionNode')?.textContent||'').trim().toUpperCase();
+ const age=neighboursSnapshotAt?Date.now()/1000-neighboursSnapshotAt:Infinity;
+ const fresh=age>=0&&age<=120;
+ const rows=supervisorConnectionsCache.filter(x=>x&&x.call&&String(x.call).toUpperCase()!==self&&!x.logical_web&&(x.configured===true||x.configured===1||['node','rbn','peer'].includes(x.kind)||['S','A','C','R','L','X','N'].includes(String(x.sort||'').toUpperCase())));
+ const unique=[...new Map(rows.map(x=>[String(x.call).toUpperCase(),x])).values()].sort((a,b)=>String(a.call).localeCompare(String(b.call)));
+ note.textContent=`${unique.length} configured and observed peers · ${fresh?'Snapshot '+Math.round(age)+'s old':'Snapshot stale or unavailable — link states unknown'} · Direct connections only`;
+ const NS='http://www.w3.org/2000/svg',el=(tag,attrs={},content)=>{const n=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,String(v));if(content!==undefined)n.textContent=String(content);return n};
+ // Allocate concentric rings by usable circumference, keeping 120 SVG units
+ // between peer centres (52-unit node radius plus label clearance).
+ const ringStep=132,firstRadius=235,minArc=125;
+ const rings=[],positions=[];
+ for(let i=0;i<unique.length;){
+  const radius=firstRadius+rings.length*ringStep;
+  const capacity=Math.max(1,Math.floor(2*Math.PI*radius/minArc));
+  const count=Math.min(capacity,unique.length-i);
+  rings.push({radius,count});
+  for(let j=0;j<count;j++){
+   const angle=-Math.PI/2+2*Math.PI*(j+(rings.length%2?0:.5))/count;
+   positions.push({angle,radius});
+  }
+  i+=count;
+ }
+ // Test actual line-to-disc clearance against every other node, not only
+ // the preceding ring. Keep a generous margin for stroke and arrowheads.
+ const clearance=61;
+ const pointSegmentDistance=(px,py,ax,ay,bx,by)=>{
+  const dx=bx-ax,dy=by-ay,den=dx*dx+dy*dy;
+  const t=den?Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/den)):0;
+  return Math.hypot(px-ax-t*dx,py-ay-t*dy);
+ };
+ const unobstructed=(a,b,skip)=>positions.every((p,i)=>i===skip||pointSegmentDistance(p.radius*Math.cos(p.angle),p.radius*Math.sin(p.angle),a[0],a[1],b[0],b[1])>clearance);
+ const outer=rings.length?rings[rings.length-1].radius:235;
+ // Exterior routing is used only if a direct ray would intersect a peer.
+ // It enters the destination from the outside, avoiding all inner rings.
+ const routingRadius=outer+115;
+ const extent=routingRadius+80, cx=extent,cy=extent;
+ const side=extent*2;
+ svg.replaceChildren();svg.setAttribute('viewBox',`0 0 ${side} ${side}`);
+ const defs=el('defs');for(const [id,color] of [['blue','#3989e6'],['red','#ef6464']]){const m=el('marker',{id:'neigh-'+id,markerWidth:9,markerHeight:9,refX:8,refY:4,orient:'auto-start-reverse',markerUnits:'strokeWidth'});m.append(el('path',{d:'M0 0 L8 4 L0 8 Z',fill:color}));defs.append(m)}svg.append(defs);
+ const scene=el('g',{transform:`translate(${cx} ${cy}) scale(${neighboursZoom}) translate(${-cx} ${-cy})`});svg.append(scene);
+ const center=el('g');center.append(el('circle',{cx,cy,r:76,fill:'#193954',stroke:'#64a7d7','stroke-width':3}));center.append(el('text',{x:cx,y:cy+7,'text-anchor':'middle',fill:'#fff','font-size':20,'font-weight':700},self||'LOCAL NODE'));scene.append(center);
+ if(!unique.length){detail.textContent='No observed physical peers in the current supervisor snapshot.';return}
+ unique.forEach((r,i)=>{
+  const {angle:a,radius:rad}=positions[i],x=cx+rad*Math.cos(a),y=cy+rad*Math.sin(a);
+  const live=fresh&&(r.online===true||r.online===1);
+  const offline=fresh&&(r.online===false||r.online===0);
+  const color=live?'#3989e6':offline?'#ef6464':'#8493a5';
+  const ux=Math.cos(a),uy=Math.sin(a);
+  const start=[ux*79,uy*79],end=[ux*(rad-56),uy*(rad-56)];
+  let line;
+  if(unobstructed(start,end,i)){
+   line=el('line',{x1:cx+start[0],y1:cy+start[1],x2:cx+end[0],y2:cy+end[1],stroke:color,'stroke-width':3});
+  }else{
+   // Find a free radial corridor through *all* rings. The external arc
+   // stays beyond every peer, then approaches the target from outside.
+   let corridor=null,best=-Infinity;
+   for(let k=0;k<1440;k++){
+    const theta=2*Math.PI*k/1440;
+    const vx=Math.cos(theta),vy=Math.sin(theta);
+    const margin=Math.min(...positions.map(p=>pointSegmentDistance(p.radius*Math.cos(p.angle),p.radius*Math.sin(p.angle),vx*79,vy*79,vx*routingRadius,vy*routingRadius)));
+    if(margin>best){best=margin;corridor=theta}
+   }
+   const vx=Math.cos(corridor),vy=Math.sin(corridor);
+   // A full outer-ring detour is possible only if a free radial lane exists.
+   // Ring capacities leave open gaps; enforce the safety test here.
+   if(best<=clearance)console.warn('Peers: no unobstructed radial corridor',best);
+   const sweep=((a-corridor+2*Math.PI)%(2*Math.PI))<=Math.PI?1:0;
+   const d=`M ${cx+vx*79} ${cy+vy*79} L ${cx+vx*routingRadius} ${cy+vy*routingRadius} A ${routingRadius} ${routingRadius} 0 ${sweep?0:1} ${sweep} ${cx+ux*routingRadius} ${cy+uy*routingRadius} L ${cx+ux*(rad+56)} ${cy+uy*(rad+56)}`;
+   line=el('path',{d,fill:'none',stroke:color,'stroke-width':3});
+  }
+  // A missing outbound property is not proof of inbound direction.
+  const outbound=r.outbound===true||r.outbound===1||((r.kind==='rbn'||String(r.sort||'').toUpperCase()==='N')&&live);
+  const inbound=!outbound&&(r.outbound===false||r.outbound===0);
+  if(live&&outbound)line.setAttribute('marker-end','url(#neigh-blue)');
+  // Inbound arrow only when the supervisor explicitly reports it.
+  if(live&&inbound)line.setAttribute('marker-start','url(#neigh-blue)');
+  scene.insertBefore(line,center);
+  const group=el('g',{tabindex:0,role:'button','aria-label':String(r.call)});
+  group.append(el('circle',{cx:x,cy:y,r:52,fill:'#172e46',stroke:color,'stroke-width':3}));
+  group.append(el('text',{x,y:y+5,'text-anchor':'middle',fill:'#f2f6ff','font-size':14,'font-weight':700},r.call));
+  const info=()=>{const values=[['Node',r.call],['Type',neighboursType(r)],['State',live?'Connected':offline?'Disconnected':'Unknown'],['Direction',live&&outbound?'Outbound':live&&inbound?'Inbound':'Unknown'],['Login',r.peer_login],['Version',r.dxspider_version],['Build',r.build],['PC9x',r.do_pc9x],['PC9x negotiated',r.do_pc9x],['PC91',r.do_pc91],['Last connection',r.last_connect?new Date(Number(r.last_connect)*1000).toLocaleString():null],['Registered (local DXUser)',r.registered],['Password (local DXUser)',r.password_configured]];detail.replaceChildren();for(const [key,val] of values){const div=document.createElement('div');div.className='neighField';const k=document.createElement('span'),v=document.createElement('strong');k.textContent=key;v.textContent=val===true||val===1?'Yes':val===false||val===0?'No':val??'Unknown';if(key==='Login'&&val&&live&&!(r.kind==='rbn'||String(r.sort||'').toUpperCase()==='N')){const expected=outbound?self:String(r.call).toUpperCase();if(expected&&String(val).toUpperCase()!==expected){v.style.color='#ef6464';v.title=outbound?'Outgoing login differs from our local node callsign':'Incoming login differs from remote node callsign';}}div.append(k,v);detail.append(div)}};
+  group.addEventListener('click',info);group.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();info()}});group.addEventListener('mouseenter',info);scene.append(group);
+ });
+}
+function neighboursZoomSet(delta){neighboursZoom=Math.max(.5,Math.min(2.5,Math.round((neighboursZoom+delta)*10)/10));document.getElementById('neighboursZoomValue').textContent=Math.round(neighboursZoom*100)+'%';neighboursRender()}
+document.getElementById('neighboursMinus')?.addEventListener('click',()=>neighboursZoomSet(-.1));
+document.getElementById('neighboursPlus')?.addEventListener('click',()=>neighboursZoomSet(.1));
+document.getElementById('neighboursReset')?.addEventListener('click',()=>{neighboursZoom=1;neighboursZoomSet(0)});
+
+function neighboursType(r){const sort=String(r.sort||'').toUpperCase();const map={S:'Spider',A:'AK1A',C:'CLX',R:'AR Cluster',L:'CC Cluster',X:'DXNet',N:'RBN',B:'BBS'};return map[sort]||({rbn:'RBN',node:'Node',peer:'Node'}[r.kind]||'Unknown')}
+
+
+// Human interaction only: never refresh session activity from polling or WebSockets.
+let operatorActivitySentAt = 0;
+function reportOperatorActivity(event) {
+ if (!event.isTrusted || !authenticated || !ws || ws.readyState !== WebSocket.OPEN) return;
+ const now = Date.now();
+ if (now - operatorActivitySentAt < 10000) return;
+ operatorActivitySentAt = now;
+ ws.send(JSON.stringify({type:'operator_activity'}));
+}
+for (const name of ['pointerdown','keydown','wheel','touchstart'])
+ document.addEventListener(name, reportOperatorActivity, {passive:true, capture:true});

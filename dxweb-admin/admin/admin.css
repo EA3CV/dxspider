@@ -1,0 +1,1898 @@
+/*
+ * DXSpider Web Supervision
+ *
+ * Styles for the DXSpider web supervision and administration interface.
+ *
+ * Copyright (c) 2026 Dirk Koopman G1TLH
+ */
+/* DXSpider Web 2.7.0 - 2026-09-16 */
+
+:root{font-family:Arial,Helvetica,sans-serif;color:#172033;background:#eef3f8}
+*{box-sizing:border-box}html,body{height:100%;overflow:hidden}body{margin:0;background:#eef3f8;color:#172033;display:flex;flex-direction:column}
+button,input,select{font:inherit}.topbar{height:72px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 20px;background:#fff;border-bottom:1px solid #cbd6e2}
+.brand,.nodeCall{font-size:28px;font-weight:700;color:#155aa8}.nodeCall{text-align:center}.topActions{justify-self:end;display:flex;gap:12px;align-items:center}
+button{border:1px solid #9eb3c9;background:#fff;color:#174f8a;border-radius:6px;padding:7px 12px;cursor:pointer}button:hover{background:#edf5fd}
+.tabs{display:flex;gap:5px;padding:10px 14px;background:#dfeaf5;border-bottom:1px solid #c3d1df;flex-wrap:wrap}.tabs button.active{background:#155aa8;color:#fff;border-color:#155aa8}
+.workspace{flex:1;min-height:0;padding:12px;overflow:hidden}.panel{display:none;height:100%;background:#fff;border:1px solid #cbd6e2;border-radius:8px;padding:12px;overflow:hidden}.panel.active{display:flex;flex-direction:column}
+.panelHead{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px}.panelHead h2{margin:0;color:#155aa8}.panelHead>div{display:flex;align-items:center;gap:7px}.counter{min-width:32px;text-align:right;color:#617386}
+.toolbar{display:flex;gap:16px;margin-bottom:8px}.resultArea{flex:1;min-height:0;overflow-y:auto;overflow-x:auto;background:#f8fbfe;border:1px solid #d5e0ea;border-radius:6px;padding:8px;color:#172033}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid #e0e7ee;white-space:nowrap}th{position:sticky;top:0;background:#eaf2fa;color:#174f8a}
+pre{margin:0;font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap}.bottomAction{display:flex;justify-content:flex-end;padding-top:8px}
+.commandBar{display:flex;gap:8px;padding-top:8px}.commandBar input{flex:1}
+input,select{border:1px solid #aebfd0;background:#fff;color:#172033;border-radius:5px;padding:7px 8px}
+dialog{border:0;border-radius:10px;padding:0;box-shadow:0 18px 60px #0005}dialog::backdrop{background:#27415f66}.dialogCard{min-width:330px;max-width:620px;background:#fff;color:#172033;padding:20px}.dialogCard.wide{width:min(620px,90vw)}.dialogCard h2{margin-top:0;color:#155aa8}.dialogCard label{display:block;margin:10px 0;font-weight:600}.dialogCard label input,.dialogCard label select{display:block;margin-top:5px;width:100%;font-weight:400}.compactFields{display:flex;gap:14px}.compactFields label{flex:0 0 auto}.compactFields input{width:150px!important}.dialogActions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.error{color:#a40000;min-height:1.2em}.result{min-height:1.2em;white-space:pre-wrap;margin-top:8px}
+footer{flex:0 0 auto;min-height:30px;padding:7px 14px;color:#647587;background:#fff;border-top:1px solid #cbd6e2;display:flex;justify-content:space-between;align-items:center}
+@media(max-width:700px){.brand,.nodeCall{font-size:21px}.topbar{padding:0 10px}.compactFields{flex-direction:column}.compactFields input{width:100%!important}}
+
+.bottomCommand{display:flex;gap:8px;align-items:end;padding-top:8px;flex:0 0 auto}.bottomCommand label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600}.bottomCommand .grow{flex:1}.bottomCommand .grow input{width:100%}.inlineResult{align-self:center;max-width:35%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#617386}footer .copyright{font-size:12px;color:#647587}
+
+.brandCopyright{font-size:12px;font-weight:400;color:#647587;vertical-align:middle;margin-left:6px;white-space:nowrap}
+.noticeText{line-height:1.45;max-width:460px}
+
+.brand{font-size:30px;font-weight:800;line-height:1}
+.brandCopyright{font-size:9px;font-weight:400;color:#647587;vertical-align:middle;margin-left:5px;white-space:nowrap}
+.consoleOutput{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.consoleCommandLine{font-weight:700;white-space:pre-wrap;margin:0 0 2px 0}
+.consoleResponse{font-weight:400;white-space:pre-wrap;margin:0 0 4px 0}
+
+.brand{font-size:34px;font-weight:800;line-height:1;display:flex;align-items:flex-end;gap:7px}
+.brandCopyright{font-size:11px;font-weight:400;line-height:1.05;color:#647587;margin:0 0 2px 0;white-space:nowrap}
+
+/* v2.3.8 final header sizing/alignment */
+.brand{font-size:36px;font-weight:800;line-height:1;display:flex;align-items:flex-end;gap:8px}
+.brandCopyright{font-size:12px;font-weight:400;line-height:1;color:#647587;margin:0 0 2px 0;white-space:nowrap}
+
+/* v2.4.3: Console is untouched. Other response panes use its typography/size. */
+.feedlog,.commandOutput,#spotRows{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:inherit;
+  line-height:normal;
+}
+#spotRows td{font:inherit}
+
+/* Spots: stable column geometry for C, R, or combined view. */
+.spotTable{table-layout:fixed;min-width:1080px}
+.spotTable .spotColSource{width:3.2%}
+.spotTable .spotColUtc{width:4.8%}
+.spotTable .spotColFreq{width:7%}
+.spotTable .spotColDx{width:8%}
+.spotTable .spotColSpotter{width:9%}
+.spotTable .spotColComment{width:38%}
+.spotTable .spotColLocDx,.spotTable .spotColLocSpott{width:4.6%}
+.spotTable .spotColCqDx,.spotTable .spotColCqSpott{width:3%}
+.spotTable .spotColItuDx,.spotTable .spotColItuSpott{width:3%}
+.spotTable th,.spotTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.spotTable thead .spotHeadGroup th{text-align:center;vertical-align:middle}
+.spotTable thead .spotHeadGroup th[rowspan]{text-align:left}
+.spotTable thead .spotHeadSub th{text-align:center;font-size:12px;padding-top:3px;padding-bottom:4px;top:27px}
+.spotTable thead .spotHeadGroup th{top:0}
+/* Numeric frequency aligns right; paired DX/Spotter metadata stays compact and centered. */
+.spotTable th:nth-child(3),.spotTable td:nth-child(3){text-align:right}
+.spotTable thead .spotHeadGroup th:nth-child(3){text-align:right}
+.spotTable td:nth-child(n+7):nth-child(-n+12){text-align:center;padding-left:4px;padding-right:4px}
+.spotTable thead .spotHeadSub th{padding-left:4px;padding-right:4px}
+.spotTable thead .spotHeadGroup th[colspan="2"]{padding-left:4px;padding-right:4px}
+
+/* Registration is intentionally compact; the spot dialog keeps the normal wide card. */
+.dialogCard.registerCard{width:min(360px,90vw);min-width:0;max-width:360px}
+
+/* Restricted actions: keep the hint beside the action and inside the visible panel. */
+.restrictedControl{display:inline-block;position:relative}
+.restrictedControl.restricted button,.restrictedArea.restricted form{opacity:.38;filter:grayscale(.75)}
+.restrictedControl.restricted,.restrictedArea.restricted{cursor:not-allowed;position:relative}
+.restrictedControl.restricted::after,.restrictedArea.restricted::after{
+  content:attr(data-restricted-tip);position:absolute;z-index:1000;width:300px;max-width:min(300px,70vw);
+  padding:7px 9px;border-radius:5px;background:#26384b;color:#fff;font-size:12px;line-height:1.3;
+  white-space:normal;opacity:0;pointer-events:none;transition:opacity .12s;box-shadow:0 4px 14px #0003
+}
+/* Send Spot lives in the panel header: show the hint below/right so panel clipping cannot hide it. */
+.restrictedControl.restricted::after{right:0;top:calc(100% + 6px)}
+/* Send Ann lives at the bottom: show the hint immediately above the Send end of the form. */
+.restrictedArea.restricted::after{right:0;bottom:44px}
+.restrictedControl.restricted:hover::after,.restrictedArea.restricted:hover::after{opacity:1}
+.restrictedArea.restricted form{pointer-events:none}
+#registerComment{display:block;margin-top:5px;width:100%;resize:vertical;font:inherit;border:1px solid #aebfd0;border-radius:5px;padding:7px 8px;color:#172033;background:#fff}
+
+
+/* 2.6.0 UI fix12: keep the real table geometry from fix9.
+   Move only the Freq content left by twice the current Freq/DX visual gap,
+   using cell padding (not transform/relative positioning). */
+.spotTable th:nth-child(3),
+.spotTable td:nth-child(3){padding-right:32px}
+
+
+/* 2.6.0 UI fix13: Register help and clean sticky spot-header edge. */
+.registerHelp{display:inline-block;position:relative}
+.registerHelp::after{
+  content:attr(data-register-tip);position:absolute;z-index:1200;right:0;top:calc(100% + 6px);
+  width:320px;max-width:min(320px,75vw);padding:7px 9px;border-radius:5px;
+  background:#26384b;color:#fff;font-size:12px;line-height:1.3;white-space:normal;
+  opacity:0;pointer-events:none;transition:opacity .12s;box-shadow:0 4px 14px #0003
+}
+.registerHelp:hover::after{opacity:1}
+/* The generic resultArea top padding left a scrollable strip above the sticky
+   two-row spot header. Remove only that top inset; other result panes are untouched. */
+.spotResultArea{padding-top:0}
+
+/* 2.6.0 UI final alignment: C/R source and feed selectors beside Spots. */
+.spotTitleLine{display:flex;align-items:center;gap:22px;min-width:0}
+.spotTitleLine h2{margin:0}
+.spotFeedChecks{display:flex;align-items:center;gap:14px;font-weight:600;font-size:14px}
+.spotFeedChecks label{display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap}
+.spotTable thead .spotHeadGroup th:first-child,
+.spotTable tbody td:first-child{text-align:center;padding-left:0;padding-right:0}
+
+/* DXSpider Web Administration 0.2.0 - 2026-09-16 */
+.nodeIdentity{display:flex;align-items:baseline;gap:12px;font-weight:700}.adminLabel{font-size:14px;font-weight:600;opacity:.82}.mainTabs{justify-content:flex-start}.subtabs{display:flex;gap:8px;padding:8px 16px;background:#eef4f8;border-bottom:1px solid #c7d5df}.subtabs button{border:1px solid #9eb2c0;background:#fff;color:#183746;border-radius:5px;padding:6px 13px;cursor:pointer}.subtabs button.active{background:#2f718d;color:#fff;border-color:#2f718d}.section{display:none;height:100%}.section.active{display:block}.section>.panel,.section>.regPanel{height:calc(100% - 49px)}.panel{display:none}.panel.active{display:flex}.regPanel{display:none;flex-direction:column}.regPanel.active{display:flex}.emptyState{margin:18px;padding:22px;border:1px dashed #b8c8d2;border-radius:6px;background:#f8fbfe;color:#617581}.searchBar{display:flex;gap:8px;padding:16px}.searchBar input{min-width:280px}.loginHint{font-size:13px;color:#5c6d76;margin-top:-4px}.locked #workspace,.locked .mainTabs{filter:blur(2px);opacity:.28;pointer-events:none;user-select:none}.locked #loginButton{display:none}.spotTable th:first-child,.spotTable td:first-child{text-align:center}.spotTable thead .spotHeadGroup th:first-child{text-align:center}
+
+/* Administration 0.2.0 */
+.nodeIdentity #nodeCall{font-size:24px}.adminLabel{font-size:22px;font-weight:700;color:#155aa8;opacity:1}
+body.authenticated #loginButton{background:#dff2e3;border-color:#6fa77b;color:#195b2b;font-weight:700}
+#quickConsole{margin-left:12px}.regTableWrap{flex:1;min-height:0;overflow:auto;border:1px solid #d5e0ea;border-radius:6px;background:#f8fbfe}.regTable{min-width:980px}.regTable th{z-index:2}.regTable td{vertical-align:top}.regActions{display:flex;gap:5px}.regActions button{padding:4px 7px}.status-ACCEPTED{color:#1c6b31;font-weight:700}.status-REJECTED{color:#9b2626;font-weight:700}.status-REMOVED{color:#7b5b19;font-weight:700}#regActionNote{display:block;width:100%;margin-top:5px;resize:vertical;border:1px solid #aebfd0;border-radius:5px;padding:7px 8px;font:inherit}#regReject{border-color:#b86d6d;color:#8b2020}#regAccept{border-color:#6fa77b;color:#195b2b}
+
+
+/* Administration 0.6.0: Login remains reachable after Escape; stronger identity. */
+.locked #loginButton{display:inline-block}
+.nodeIdentity #nodeCall{font-size:30px;font-weight:800}
+.nodeIdentity .adminLabel{font-size:28px;font-weight:800}
+
+/* 0.6.1 permanent Admin Login/Logout control */
+#loginButton{display:inline-flex;align-items:center;justify-content:center}
+
+/* Administration 0.6.2: destructive action + readable Registration history. */
+.dangerButton{border-color:#b86d6d!important;color:#8b2020!important;font-weight:700}
+#registrationTabs #deleteUserOpen{margin-left:auto}
+
+/* Do not crowd History.  The wrapper already scrolls horizontally, so keep
+   comfortable columns and reserve a genuinely wide final Note column. */
+.historyTable{table-layout:fixed;min-width:1560px}
+.historyTable th,.historyTable td{padding-left:12px;padding-right:12px}
+.historyTable col.regId{width:70px}
+.historyTable col.regCall{width:125px}
+.historyTable col.regSsids{width:105px}
+.historyTable col.regStatus{width:110px}
+.historyTable col.regName{width:140px}
+.historyTable col.regEmail{width:220px}
+.historyTable col.regWhen{width:170px}
+.historyTable col.regBy{width:120px}
+.historyTable col.regNote{width:330px}
+.historyTable td:last-child,.historyTable th:last-child{white-space:normal;overflow-wrap:anywhere}
+.commandSeparator{display:block;min-height:1.15em;height:1.15em}
+.status-DELETED{color:#8b2020;font-weight:700}
+
+
+/* Administration 0.8.3: Delete DXUser dialog layout. */
+#deleteUserDialog .dialogCard{width:min(620px,calc(100vw - 32px))}
+#deleteUserDialog label{display:block;margin-top:12px}
+#deleteUserCall{display:block;width:180px;max-width:100%;margin-top:5px}
+#deleteUserNote{display:block;box-sizing:border-box;width:100%;min-height:78px;margin-top:5px;resize:vertical}
+#deleteUserDialog .dialogActions{margin-top:18px}
+/* DXSpider supervision v0.1 */
+.supervisionGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:14px 0}.supervisionGrid>div{min-width:0}.supervisionGrid pre{min-height:120px;white-space:pre-wrap}.supervisionGrid h3,#supervision>div>h3{margin:12px 0 6px}
+
+
+/* DXSpider supervision v0.2: internal dashboard navigation */
+#supervision{overflow:hidden}.supervisionTabs{align-items:center;flex-wrap:wrap}.supervisionTabs .supervisionRefresh{margin-left:auto}.supervisionBanner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 16px;background:#f7fafc;border-bottom:1px solid #d5e0ea;font-size:13px}.supervisionBanner strong{font-size:16px}.healthPill{display:inline-block;border:1px solid #aebdca;border-radius:999px;padding:2px 8px;font-weight:700}.healthPill.ok{background:#e4f4e8;border-color:#7db68a;color:#1c642e}.healthPill.bad{background:#fbe7e7;border-color:#c98c8c;color:#8b2020}.healthPill.unknown{background:#eef1f4;color:#5e6b74}.supervisionState{margin:8px 16px}.superPanel{display:none;height:calc(100% - 118px);min-height:0;padding:0 16px 16px;overflow:auto}.superPanel.active{display:block}.supervisionGrid{grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin-top:8px}.superCard{border:1px solid #d5e0ea;border-radius:7px;background:#fbfdff;padding:10px}.superCard h3{margin:0 0 7px}.superCard .commandOutput{margin:0;min-height:120px}.supervisionOutput{min-height:260px;white-space:pre-wrap}.supervisionTableWrap{height:calc(100% - 55px);overflow:auto}.panelHint{font-size:12px;color:#647681;margin-left:auto}
+
+
+/* DXSpider supervision v0.3: operational dashboard */
+#supervision{background:#f3f7fa}
+.supervisionState{color:#5b6c78;font-size:12px}
+.bannerMeta{margin-left:auto;color:#647681}
+.kpiGrid{display:grid;grid-template-columns:repeat(6,minmax(145px,1fr));gap:10px;margin:10px 0 14px}
+.kpiCard{background:#fff;border:1px solid #ccd9e2;border-radius:8px;padding:12px 14px;min-width:0;box-shadow:0 1px 2px #17384b0a}
+.kpiCard .kpiLabel{display:block;text-transform:uppercase;letter-spacing:.04em;color:#667b89;font-size:11px;font-weight:700;margin-bottom:6px}
+.kpiCard strong{display:block;font-size:22px;line-height:1.1;color:#123e57;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpiCard small{display:block;margin-top:6px;color:#607481;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.supervisionGrid{grid-template-columns:repeat(2,minmax(340px,1fr));gap:12px}
+.overviewGrid{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);align-items:start}
+.overviewRightColumn{display:grid;grid-template-columns:1fr;gap:12px;min-width:0}
+.superCard{background:#fff;padding:14px 16px;box-shadow:0 1px 2px #17384b0a}
+.cardTitle{display:flex;align-items:center;gap:8px;border-bottom:1px solid #e4ebf0;padding-bottom:8px;margin-bottom:4px}.cardTitle h3{margin:0}.cardHint{margin-left:auto;color:#748793;font-size:11px}
+.healthDot{width:9px;height:9px;border-radius:50%;display:inline-block}.healthDot.ok{background:#2c9a52}.healthDot.bad{background:#c94b4b}
+.metricList{margin:0}.metricRow{display:grid;grid-template-columns:minmax(130px,1fr) minmax(90px,1fr);gap:16px;padding:7px 0;border-bottom:1px solid #edf2f5}.metricRow:last-child{border-bottom:0}.metricRow dt{color:#657986}.metricRow dd{margin:0;text-align:right;font-weight:650;color:#183746;font-variant-numeric:tabular-nums}.metricListWide{max-width:760px}
+.compactTable{display:flex;flex-direction:column}.compactRow{display:grid;grid-template-columns:90px minmax(90px,1fr) minmax(110px,1fr) auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #edf2f5}.compactRow:last-child{border-bottom:0}
+.stateBadge{display:inline-block;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:750;border:1px solid #bac8d1;background:#eef3f6;color:#536875}.stateBadge.ok{background:#e4f4e8;border-color:#7db68a;color:#1c642e}.stateBadge.bad{background:#fbe7e7;border-color:#c98c8c;color:#8b2020}
+.panelSub{font-size:12px;color:#6b7f8b;margin-top:2px}.filterBar{display:flex;align-items:center;gap:6px;margin-left:auto}.filterBar button{padding:5px 9px}.filterBar button.active{background:#2f718d;color:#fff;border-color:#2f718d}.filterBar input{width:180px;padding:6px 8px;margin-left:5px;border:1px solid #aebfd0;border-radius:5px}
+.superTable{width:100%;border-collapse:collapse;background:#fff}.superTable th{position:sticky;top:0;background:#eaf2f7;color:#07598e;text-align:left;padding:8px 10px;border-bottom:1px solid #ccd9e2}.superTable td{padding:8px 10px;border-bottom:1px solid #e1e8ed;font-variant-numeric:tabular-nums}.superTable tbody tr:hover{background:#f5f9fc}.callCell{font-weight:750;color:#183f57}.warnText{color:#9a6412;font-weight:750}.badText{color:#9b2626;font-weight:750}.emptyCell{padding:22px!important;color:#6a7e89;text-align:center}
+.rbnCards{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:12px}.rbnCard{background:#fff;border:1px solid #ccd9e2;border-radius:8px;padding:12px 14px}.rbnHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.rbnHead strong{font-size:18px;color:#123e57}.rbnHead span{font-size:12px;color:#667b89}
+.miniTable{width:100%;border-collapse:collapse}.miniTable th,.miniTable td{padding:6px 8px;border-bottom:1px solid #e5edf2;text-align:right;font-variant-numeric:tabular-nums}.miniTable th:first-child,.miniTable td:first-child{text-align:left}.miniTable th{font-size:11px;text-transform:uppercase;color:#657986}
+.systemGrid{display:grid;grid-template-columns:repeat(3,minmax(260px,1fr));gap:12px}.diagnosticsGrid{display:grid;grid-template-columns:repeat(2,minmax(320px,1fr));gap:12px}.rawDetails{margin-top:12px;background:#fff;border:1px solid #ccd9e2;border-radius:7px;padding:10px 12px}.rawDetails summary{cursor:pointer;font-weight:700;color:#4c6574}.rawDetails pre{margin:10px 0 0;white-space:pre-wrap}
+.superNote{margin-top:12px;padding:10px 12px;border-left:3px solid #9bb8c8;background:#f8fbfd;color:#5f7481;font-size:12px}.wideCard{margin-top:12px;max-width:820px}
+@media(max-width:1100px){.kpiGrid{grid-template-columns:repeat(3,1fr)}.systemGrid{grid-template-columns:1fr 1fr}.supervisionGrid{grid-template-columns:1fr}.overviewGrid{grid-template-columns:1fr}}
+@media(max-width:720px){.kpiGrid,.systemGrid,.diagnosticsGrid{grid-template-columns:1fr}.filterBar{width:100%;flex-wrap:wrap;margin-left:0}.rbnCards{grid-template-columns:1fr}.compactRow{grid-template-columns:1fr 1fr}.bannerMeta{margin-left:0}}
+
+
+/* DXSpider supervision v0.4: complete information architecture, passive placeholders */
+.wideSuperTable{min-width:1450px}
+.legendLine{display:flex;flex-wrap:wrap;gap:18px;padding:8px 2px;color:#687c88;font-size:11px}
+.naValue{color:#8b9aa3!important;font-weight:500!important}
+.protocolCard{margin-top:12px}
+.protocolCard h4{margin:12px 0 6px;color:#294f64}
+.protocolGroup{margin-top:12px}
+.protocolTable{max-width:900px}
+.pc92Activity{max-width:760px}
+.pc92Neighbour{min-width:850px}
+.pc92Neighbour th{text-align:center}.pc92Neighbour th:first-child{text-align:left}
+.webSessionGrid{display:grid;grid-template-columns:minmax(260px,.65fr) minmax(700px,2fr);gap:12px;margin-top:12px}
+@media(max-width:1100px){.webSessionGrid{grid-template-columns:1fr}}
+
+/* v0.4.2: connection table contains connection/channel fields only. */
+#connections .wideSuperTable{min-width:1120px}
+
+/* Supervision v0.9: PC92 packet/byte detail and snapshot-derived rates. */
+.pc92Activity td:not(:first-child),.pc92CountCell{text-align:right;font-variant-numeric:tabular-nums}
+.pc92Activity td small,.pc92CountCell small{display:block;margin-top:2px;color:#6b8391;font-size:11px;font-weight:400;white-space:nowrap}
+.pc92Totals{margin-top:10px;max-width:900px}
+.pc92Totals th:not(:first-child),.pc92Totals td:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+
+
+/* DXSpider supervision v0.10: compact traffic layout and aligned value/unit columns. */
+.trafficTopGrid{display:grid;grid-template-columns:minmax(260px,1.15fr) minmax(230px,.9fr) minmax(210px,.8fr);gap:12px;margin:12px 0}
+.trafficPairGrid{display:grid;grid-template-columns:minmax(520px,1fr) minmax(520px,1fr);gap:12px;margin:12px 0}
+.neighbourCard{margin-top:12px}.neighbourGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.neighbourGrid .tableWrap{min-width:0}
+.compactMetrics .metricRow{grid-template-columns:minmax(110px,1fr) minmax(115px,.75fr);padding:5px 0;gap:10px}
+.vu{display:inline-grid;grid-template-columns:minmax(4.8em,auto) minmax(3.3em,auto);column-gap:.42em;align-items:baseline;white-space:nowrap;font-variant-numeric:tabular-nums}
+.vuValue{text-align:right}.vuUnit{text-align:left;color:#6b8391;font-size:.88em;font-weight:500}
+.unitCell{text-align:right}.unitCell .vu{min-width:8.6em}
+.pc92Activity{max-width:none}.pc92Activity td:not(:first-child){min-width:92px}.pc92Activity .vu{grid-template-columns:minmax(3.8em,auto) minmax(2.5em,auto)}
+.pc92Totals{margin-top:0;max-width:none}.pc92Totals td:not(:first-child){white-space:nowrap}.pc92Totals .vu{grid-template-columns:minmax(4.5em,auto) minmax(3.4em,auto)}
+.pc92Neighbour{min-width:620px;font-size:12px}.pc92Neighbour th,.pc92Neighbour td{padding:6px 7px}.pc92Neighbour .vu{grid-template-columns:minmax(3.5em,auto) minmax(2.4em,auto);column-gap:.28em}
+#nodes .wideSuperTable{min-width:1380px}
+@media(max-width:1250px){.trafficTopGrid{grid-template-columns:1fr 1fr}.trafficTopGrid>.superCard:first-child{grid-column:1/-1}.trafficPairGrid,.neighbourGrid{grid-template-columns:1fr}}
+@media(max-width:760px){.trafficTopGrid{grid-template-columns:1fr}.trafficTopGrid>.superCard:first-child{grid-column:auto}}
+
+
+/* DXSpider supervision topology v0.1.2: passive Route::Node graph. */
+.topologyLegend{display:flex;gap:14px;align-items:center;flex-wrap:wrap;color:#607681;font-size:11px}.topologyLegend span{display:flex;align-items:center;gap:5px}.topoDot{width:9px;height:9px;border-radius:50%;display:inline-block;background:#8598a3}.topoDot.self{background:#174f6b}.topoDot.direct{background:#2f718d}.topoDot.pc92{background:#68869a}.topoDot.legacy{background:#a8b4bb}.topologyKpis{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:12px;margin:12px 0}.topologyStage{position:relative;height:min(70vh,820px);min-height:520px;background:#fbfdfe;border:1px solid #ccd9e2;border-radius:8px;overflow:hidden}.topologyGraph{display:block;width:100%;height:100%}.topoEdge{stroke:#d1dce2;stroke-width:1;opacity:.7}.topoEdge.pc92{stroke:#9db2be}.topoEdge.direct{stroke:#4f829b;stroke-width:2;opacity:.9}.topoNode circle{stroke:#fff;stroke-width:1.5}.topoNode text{font-size:10px;fill:#536a77;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.topoNode.legacy circle{fill:#a8b4bb}.topoNode.pc92 circle{fill:#68869a}.topoNode.direct circle{fill:#2f718d}.topoNode.self circle{fill:#174f6b;stroke-width:3}.topoNode.direct text,.topoNode.self text{font-weight:750;fill:#173f55}.topologyEmpty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#718590}.topologyStage:hover .topoNode text{font-size:11px}@media(max-width:760px){.topologyKpis{grid-template-columns:1fr}.topologyStage{min-height:430px}}
+
+
+/* Topology explorer v0.2 - browser-only interaction, no extra DXSpider requests */
+.topologyTools{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0}.topologySearch{display:flex;gap:6px;min-width:260px}.topologySearch input{min-width:190px}.topologyButtons{display:flex;gap:6px;flex-wrap:wrap}.topologyButtons button{min-width:38px}.topologyButtons .topologyHop.active{background:#174f6b;color:#fff;border-color:#174f6b}.topologyWorkspace{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px;min-height:560px}.topologyWorkspace .topologyStage{height:min(72vh,840px);min-height:560px;cursor:grab;user-select:none}.topologyWorkspace .topologyStage.dragging{cursor:grabbing}.topologyHint{position:absolute;left:10px;bottom:8px;padding:4px 7px;border-radius:4px;background:rgba(255,255,255,.88);color:#718590;font-size:10px;pointer-events:none}.topologyInspector{border:1px solid #ccd9e2;border-radius:8px;background:#fff;min-width:0;overflow:auto;padding:14px}.topologyInspectorEmpty{color:#718590;padding:20px 4px}.topologyInspector h3{margin:0 0 4px;font-size:20px;color:#173f55}.topologyInspector .topoType{font-size:11px;color:#607681;margin-bottom:14px}.topologyInspector dl{display:grid;grid-template-columns:1fr auto;gap:7px 10px;margin:0 0 16px}.topologyInspector dt{color:#718590}.topologyInspector dd{margin:0;font-weight:650;text-align:right}.topologyInspector .topoRelations{border-top:1px solid #e0e8ed;padding-top:12px}.topologyInspector .topoRelations strong{display:block;margin-bottom:7px}.topologyInspector .topoRelationList{display:flex;flex-wrap:wrap;gap:5px}.topologyInspector .topoRelation{font-size:11px;padding:3px 6px;border:1px solid #d6e1e7;border-radius:4px;background:#f8fbfc;cursor:pointer}.topologyInspector .topoRelation:hover{border-color:#6f9caf;background:#eef6f9}.topoNode{cursor:pointer}.topoNode.selected circle{stroke:#f0a000;stroke-width:4}.topoNode.neighbour circle{stroke:#1f879f;stroke-width:3}.topoNode.dim{opacity:.14}.topoEdge.dim{opacity:.06}.topoEdge.selected{stroke:#1f879f;stroke-width:2.5;opacity:1}.topoNode text{pointer-events:none}.topologyGraph.labelsCompact .topoNode:not(.self):not(.direct):not(.selected):not(.neighbour) text{display:none}.topologyGraph.labelsSparse .topoNode:not(.self):not(.direct):not(.selected):not(.neighbour) text{opacity:.35}.topoNode.searchHit circle{stroke:#e08a00;stroke-width:5}.topologyNoMatch{color:#a44;font-size:11px;margin-top:8px}@media(max-width:980px){.topologyWorkspace{grid-template-columns:1fr}.topologyInspector{max-height:260px}.topologyWorkspace .topologyStage{min-height:500px}}
+
+/* Topology UI v0.3.0 */
+.topologyLegend{font-size:12px;font-weight:650}.topoDot{width:11px;height:11px;border:1px solid rgba(0,0,0,.12)}.topoDot.self{background:#173f55}.topoDot.direct{background:#008a8a}.topoDot.pc92{background:#7656a8}.topoDot.legacy{background:#c87528}
+.topologySummaryRow{display:grid;grid-template-columns:minmax(440px,640px) minmax(520px,1fr);gap:14px;align-items:center;margin:10px 0}.topologySummaryRow .topologyKpis{grid-template-columns:repeat(4,minmax(96px,1fr));gap:8px;margin:0}.topologySummaryRow .kpiCard{padding:9px 11px}.topologySummaryRow .topologyTools{margin:0;justify-content:flex-end;flex-wrap:nowrap}.topologySummaryRow .topologySearch{min-width:230px;flex:1}.topologySummaryRow .topologySearch input{min-width:150px;width:100%}
+.topoNode.legacy circle{fill:#c87528}.topoNode.pc92 circle{fill:#7656a8}.topoNode.direct circle{fill:#008a8a}.topoNode.self circle{fill:#173f55}.topoEdge.pc92{stroke:#8b75ad}.topoEdge.direct{stroke:#008a8a}.topologyInspectorTitle{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px}.topologyInspectorTitle h3{margin:0}.topologyInspector .topologyInspectorTitle .topoType{font-size:13px;color:#173f55;font-weight:750;margin:0;text-align:right;white-space:nowrap}.topologyInspector .topoRelation{font-size:13px;font-weight:650;padding:5px 8px}.topologyInspector .topoRelationList{gap:7px}
+@media(max-width:1250px){.topologySummaryRow{grid-template-columns:1fr}.topologySummaryRow .topologyTools{justify-content:space-between}.topologySummaryRow .topologyKpis{grid-template-columns:repeat(4,minmax(110px,1fr))}}@media(max-width:760px){.topologySummaryRow .topologyKpis{grid-template-columns:repeat(2,1fr)}.topologySummaryRow .topologyTools{flex-wrap:wrap}}
+
+/* Topology UI v0.4.0 */
+.topologySearch{min-width:0;flex:0 0 auto}
+.topologySearch input{width:20ch;min-width:0;max-width:20ch}
+#topologyOpenMap{font-weight:650}
+
+/* protocol traffic v0.16.0 */
+.protocolGlobalCard,.protocolPeerCard{margin-top:12px}.compactHead{margin-bottom:8px}.protocolGlobal{max-width:760px}.protocolGlobal tfoot th{border-top:1px solid var(--line,#334);font-weight:700}.protocolPeerCard .tableWrap{max-height:430px;overflow:auto}.protocolPeers thead{position:sticky;top:0;z-index:1}.protocolPeers td:nth-child(1),.protocolPeers td:nth-child(2){white-space:nowrap}
+
+
+/* Admin 0.19.0: traffic readability and single PC92 neighbour table. */
+.protocolGlobal{max-width:none;width:100%;table-layout:auto}
+.protocolGlobal th,.protocolGlobal td{white-space:nowrap}
+.protocolGlobal th:first-child,.protocolGlobal td:first-child{width:8%}
+.protocolGlobal th:nth-child(n+2),.protocolGlobal td:nth-child(n+2){text-align:right}
+.protocolGlobalCard .tableWrap{width:100%;overflow-x:auto}
+.neighbourCard .tableWrap{width:100%;overflow-x:auto}
+.pc92Neighbour{width:100%;max-width:none;min-width:760px}
+
+/* Connections v0.20.0 */
+.connectionKpis{margin:0 0 14px}.connectionAttention{margin:0 0 14px}.attentionRow{display:grid;grid-template-columns:minmax(110px,180px) max-content max-content;gap:14px;padding:8px 10px;border-top:1px solid var(--line,#dbe3ea);align-items:center}.attentionRow:first-child{border-top:0}.attentionRow span:last-child{white-space:nowrap;color:var(--muted,#64748b)}.connectionTable th,.connectionTable td{white-space:nowrap}
+
+/* 0.21.0 Peers */
+.peerSearch{max-width:220px}.peerTable th,.peerTable td{white-space:nowrap}.peerKpis{grid-template-columns:repeat(4,minmax(145px,1fr))}
+/* 0.23.0 consolidation */
+.connectionKpis{grid-template-columns:repeat(4,minmax(120px,180px));gap:8px;margin-bottom:8px}
+.connectionKpis .kpiCard{padding:8px 12px;min-height:58px}
+.connectionKpis .kpiCard strong{font-size:1.25rem}
+.connectionTable{font-size:.88rem;white-space:nowrap}
+.nodePeerTable{white-space:nowrap}
+#updateStatusBadge{margin-left:auto}
+/* 0.23.0 consolidation */
+.connectionKpis{grid-template-columns:repeat(4,minmax(120px,180px));gap:8px;margin-bottom:8px}
+.connectionKpis .kpiCard{padding:8px 12px;min-height:58px}.connectionKpis .kpiCard strong{font-size:1.25rem}
+.connectionTable,.nodePeerTable{font-size:.88rem;white-space:nowrap}#updateStatusBadge{margin-left:auto}
+
+/* 0.24.0 alignment and update-state polish */
+#updateStatusBadge.warn{background:#ffd6d6;border-color:#d92d20;color:#b42318;font-weight:850;box-shadow:0 0 0 2px rgba(217,45,32,.10)}
+.updateMismatchField.updateMismatch{color:#b42318!important;font-weight:800}
+.connectionTable th:nth-last-child(-n+2),.connectionTable td:nth-last-child(-n+2){text-align:right}
+.protocolGlobal th:nth-child(3),.protocolGlobal th:nth-child(5),.protocolPeers th:nth-child(4),.protocolPeers th:nth-child(6){text-align:right}
+.pc92Activity th:not(:first-child),.pc92Totals th:not(:first-child){text-align:right}
+.pc92Neighbour thead tr:first-child th:not(:first-child),.pc92Neighbour thead tr:nth-child(2) th{text-align:right}
+.nodePeerTable th:nth-child(12),.nodePeerTable th:nth-child(13){text-align:right}
+\n/* 0.25.0: unit-bearing numeric headers align with the numeric value, not the unit suffix. */
+.connectionTable th:nth-last-child(-n+2),
+.protocolGlobal th:nth-child(3),.protocolGlobal th:nth-child(5),
+.nodePeerTable th:nth-child(12),.nodePeerTable th:nth-child(13){padding-right:4.05em}
+/* Only fields proven stale by the mojo comparison are marked: branch and commit. */
+
+/* 0.26.0 exact header/value alignment. Do not change table/card widths. */
+.numHead{text-align:right!important}
+/* Value+unit cells use .vu. Byte headers end over the numeric value, not over KiB/MiB. */
+.vuHead{text-align:right!important}
+.bytesHead{padding-right:calc(3.3em + .42em + 8px)!important}
+.pc92ActivityHead{padding-right:calc(2.5em + .42em + 7px)!important}
+/* Headers whose label is meant to end at the unit edge. */
+.unitEndHead{text-align:right!important}
+/* Keep PC92 direct-neighbour geometry from the established full-width two-level table. */
+.pc92Neighbour{width:100%!important;max-width:none!important;min-width:760px!important}
+.pc92Neighbour .pc92GroupHead{text-align:center!important}
+.pc92Neighbour thead tr:nth-child(2) .unitEndHead{text-align:right!important}
+/* Override obsolete nth-child padding rules from 0.25. */
+.connectionTable th.bytesHead,.protocolGlobal th.bytesHead,.protocolPeers th.bytesHead,.nodePeerTable th.bytesHead{padding-right:calc(3.3em + .42em + 8px)!important}
+.updateBranchField.updateMismatch,.updateVersionField.updateMismatch,.updateBuildField.updateMismatch,.updateCommitField.updateMismatch{color:#b42318!important;font-weight:800}
+
+
+/* 0.27.0 exact table geometry from the supplied screenshots. */
+/* Direct-neighbour PC traffic: all numeric packet/byte data is right aligned. */
+.protocolPeers th:nth-child(n+3),.protocolPeers td:nth-child(n+3){text-align:right!important}
+/* PC92 totals: header labels and rendered value+unit cells share the same right edge. */
+.pc92Totals{table-layout:fixed!important;width:100%!important}
+.pc92Totals th:not(:first-child),.pc92Totals td:not(:first-child){text-align:right!important;padding-right:8px!important}
+.pc92Totals td:not(:first-child) .vu{justify-content:end}
+/* Restore PC92 direct-neighbour as two side-by-side tables. */
+.neighbourGrid{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;gap:12px!important}
+.neighbourGrid .tableWrap{min-width:0!important;overflow:hidden!important}
+.pc92Neighbour{width:100%!important;min-width:0!important;max-width:none!important;table-layout:fixed!important}
+.pc92Neighbour th:first-child,.pc92Neighbour td:first-child{width:78px;text-align:left!important}
+.pc92Neighbour .pc92GroupHead{text-align:center!important;padding-left:7px!important;padding-right:7px!important}
+.pc92Neighbour .pc92IoHead,.pc92Neighbour .pc92CountCell{text-align:right!important;padding-left:4px!important;padding-right:7px!important}
+.pc92Neighbour .pc92CountCell .vu{justify-content:end}
+@media(max-width:1250px){.neighbourGrid{grid-template-columns:1fr!important}.neighbourGrid .tableWrap{overflow:auto!important}.pc92Neighbour{min-width:620px!important}}
+
+/* 0.28.0 — exact column-edge alignment.
+ * Rule: a numeric header ends on the same vertical edge as the rendered
+ * number/unit below it. PC92 group labels stay centered over their IN/OUT pair.
+ */
+/* Direct-neighbour protocol table: numeric data and headers share right edge. */
+.protocolPeers th:nth-child(n+3),
+.protocolPeers td:nth-child(n+3){text-align:right!important}
+.protocolPeers td.unitCell .vu{display:grid;width:100%;justify-content:stretch}
+
+/* Nodes: all numeric columns align to the right; byte units reach that edge. */
+.nodePeerTable th:nth-child(n+10),
+.nodePeerTable td:nth-child(n+10){text-align:right!important}
+.nodePeerTable td.unitCell .vu{display:grid;width:100%;justify-content:stretch}
+.nodePeerTable th.bytesHead{padding-right:8px!important}
+
+/* PC92 totals: the unit itself ends at the column edge; header uses same edge. */
+.pc92Totals th:not(:first-child),
+.pc92Totals td:not(:first-child){text-align:right!important;padding-right:8px!important}
+.pc92Totals td:not(:first-child) .vu{display:grid;width:100%;justify-content:stretch}
+
+/* PC92 direct neighbour: IN/OUT end exactly at their unit edge.
+ * A/D/C/K remain centered by colspan=2 over the two equal IN/OUT columns. */
+.pc92Neighbour{table-layout:fixed!important}
+.pc92Neighbour th:first-child,.pc92Neighbour td:first-child{width:78px!important}
+.pc92Neighbour .pc92GroupHead{text-align:center!important;padding-left:4px!important;padding-right:4px!important}
+.pc92Neighbour .pc92IoHead,.pc92Neighbour .pc92CountCell{text-align:right!important;padding-left:4px!important;padding-right:7px!important}
+.pc92Neighbour .pc92CountCell .vu{display:grid;width:100%;justify-content:stretch}
+
+/* 0.35.0 Metrics */
+.metricsHead{align-items:flex-start;gap:18px}.metricsControls,.metricsMeta{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.segmented{display:flex;border:1px solid #98a2b3;border-radius:8px;overflow:hidden}.segmented button{border:0;border-right:1px solid #98a2b3;border-radius:0;padding:7px 10px}.segmented button:last-child{border-right:0}.segmented button.active{font-weight:800;background:rgba(100,120,180,.16)}#metricsPeer{min-width:150px;padding:7px}.metricsMeta{margin:8px 0 12px;font-size:.88rem}.metricsGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.metricChartCard{border:1px solid #d0d5dd;border-radius:10px;padding:10px 12px;min-width:0}.chartHead{display:flex;justify-content:space-between;align-items:baseline}.chartHead h3{margin:0;font-size:1rem}.chartHead span{font-size:.78rem;opacity:.65}.metricChart{min-height:250px}.metricChart svg{display:block;width:100%;height:220px}.chartGrid{stroke:currentColor;opacity:.10}.chartAxis{fill:currentColor;opacity:.58;font-size:10px}.chartSeries{fill:none;stroke:currentColor;stroke-width:2;vector-effect:non-scaling-stroke}.chartSeries.s2{opacity:.78;stroke-dasharray:7 3}.chartSeries.s3{opacity:.62;stroke-dasharray:2 2}.chartSeries.s4{opacity:.48;stroke-dasharray:10 3 2 3}.chartSeries.s5{opacity:.34;stroke-dasharray:1 4}.chartLegend{display:flex;gap:12px;flex-wrap:wrap;font-size:.76rem}.chartLegend span{display:inline-flex;align-items:center;gap:5px}.chartLegend i{width:15px;border-top:2px solid currentColor}.metricEmpty{min-height:220px;display:grid;place-items:center}@media(max-width:1050px){.metricsGrid{grid-template-columns:1fr}}
+
+/* 0.35.2 Users — uses existing Connections snapshot only */
+.userKpis{margin-bottom:12px}.userTable .callCell{font-weight:700}
+
+/* 0.36.0 Historical / Event Timeline */
+.timelineTable{table-layout:auto}.timelineTable th:first-child,.timelineTable td:first-child{white-space:nowrap}.timelineTable td{vertical-align:top}.timelineField{display:block;opacity:.62;margin-top:2px;font-size:.78rem}.timelineTime{font-variant-numeric:tabular-nums}
+
+/* 0.40.0 Historical local_data maintenance */
+.historyMaintenance{margin-top:12px}.maintenanceActions{display:flex;gap:8px;flex-wrap:wrap}.historyMaintenanceTable th:first-child,.historyMaintenanceTable td:first-child{text-align:center;width:72px}.historyMaintenanceTable code{font-size:.82rem}.historyPeriodCheck{width:18px;height:18px}.historyMaintenance .noticeText{margin:6px 0 10px}
+
+/* 0.40.1 Historical tree browser */
+.historyBreadcrumb{margin:7px 0 10px;padding:8px 10px;border-left:3px solid currentColor;font-weight:700}.historyNav{border:0;background:transparent;padding:0;text-decoration:underline;cursor:pointer;font:inherit;font-weight:700;color:inherit}.historyLeaf{font-weight:600}.historyMaintenanceTable td:nth-child(2){word-break:break-word}.historyMaintenanceTable td{vertical-align:middle}
+
+
+/* 0.41.0 — responsive hardening. Desktop geometry remains unchanged. */
+@media(max-width:760px){
+  html,body{max-width:100%;overflow-x:hidden}
+  .topbar{height:auto;min-height:64px;grid-template-columns:1fr auto;padding:8px 10px;gap:8px}
+  .topbar>*{min-width:0}.topbar>*:nth-child(3){grid-column:1/-1}
+  .tabs{flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;padding:8px 10px}
+  .tabs button{flex:0 0 auto;white-space:nowrap}
+  main,.content,.panel,.superCard,.metricChartCard{min-width:0;max-width:100%}
+  .tableWrap{width:100%;max-width:100%;overflow-x:auto!important;-webkit-overflow-scrolling:touch}
+  table{max-width:none}
+  .connectionTable,.userTable,.nodePeerTable,.protocolPeers,.timelineTable,.historyMaintenanceTable{min-width:760px}
+  .protocolGlobal{min-width:620px}.pc92Totals{min-width:680px}.pc92Neighbour{min-width:620px!important}
+  .metricsControls,.metricsMeta,.maintenanceActions,.topologyTools,.filterBar{align-items:stretch}
+  .metricsControls select,.metricsControls button,.maintenanceActions button,.filterBar input,.filterBar select{max-width:100%}
+  .segmented{max-width:100%;overflow-x:auto}.segmented button{flex:0 0 auto}
+  .metricChart{overflow-x:auto}.metricChart svg{min-width:520px}
+  .topologySearch{min-width:0;width:100%}.topologySearch input{min-width:0;flex:1}
+  .topologyWorkspace .topologyStage{min-height:420px}
+  .topologyInspector{max-height:none}
+  .historyBreadcrumb{overflow-wrap:anywhere}
+  .historyMaintenanceTable td:nth-child(2){min-width:180px}
+  .chartLegend{row-gap:6px}
+}
+@media(max-width:480px){
+  .kpiGrid,.topologySummaryRow .topologyKpis{grid-template-columns:1fr!important}
+  .compactRow{grid-template-columns:1fr!important}
+  .brand,.nodeCall{font-size:18px}
+  .metricChart svg{min-width:460px}
+}
+/* 0.50.0: official DXSpider reference mismatches in direct-node table. */
+.nodePeerTable td.updateMismatch{color:#b42318!important;font-weight:800}
+
+/* 0.60.0 — Metrics visual leap: composed interactive charts */
+.metricsV2 .metricsGridV2{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.metricsV2 .metricChartWide{grid-column:1/-1}
+.metricsV2 .metricChartCard{padding:14px 16px;border-radius:12px}
+.metricsV2 .metricChart{min-height:360px;position:relative;overflow:hidden}
+.metricsV2 .metricChart svg{height:300px;min-width:0;touch-action:none;user-select:none}
+.chartZero{stroke:currentColor;opacity:.42;stroke-width:1.4;vector-effect:non-scaling-stroke}
+.chartArea{opacity:.14;fill:currentColor;stroke:none}.chartArea.s2{opacity:.10}.chartArea.s3{opacity:.11}
+.chartHit{fill:transparent;cursor:crosshair}.chartCursor{stroke:currentColor;opacity:0;stroke-width:1;stroke-dasharray:3 3;pointer-events:none}.chartBrush{fill:currentColor;opacity:0;pointer-events:none}
+.metricTooltip{display:none;position:absolute;z-index:4;top:42px;transform:translateX(-50%);min-width:150px;max-width:260px;padding:8px 10px;border:1px solid #98a2b3;border-radius:8px;background:Canvas;color:CanvasText;box-shadow:0 4px 16px rgba(0,0,0,.16);font-size:.76rem;pointer-events:none}
+.metricTooltip strong{display:block;margin-bottom:4px}.metricTooltip span{display:flex;justify-content:space-between;gap:16px}.metricTooltip span b{display:inline;margin:0}
+.chartLegend.interactive{margin-top:2px}.legendItem{border:0;background:transparent;color:inherit;padding:4px 6px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;font:inherit}.legendItem.off{opacity:.35;text-decoration:line-through}.legendItem i{width:18px;border-top:3px solid currentColor}
+.metricStats{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:7px;margin-top:9px}.metricStat{display:grid;grid-template-columns:auto repeat(4,minmax(0,1fr));gap:8px;align-items:baseline;padding:7px 8px;border-top:1px solid rgba(127,127,127,.25);font-size:.72rem}.metricStat>b{font-size:.76rem}.metricStat span{display:flex;flex-direction:column;gap:2px;opacity:.72}.metricStat strong{font-size:.78rem;opacity:1;font-variant-numeric:tabular-nums}
+@media(max-width:1050px){.metricsV2 .metricsGridV2{grid-template-columns:1fr}.metricsV2 .metricChartWide{grid-column:auto}}
+@media(max-width:760px){.metricsV2 .metricChart{min-height:350px;overflow-x:auto}.metricsV2 .metricChart svg{min-width:700px!important}.metricStats{min-width:700px}.metricStat{grid-template-columns:90px repeat(4,minmax(90px,1fr))}.metricsV2 .metricsControls .segmented{order:1;width:100%}}
+/* 0.61.0 — operational metrics console */
+.metricsV2 .metricsGridV3{display:block!important}
+.metricsV2 .metricsGridV3 .metricChartCard{margin:0 0 22px;min-width:0;overflow:visible}
+.metricsV2 .metricsGridV3 .metricChart{min-height:390px;overflow-x:auto;overflow-y:visible}
+.metricsV2 .metricsGridV3 .metricChart svg{height:300px;min-width:760px}
+.chartSeries.s1{stroke:#2563eb}.chartArea.s1{fill:#2563eb}.chartSeries.s2{stroke:#dc2626}.chartArea.s2{fill:#dc2626}.chartSeries.s3{stroke:#7c3aed}.chartArea.s3{fill:#7c3aed}.chartSeries.s4{stroke:#9333ea}.chartArea.s4{fill:#9333ea}.chartSeries.s5{stroke:#ea580c}.chartArea.s5{fill:#ea580c}.chartSeries.s6{stroke:#0891b2}.chartArea.s6{fill:#0891b2}.chartSeries.s7{stroke:#be123c}.chartArea.s7{fill:#be123c}.chartSeries.s8{stroke:#4f46e5}.chartArea.s8{fill:#4f46e5}.chartSeries.s9{stroke:#c2410c}.chartArea.s9{fill:#c2410c}.chartSeries.s10{stroke:#a16207}.chartArea.s10{fill:#a16207}
+.legendItem i.s1{border-color:#2563eb}.legendItem i.s2{border-color:#dc2626}.legendItem i.s3{border-color:#16a34a}.legendItem i.s4{border-color:#9333ea}.legendItem i.s5{border-color:#ea580c}.legendItem i.s6{border-color:#0891b2}.legendItem i.s7{border-color:#be123c}.legendItem i.s8{border-color:#4f46e5}.legendItem i.s9{border-color:#65a30d}.legendItem i.s10{border-color:#a16207}
+.metricStats{min-width:760px}
+@media(max-width:760px){.metricsV2 .metricsGridV3 .metricChart{overflow-x:auto!important}.metricsV2 .metricsGridV3 .metricChart svg{min-width:760px!important}.metricStats{min-width:760px}}
+/* 0.68.0 — compact operational metrics dashboard */
+#metrics.section.active{overflow-y:auto!important;overflow-x:hidden!important;min-height:0}
+.metricsV2{overflow:visible!important}
+.metricsV2 .metricsHead{position:sticky;top:0;z-index:12;background:Canvas;padding-top:6px;padding-bottom:6px}
+.metricsV2 .metricsMeta{position:sticky;top:52px;z-index:11;background:Canvas;padding:4px 0 6px;margin-bottom:6px}
+.metricsV2 .metricsGridV3{display:block!important}
+.metricsV2 .metricsGridV3 .metricChartCard{margin:0 0 10px;padding:8px 12px;border-radius:9px;min-width:0;overflow:visible}
+.metricsV2 .chartHead{margin-bottom:2px;min-height:22px}.metricsV2 .chartHead h3{font-size:.93rem;margin:0}.metricsV2 .chartHead span{font-size:.68rem}
+.metricsV2 .metricsGridV3 .metricChart{min-height:0!important;overflow-x:auto!important;overflow-y:visible!important;position:relative}
+.metricsV2 .metricsGridV3 .metricChart svg{display:block;width:100%;height:180px;min-width:760px!important;touch-action:none;user-select:none}
+.metricsV2 .chartLegend.interactive{display:flex;flex-wrap:wrap;gap:1px 8px;margin:0;padding:1px 0;line-height:1}
+.metricsV2 .legendItem{padding:2px 3px;font-size:.68rem;gap:4px}.metricsV2 .legendItem i{width:12px;border-top-width:2px}
+.metricsV2 .metricStats{display:block;min-width:760px!important;max-height:68px;overflow-y:auto;margin-top:1px;border-top:1px solid rgba(127,127,127,.18)}
+.metricsV2 .metricStat{display:grid;grid-template-columns:minmax(88px,1.2fr) repeat(4,minmax(72px,1fr));gap:5px;padding:2px 5px;border-top:0;border-bottom:1px solid rgba(127,127,127,.12);font-size:.65rem;line-height:1.05}
+.metricsV2 .metricStat>b{font-size:.67rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.metricsV2 .metricStat span{display:flex;flex-direction:row;justify-content:flex-start;gap:4px;opacity:.82;white-space:nowrap}.metricsV2 .metricStat em{font-style:normal;opacity:.62}.metricsV2 .metricStat strong{font-size:.67rem}
+.metricsV2 .metricTooltip{top:28px;padding:5px 7px;font-size:.68rem;max-width:230px}
+.metricsV2 .chartTime{font-size:10px}.chartTick{stroke:currentColor;opacity:.28;stroke-width:1;vector-effect:non-scaling-stroke}
+@media(max-width:760px){.metricsV2 .metricsHead{position:static}.metricsV2 .metricsMeta{position:static}.metricsV2 .metricsGridV3 .metricChart svg{height:170px;min-width:760px!important}.metricsV2 .metricStats{min-width:760px!important}}
+/* v0.63 metric semantics: no under-chart value tables; tooltip stays clear of cursor. */
+.metricsV2 .metricStats{display:none!important}
+.metricsV2 .metricTooltip{transform:none!important;min-width:180px;max-width:280px}
+.metricTooltip .tipSeries{display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:6px}
+.metricTooltip .tipSeries i{width:8px;height:8px;border-radius:50%;background:currentColor}
+.metricTooltip .tipSeries em{font-style:normal;color:CanvasText}
+.metricTooltip .tipSeries.s1{color:#2563eb}.metricTooltip .tipSeries.s2{color:#dc2626}.metricTooltip .tipSeries.s3{color:#16a34a}.metricTooltip .tipSeries.s4{color:#9333ea}.metricTooltip .tipSeries.s5{color:#ea580c}.metricTooltip .tipSeries.s6{color:#0891b2}.metricTooltip .tipSeries.s7{color:#be123c}.metricTooltip .tipSeries.s8{color:#4f46e5}.metricTooltip .tipSeries.s9{color:#65a30d}.metricTooltip .tipSeries.s10{color:#a16207}
+.manualUpdates{margin-top:12px}.updateButtons{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.updateOutput{min-height:44px;max-height:180px}
+/* v0.63 metric semantics */
+.metricsV2 .metricStats{display:none!important}
+.metricsV2 .metricTooltip{transform:none!important;min-width:180px;max-width:280px}
+.metricTooltip .tipSeries{display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:6px}
+.metricTooltip .tipSeries i{width:8px;height:8px;border-radius:50%;background:currentColor}
+.metricTooltip .tipSeries em{font-style:normal;color:CanvasText}
+.metricTooltip .tipSeries.s1{color:#2563eb}.metricTooltip .tipSeries.s2{color:#dc2626}.metricTooltip .tipSeries.s3{color:#16a34a}.metricTooltip .tipSeries.s4{color:#9333ea}.metricTooltip .tipSeries.s5{color:#ea580c}.metricTooltip .tipSeries.s6{color:#0891b2}.metricTooltip .tipSeries.s7{color:#be123c}.metricTooltip .tipSeries.s8{color:#4f46e5}.metricTooltip .tipSeries.s9{color:#65a30d}.metricTooltip .tipSeries.s10{color:#a16207}
+.manualUpdates{margin-top:12px}.updateButtons{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.updateOutput{min-height:44px;max-height:180px}
+/* v0.68.0 — compact daylight metrics dashboard */
+#metrics.section.active{overflow-y:auto!important;overflow-x:hidden!important;background:#f7fafc}
+.metricsV2{background:#f7fafc!important;color:#172033}
+.metricsV2 .metricsHead,.metricsV2 .metricsMeta{background:#f7fafc!important}
+.metricsV2 .metricsGridV4{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:0 2px 10px}
+.metricsV2 .metricsGridV4 .metricChartCard{margin:0!important;padding:8px 12px;border:1px solid #d8e2ec;border-radius:9px;background:#fff;min-width:0;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.025)}
+.metricsV2 .metricLarge{grid-column:auto}.metricsV2 .metricCompact{grid-column:auto}.metricsV2 .metricResources{grid-column:1/-1}
+.metricsV2 .metricPeerCard{display:none}.metricsV2 .metricPeerCard.hasPeer{display:block}
+.metricsV2 .chartHead{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:8px;min-height:25px;margin:0 0 2px}.metricsV2 .chartHead h3{font-size:.9rem}.metricsV2 .chartHead span{font-size:.66rem;color:#64748b;white-space:nowrap}
+.metricsV2 .metricExpand{border:1px solid #cbd8e6;border-radius:6px;background:#f8fbfe;color:#29445f;padding:3px 8px;font-size:.68rem;cursor:pointer}.metricsV2 .metricExpand:hover{background:#eef6ff}
+.metricsV2 .metricsGridV4 .metricChart{min-height:0!important;overflow-x:auto!important;overflow-y:hidden!important;position:relative}
+.metricsV2 .metricsGridV4 .metricChart svg{display:block;width:100%;height:145px;min-width:560px!important;touch-action:none;user-select:none}
+.metricsV2 .metricCompact .metricChart svg{height:132px;min-width:420px!important}
+.metricsV2 .chartLegend.interactive{display:flex;flex-wrap:wrap;gap:0 8px;margin:0;padding:0;line-height:1.05;max-height:31px;overflow:auto}.metricsV2 .legendItem{padding:2px 2px;font-size:.64rem;gap:4px}.metricsV2 .legendItem i{width:11px;border-top-width:2px}
+.metricsV2 .metricTooltip{top:30px;background:#fff!important;color:#172033!important;border-color:#b8c7d8!important;box-shadow:0 5px 18px rgba(15,23,42,.14)}
+.metricsV2 .chartGrid{opacity:.12}.metricsV2 .chartAxis{fill:#64748b}.metricsV2 .chartZero{opacity:.55}
+.resourceGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.resourcePane{border:1px solid #e1e8f0;border-radius:7px;padding:5px 7px;min-width:0}.miniHead{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;font-size:.7rem}.miniHead span{color:#64748b}.resourcePane .metricChart svg{height:112px!important;min-width:280px!important}.resourcePane .chartLegend{max-height:20px!important}
+.metricModal{display:none;position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.28);padding:4vh 4vw}.metricModal.open{display:block}.metricModalBox{height:92vh;background:#fff;border:1px solid #cbd8e6;border-radius:10px;box-shadow:0 20px 60px rgba(15,23,42,.25);padding:12px;display:flex;flex-direction:column}.metricModalHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.metricModalHead button{border:1px solid #cbd8e6;background:#f8fbfe;border-radius:6px;padding:5px 10px}.metricModal #metricModalChart{flex:1;min-height:0;position:relative}.metricModal #metricModalChart svg{height:calc(92vh - 90px)!important;min-width:900px!important;width:100%}
+@media(max-width:1100px){.metricsV2 .metricsGridV4{grid-template-columns:1fr}.metricsV2 .metricResources{grid-column:auto}.resourceGrid{grid-template-columns:1fr}.resourcePane .metricChart svg{height:125px!important}.metricsV2 .metricsGridV4 .metricChart svg{min-width:700px!important}}
+@media(max-width:760px){.metricsV2 .chartHead{grid-template-columns:1fr auto}.metricsV2 .chartHead span{grid-row:2;grid-column:1/-1}.metricsV2 .metricsGridV4 .metricChart svg{height:145px;min-width:700px!important}.metricModal{padding:1vh 1vw}.metricModalBox{height:98vh}}
+
+/* v0.70.0 — one grid contract for all metric cards, including empty charts. */
+.metricsV2 .metricsGridV4>.metricChartCard{height:205px!important;box-sizing:border-box;display:flex;flex-direction:column}
+.metricsV2 .metricsGridV4>.metricChartCard .metricChart{height:164px!important;min-height:164px!important;max-height:164px!important;flex:0 0 164px}
+.metricsV2 .metricsGridV4>.metricChartCard .metricChart svg{height:145px!important}
+.metricsV2 .metricsGridV4 .metricEmpty{margin:0!important;padding:0!important;height:145px!important;min-height:145px!important;max-height:145px!important;box-sizing:border-box;border-color:#d7e1eb;background:#f8fbfe}
+.metricsV2 .metricsGridV4>.metricResources{height:auto!important;display:block}
+.metricsV2 .metricsGridV4>.metricResources .metricChart{height:auto!important;min-height:0!important;max-height:none!important;flex:auto}
+.metricsV2 .metricsGridV4>.metricPeerCard:not(.hasPeer){display:none!important}
+@media(max-width:1100px){.metricsV2 .metricsGridV4{grid-template-columns:1fr}}
+
+/* ========================================================================== */
+/* DXSpider Web Supervision — UI v2 preview                                  */
+/* Interface-only layer. Existing IDs, data paths and behaviour are retained. */
+/* ========================================================================== */
+:root{
+ --ui-bg:#08111d;--ui-surface:#0d1928;--ui-surface-2:#112238;--ui-surface-3:#162a43;
+ --ui-border:#203b59;--ui-text:#e7f0f8;--ui-muted:#8ea4b9;--ui-accent:#4aa3ff;
+ --ui-accent-soft:rgba(74,163,255,.14);--ui-shadow:0 12px 30px rgba(0,0,0,.20);
+ --ui-radius:12px;--ui-top:52px;
+ color-scheme:dark;
+}
+html[data-theme="light"]{
+ --ui-bg:#eef3f8;--ui-surface:#ffffff;--ui-surface-2:#f7f9fc;--ui-surface-3:#e9f0f7;
+ --ui-border:#cfdae6;--ui-text:#172536;--ui-muted:#60758b;--ui-accent:#1769c2;
+ --ui-accent-soft:rgba(23,105,194,.10);--ui-shadow:0 10px 28px rgba(31,52,73,.10);
+ color-scheme:light;
+}
+@media(prefers-color-scheme:light){html[data-theme="auto"]{
+ --ui-bg:#eef3f8;--ui-surface:#ffffff;--ui-surface-2:#f7f9fc;--ui-surface-3:#e9f0f7;
+ --ui-border:#cfdae6;--ui-text:#172536;--ui-muted:#60758b;--ui-accent:#1769c2;
+ --ui-accent-soft:rgba(23,105,194,.10);--ui-shadow:0 10px 28px rgba(31,52,73,.10);color-scheme:light;
+}}
+body{background:var(--ui-bg)!important;color:var(--ui-text)!important;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif!important;letter-spacing:.005em}
+.topbar{min-height:var(--ui-top);background:color-mix(in srgb,var(--ui-surface) 94%,transparent)!important;border-bottom:1px solid var(--ui-border)!important;box-shadow:0 1px 0 rgba(255,255,255,.02);backdrop-filter:blur(14px);padding:0 18px!important;position:sticky;top:0;z-index:50}
+.brand{display:flex;align-items:center;gap:9px;font-weight:750}.brandMark{display:inline-grid;place-items:center;width:29px;height:29px;border-radius:8px;background:var(--ui-accent);color:white;font-size:11px;letter-spacing:-.03em}.v2Badge{font-size:10px;text-transform:uppercase;letter-spacing:.08em;border:1px solid var(--ui-border);background:var(--ui-accent-soft);color:var(--ui-accent);padding:3px 6px;border-radius:999px}.brandCopyright{opacity:.5;font-weight:500}
+.nodeIdentity{gap:8px}.adminLabel{border-radius:999px!important;background:var(--ui-accent-soft)!important;color:var(--ui-accent)!important;border:1px solid color-mix(in srgb,var(--ui-accent) 35%,var(--ui-border))!important}
+.topActions{gap:8px}.topActions button,.themeToggle{border:1px solid var(--ui-border)!important;background:var(--ui-surface-2)!important;color:var(--ui-text)!important;border-radius:8px!important;padding:7px 11px!important}.topActions button:hover,.themeToggle:hover{border-color:var(--ui-accent)!important;background:var(--ui-accent-soft)!important}
+.tabs.mainTabs{position:sticky;top:var(--ui-top);z-index:40;background:var(--ui-surface)!important;border-bottom:1px solid var(--ui-border)!important;padding:7px 14px!important;gap:5px!important;box-shadow:0 6px 18px rgba(0,0,0,.08)}
+.tabs.mainTabs button,.subtabs button{border-radius:8px!important;border:1px solid transparent!important;color:var(--ui-muted)!important;background:transparent!important;font-weight:600!important}.tabs.mainTabs button:hover,.subtabs button:hover{color:var(--ui-text)!important;background:var(--ui-surface-2)!important}.tabs.mainTabs button.active,.subtabs button.active{color:var(--ui-accent)!important;background:var(--ui-accent-soft)!important;border-color:color-mix(in srgb,var(--ui-accent) 28%,transparent)!important}
+.workspace{max-width:1720px;margin:0 auto;padding:18px!important}.section{animation:uiFade .15s ease-out}@keyframes uiFade{from{opacity:.55;transform:translateY(2px)}to{opacity:1;transform:none}}
+.subtabs{background:var(--ui-surface)!important;border:1px solid var(--ui-border)!important;border-radius:11px!important;padding:5px!important;margin-bottom:14px!important;gap:3px!important;box-shadow:var(--ui-shadow)}
+.panel,.superCard,.kpiCard,.timelinePanel,.metricsPanel{background:var(--ui-surface)!important;border:1px solid var(--ui-border)!important;border-radius:var(--ui-radius)!important;box-shadow:var(--ui-shadow)}
+.panelHead{border-color:var(--ui-border)!important}.panelHead h2,.panelHead h3,.cardTitle h3{letter-spacing:-.02em}.panelSub,.cardHint,.noticeText,.superNote,.metricsMeta{color:var(--ui-muted)!important}
+.kpiGrid{gap:10px!important}.kpiCard{padding:14px 16px!important;min-height:94px;position:relative;overflow:hidden}.kpiCard:before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--ui-accent);opacity:.75}.kpiLabel{color:var(--ui-muted)!important;text-transform:uppercase;letter-spacing:.07em;font-size:10px!important}.kpiCard strong{font-size:24px!important;letter-spacing:-.035em}.kpiCard small{color:var(--ui-muted)!important}
+.supervisionBanner{background:var(--ui-surface)!important;border:1px solid var(--ui-border)!important;border-radius:10px!important;padding:9px 12px!important;margin-bottom:10px!important;box-shadow:var(--ui-shadow)}
+.healthPill,.stateBadge{border-radius:999px!important}.supervisionGrid,.systemGrid,.metricsGrid{gap:12px!important}
+.superCard{overflow:hidden}.cardTitle{border-color:var(--ui-border)!important}
+.tableWrap,.regTableWrap,.resultArea{border-radius:10px!important;border-color:var(--ui-border)!important;background:var(--ui-surface)!important}.superTable,.regTable,.spotTable{background:var(--ui-surface)!important;color:var(--ui-text)!important}.superTable thead th,.regTable thead th,.spotTable thead th{position:sticky;top:0;background:var(--ui-surface-2)!important;color:var(--ui-muted)!important;border-color:var(--ui-border)!important;text-transform:uppercase;letter-spacing:.045em;font-size:10px!important;z-index:2}.superTable td,.regTable td,.spotTable td{border-color:color-mix(in srgb,var(--ui-border) 70%,transparent)!important}.superTable tbody tr:hover,.regTable tbody tr:hover,.spotTable tbody tr:hover{background:var(--ui-accent-soft)!important}
+input,select,textarea{background:var(--ui-surface-2)!important;color:var(--ui-text)!important;border:1px solid var(--ui-border)!important;border-radius:8px!important}button{transition:background .12s,border-color .12s,color .12s,transform .12s}button:active{transform:translateY(1px)}
+.metricsControls,.segmented{background:var(--ui-surface-2)!important;border-color:var(--ui-border)!important;border-radius:9px!important}.metricsGridV4>*,.chartCard{background:var(--ui-surface)!important;border-color:var(--ui-border)!important;border-radius:11px!important}.metricList dt{color:var(--ui-muted)!important}.metricList dd{color:var(--ui-text)!important}
+.commandOutput,.feedlog{background:#050b12!important;border-color:var(--ui-border)!important;color:#cce4f7!important;border-radius:9px!important}html[data-theme="light"] .commandOutput,html[data-theme="light"] .feedlog{background:#f5f8fb!important;color:#24384b!important}
+#status{padding:4px 8px;border-radius:999px;background:var(--ui-surface-2);border:1px solid var(--ui-border);font-size:11px}
+@media(max-width:900px){.brandCopyright{display:none}.workspace{padding:10px!important}.tabs.mainTabs{overflow-x:auto;white-space:nowrap}.subtabs{overflow-x:auto;white-space:nowrap}.kpiGrid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.supervisionGrid,.systemGrid,.metricsGrid{grid-template-columns:1fr!important}.topbar{padding:0 10px!important}.nodeIdentity{margin-left:auto}.topActions #status{display:none}}
+@media(max-width:560px){.kpiGrid{grid-template-columns:1fr!important}.nodeIdentity .adminLabel{display:none}.themeToggle{font-size:0}.themeToggle:after{content:"◐";font-size:14px}.workspace{padding:7px!important}.panel,.superCard{border-radius:9px!important}}
+
+/* DXWeb Admin v2 — structural redesign, 2026-09-22 */
+:root{--v2-side:238px;--v2-bg:#f4f7fb;--v2-surface:#fff;--v2-border:#dce3ec;--v2-muted:#6b778c;--v2-text:#172033;--v2-accent:#2563eb;--v2-accent-soft:#eaf1ff;--v2-shadow:0 8px 28px rgba(23,32,51,.07)}
+html[data-theme="dark"],body.theme-dark{--v2-bg:#0b1220;--v2-surface:#111a2b;--v2-border:#25324a;--v2-muted:#93a4bd;--v2-text:#e8eef8;--v2-accent:#60a5fa;--v2-accent-soft:#172b4d;--v2-shadow:0 10px 30px rgba(0,0,0,.22)}
+body.v2-shell{margin:0;background:var(--v2-bg);color:var(--v2-text);min-height:100vh;overflow:hidden}.v2Sidebar{position:fixed;inset:0 auto 0 0;width:var(--v2-side);box-sizing:border-box;background:#0d1627;color:#dbe6f7;border-right:1px solid #1f2c43;display:flex;flex-direction:column;padding:18px 14px;z-index:100}.v2Logo{height:54px;display:flex;align-items:center;gap:11px;padding:0 9px 17px;border-bottom:1px solid #233149;margin-bottom:14px}.v2LogoMark{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:#2563eb;color:#fff;font-weight:900;font-size:13px;letter-spacing:-.5px}.v2Logo strong{display:block;font-size:17px;letter-spacing:.2px}.v2Logo small{display:block;color:#8293ad;margin-top:2px;font-size:11px}.v2Nav{display:flex;flex-direction:column;gap:5px}.v2NavBtn{appearance:none;border:0;background:transparent;color:#9eacc2;border-radius:9px;display:flex;align-items:center;gap:12px;padding:10px 11px;text-align:left;font-size:13px;font-weight:650;cursor:pointer;transition:.16s}.v2NavBtn:hover{background:#16233a;color:#fff}.v2NavBtn.active{background:#1d4ed8;color:#fff;box-shadow:0 6px 18px rgba(37,99,235,.24)}.v2Icon{width:22px;text-align:center;font-size:16px;font-weight:500}.v2NavDivider{height:1px;background:#233149;margin:14px 8px}.v2NavSecondary .v2NavBtn{font-size:12px;padding-top:8px;padding-bottom:8px}.v2SidebarFoot{margin-top:auto;padding:12px 10px 2px;color:#7f91aa;font-size:11px;display:flex;align-items:center;gap:8px}.v2LiveDot{width:7px;height:7px;border-radius:50%;background:#38bdf8;box-shadow:0 0 0 4px rgba(56,189,248,.08)}.v2App{margin-left:var(--v2-side);height:100vh;display:flex;flex-direction:column;min-width:0}.v2Topbar{position:relative!important;inset:auto!important;height:68px;min-height:68px;box-sizing:border-box;background:var(--v2-surface)!important;border-bottom:1px solid var(--v2-border)!important;color:var(--v2-text)!important;padding:0 24px!important;display:flex!important;align-items:center;gap:22px;box-shadow:none!important}.v2PageTitle{min-width:230px;display:flex;flex-direction:column}.v2PageTitle strong{font-size:17px}.v2PageTitle span{font-size:11px;color:var(--v2-muted);margin-top:3px}.v2StatusStrip{display:flex;align-items:center;gap:8px;margin-left:auto}.v2StatusItem{border:1px solid var(--v2-border);background:var(--v2-bg);border-radius:8px;padding:6px 10px;min-width:72px}.v2StatusItem small{display:block;color:var(--v2-muted);font-size:8px;letter-spacing:.7px}.v2StatusItem b{display:block;font-size:11px;margin-top:2px}.v2Topbar .topActions{margin-left:0}.v2IconButton{width:34px;height:34px;padding:0!important;border-radius:8px!important;font-size:18px!important}.v2LegacyNav{display:none!important}.v2ContextBar{display:none;min-height:44px;background:var(--v2-surface);border-bottom:1px solid var(--v2-border);padding:0 24px;align-items:center;gap:5px;overflow-x:auto}.v2ContextBar.visible{display:flex}.v2ContextBar button{border:0;background:transparent;color:var(--v2-muted);padding:8px 11px;border-radius:7px;font-size:12px;font-weight:650;white-space:nowrap}.v2ContextBar button.active{background:var(--v2-accent-soft);color:var(--v2-accent)}body.v2-shell .workspace{position:relative!important;inset:auto!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;flex:1;min-height:0;overflow:auto!important;padding:22px 24px 34px!important;background:var(--v2-bg)!important}body.v2-shell .section.active{height:auto!important;min-height:100%;overflow:visible!important}body.v2-shell #supervision.section.active{display:block!important}body.v2-shell #supervisionTabs{display:none!important}body.v2-shell .supervisionBanner{border:1px solid var(--v2-border);background:var(--v2-surface);border-radius:10px;padding:9px 13px;margin:0 0 10px;box-shadow:var(--v2-shadow)}body.v2-shell .supervisionState{margin:0 0 12px;border-radius:9px}body.v2-shell .kpiGrid{grid-template-columns:repeat(6,minmax(125px,1fr));gap:10px}body.v2-shell .kpiCard,body.v2-shell .superCard,body.v2-shell .metricChartCard,body.v2-shell .panel,body.v2-shell .regPanel{background:var(--v2-surface)!important;border:1px solid var(--v2-border)!important;border-radius:12px!important;box-shadow:var(--v2-shadow)!important}body.v2-shell .kpiCard{padding:14px 15px!important;min-height:76px}body.v2-shell .kpiLabel{color:var(--v2-muted)!important;text-transform:uppercase;letter-spacing:.55px;font-size:9px!important}body.v2-shell .kpiCard strong{font-size:20px!important;margin-top:7px}body.v2-shell .overviewGrid{gap:12px}body.v2-shell .superCard{padding:15px!important}body.v2-shell .panelHead{border-bottom-color:var(--v2-border)!important}body.v2-shell table{border-collapse:separate;border-spacing:0}body.v2-shell th{font-size:9px!important;text-transform:uppercase;letter-spacing:.45px;color:var(--v2-muted)!important;background:var(--v2-bg)!important}body.v2-shell td{border-bottom-color:var(--v2-border)!important}body.v2-shell .tableWrap,body.v2-shell .supervisionTableWrap{border-radius:10px;border:1px solid var(--v2-border);overflow:auto}body.v2-shell button{transition:background .15s,border-color .15s,transform .08s}body.v2-shell button:active{transform:translateY(1px)}body.v2-shell .metricsGridV4{gap:12px!important}body.v2-shell .metricChartCard{padding:12px 14px!important;margin:0!important}body.v2-shell .chartHead h3{font-size:12px!important}body.v2-shell footer{display:none!important}
+@media(max-width:1180px){:root{--v2-side:74px}.v2Logo div,.v2NavBtn span:last-child,.v2SidebarFoot span:last-child{display:none}.v2Logo{justify-content:center;padding-left:0;padding-right:0}.v2NavBtn{justify-content:center;padding-left:0;padding-right:0}.v2Icon{width:auto}.v2Sidebar{padding-left:10px;padding-right:10px}.v2PageTitle{min-width:180px}body.v2-shell .kpiGrid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:760px){:root{--v2-side:0px}body.v2-shell{overflow:auto}.v2Sidebar{position:relative;width:100%;height:auto;display:block;padding:8px}.v2Logo{display:none}.v2Nav{flex-direction:row;overflow-x:auto}.v2NavDivider,.v2NavSecondary,.v2SidebarFoot{display:none}.v2NavBtn{min-width:48px;padding:9px}.v2NavBtn span:last-child{display:none}.v2App{margin-left:0;height:auto;min-height:100vh}.v2Topbar{padding:0 12px!important;height:58px;min-height:58px}.v2PageSubtitle,.v2DesktopOnly{display:none!important}.v2PageTitle{min-width:100px}.v2StatusStrip{display:none}.v2ContextBar{padding:0 10px}body.v2-shell .workspace{padding:12px!important}body.v2-shell .kpiGrid{grid-template-columns:repeat(2,1fr)}}
+
+/* DXWeb Admin v2.1 — approved interface corrections + ECharts theme */
+:root{--v2-chart-surface:#ffffff;--v2-chart-grid:rgba(100,116,139,.13)}
+html[data-theme="dark"]{--v2-chart-surface:#121e2e;--v2-chart-grid:rgba(148,163,184,.14)}
+@media(prefers-color-scheme:dark){html[data-theme="auto"]{--v2-chart-surface:#121e2e;--v2-chart-grid:rgba(148,163,184,.14)}}
+body.v2-shell .metricsGridV4{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-auto-rows:286px!important;align-items:stretch!important;gap:14px!important}
+body.v2-shell .metricsGridV4>.metricChartCard{height:286px!important;min-height:286px!important;max-height:286px!important;padding:12px 14px!important;display:flex!important;flex-direction:column!important;background:var(--v2-chart-surface)!important;overflow:hidden!important}
+body.v2-shell .metricsGridV4>.metricChartCard>.metricChart{height:236px!important;min-height:236px!important;max-height:236px!important;flex:1 1 auto!important}
+body.v2-shell .metricsGridV4 .metricChart canvas{background:transparent!important;border-radius:8px}
+body.v2-shell .metricResources{grid-column:1/-1!important;height:286px!important;min-height:286px!important;max-height:286px!important}
+body.v2-shell .metricResources .resourceGrid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:12px!important;min-height:0!important;flex:1!important}
+body.v2-shell .metricResources .resourcePane{height:226px!important;min-height:226px!important;max-height:226px!important;box-sizing:border-box!important;background:transparent!important}
+body.v2-shell .metricResources .resourcePane .metricChart{height:190px!important;min-height:190px!important;max-height:190px!important}
+body.v2-shell .chartHead{min-height:31px!important;align-items:flex-start!important;gap:10px}.chartHead h3{line-height:1.25!important}.chartHead span{color:var(--v2-muted)!important}.metricExpand{flex:0 0 auto!important}
+/* Console keeps the full operational canvas: no narrow card or artificial max-width. */
+body.v2-shell #operation.section.active,body.v2-shell #operation .operationGrid,body.v2-shell #console{width:100%!important;max-width:none!important;box-sizing:border-box!important}
+body.v2-shell #console{min-height:calc(100vh - 118px)!important;display:flex!important;flex-direction:column!important}
+body.v2-shell #consoleOutput{flex:1 1 auto!important;min-height:calc(100vh - 245px)!important;max-height:none!important;overflow:auto!important}
+/* Dark mode is a designed palette, never a black chart patch. */
+html[data-theme="dark"] body.v2-shell,html[data-theme="dark"] body.v2-shell .workspace{background:#0b1421!important}html[data-theme="dark"] body.v2-shell .v2Topbar,html[data-theme="dark"] body.v2-shell .v2ContextBar{background:#0f1a29!important;border-color:#26364b!important}html[data-theme="dark"] body.v2-shell .metricChartCard,html[data-theme="dark"] body.v2-shell .panel,html[data-theme="dark"] body.v2-shell .superCard,html[data-theme="dark"] body.v2-shell .kpiCard{background:#121e2e!important;border-color:#26364b!important;box-shadow:0 8px 24px rgba(0,0,0,.16)!important}html[data-theme="dark"] body.v2-shell .tableWrap,html[data-theme="dark"] body.v2-shell .supervisionTableWrap{border-color:#26364b!important;background:#121e2e!important}html[data-theme="dark"] body.v2-shell th{background:#0f1a29!important;color:#93a4ba!important}html[data-theme="dark"] body.v2-shell td{border-bottom-color:#223247!important}
+@media(prefers-color-scheme:dark){html[data-theme="auto"] body.v2-shell,html[data-theme="auto"] body.v2-shell .workspace{background:#0b1421!important}html[data-theme="auto"] body.v2-shell .metricChartCard,html[data-theme="auto"] body.v2-shell .panel,html[data-theme="auto"] body.v2-shell .superCard,html[data-theme="auto"] body.v2-shell .kpiCard{background:#121e2e!important;border-color:#26364b!important}}
+@media(max-width:1050px){body.v2-shell .metricsGridV4{grid-template-columns:1fr!important}.metricResources{grid-column:auto!important}}
+@media(max-width:760px){body.v2-shell .metricResources .resourceGrid{grid-template-columns:1fr!important}.metricResources{height:auto!important;max-height:none!important}.resourcePane{height:226px!important}}
+
+/* DXWeb Admin v2.2 — approved full UI pass */
+:root{--dx-card-h:350px;--dx-chart-h:282px}
+body.v2-shell .workspace{max-width:none!important;width:100%!important;box-sizing:border-box!important;margin:0!important}
+body.v2-shell #operation.section.active{min-height:calc(100vh - 126px)!important}
+body.v2-shell #operation .operationGrid{width:100%!important;max-width:none!important;min-height:calc(100vh - 148px)!important}
+body.v2-shell #console.panel.active{display:flex!important;flex-direction:column!important;width:100%!important;max-width:none!important;height:calc(100vh - 158px)!important;min-height:620px!important;margin:0!important}
+body.v2-shell #console .consoleOutput{flex:1!important;min-height:0!important;max-height:none!important;width:100%!important;box-sizing:border-box!important}
+body.v2-shell #console .commandBar{width:100%!important;box-sizing:border-box!important}
+
+/* Every peer card/window inside a view uses the same visual geometry. */
+body.v2-shell .metricsGridV4{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:14px!important;align-items:stretch!important}
+body.v2-shell .metricsGridV4>.metricChartCard:not(.metricResources){height:var(--dx-card-h)!important;min-height:var(--dx-card-h)!important;max-height:var(--dx-card-h)!important;display:flex!important;flex-direction:column!important;overflow:hidden!important}
+body.v2-shell .metricsGridV4>.metricChartCard:not(.metricResources) .chartHead{min-height:42px!important;align-items:flex-start!important;gap:10px!important}
+body.v2-shell .metricsGridV4>.metricChartCard:not(.metricResources) .metricChart{height:var(--dx-chart-h)!important;min-height:var(--dx-chart-h)!important;max-height:var(--dx-chart-h)!important;flex:1!important}
+body.v2-shell .metricLarge,body.v2-shell .metricDense,body.v2-shell .metricCompact{grid-column:auto!important}
+body.v2-shell .metricResources{grid-column:1/-1!important;min-height:390px!important}
+body.v2-shell .resourceGrid{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:14px!important}
+body.v2-shell .resourcePane{min-width:0!important;height:320px!important;display:flex!important;flex-direction:column!important}
+body.v2-shell .resourcePane .metricChart{height:270px!important;min-height:270px!important;flex:1!important}
+body.v2-shell .metricExpand{border:1px solid var(--v2-border)!important;background:transparent!important;color:var(--v2-muted)!important;border-radius:7px!important;padding:5px 8px!important}
+body.v2-shell .metricExpand:hover{color:var(--v2-accent)!important;background:var(--v2-accent-soft)!important}
+
+/* Approved light metrics surface. */
+html[data-theme="light"] body.v2-shell #metrics.section.active{background:#f5f8fc!important}
+html[data-theme="light"] body.v2-shell .metricsV2{background:transparent!important;color:#172033!important}
+html[data-theme="light"] body.v2-shell .metricChartCard{background:#fff!important;border-color:#dce5ef!important;box-shadow:0 5px 16px rgba(15,23,42,.055)!important}
+html[data-theme="light"] body.v2-shell .metricsHead,html[data-theme="light"] body.v2-shell .metricsMeta{background:transparent!important}
+
+/* Approved dark metrics surface — never pure black. */
+html[data-theme="dark"] body.v2-shell #metrics.section.active{background:#0b1421!important}
+html[data-theme="dark"] body.v2-shell .metricsV2{background:transparent!important;color:#dbe7f5!important}
+html[data-theme="dark"] body.v2-shell .metricChartCard{background:#121e2e!important;border-color:#26384e!important;box-shadow:0 7px 20px rgba(2,8,23,.22)!important}
+html[data-theme="dark"] body.v2-shell .metricsHead,html[data-theme="dark"] body.v2-shell .metricsMeta{background:transparent!important;color:#dbe7f5!important}
+html[data-theme="dark"] body.v2-shell .chartHead span,html[data-theme="dark"] body.v2-shell .miniHead span{color:#8fa2ba!important;opacity:1!important}
+html[data-theme="dark"] body.v2-shell .segmented{border-color:#33465d!important}
+html[data-theme="dark"] body.v2-shell .segmented button,html[data-theme="dark"] body.v2-shell #metricsPeer,html[data-theme="dark"] body.v2-shell #metricsResetZoom,html[data-theme="dark"] body.v2-shell #metricsRefresh{background:#0f1a29!important;color:#c8d5e5!important;border-color:#33465d!important}
+html[data-theme="dark"] body.v2-shell .segmented button.active{background:#1756c9!important;color:#fff!important}
+
+/* Auto theme gets the same dark palette when the OS is dark. */
+@media(prefers-color-scheme:dark){html[data-theme="auto"] body.v2-shell #metrics.section.active{background:#0b1421!important}html[data-theme="auto"] body.v2-shell .metricsV2{background:transparent!important;color:#dbe7f5!important}html[data-theme="auto"] body.v2-shell .metricChartCard{background:#121e2e!important;border-color:#26384e!important;box-shadow:0 7px 20px rgba(2,8,23,.22)!important}html[data-theme="auto"] body.v2-shell .metricsHead,html[data-theme="auto"] body.v2-shell .metricsMeta{background:transparent!important;color:#dbe7f5!important}}
+
+/* Correct old legend fallback palette: no green and same series colors as charts. */
+.metricTooltip .tipSeries.s1{color:#3b82f6!important}.metricTooltip .tipSeries.s2{color:#8b5cf6!important}.metricTooltip .tipSeries.s3{color:#f97316!important}.metricTooltip .tipSeries.s4{color:#ef4444!important}.metricTooltip .tipSeries.s5{color:#06b6d4!important}.metricTooltip .tipSeries.s6{color:#e879f9!important}.metricTooltip .tipSeries.s7{color:#f59e0b!important}.metricTooltip .tipSeries.s8{color:#6366f1!important}.metricTooltip .tipSeries.s9{color:#ec4899!important}.metricTooltip .tipSeries.s10{color:#94a3b8!important}
+.legendItem i.s1{border-color:#3b82f6!important}.legendItem i.s2{border-color:#8b5cf6!important}.legendItem i.s3{border-color:#f97316!important}.legendItem i.s4{border-color:#ef4444!important}.legendItem i.s5{border-color:#06b6d4!important}.legendItem i.s6{border-color:#e879f9!important}.legendItem i.s7{border-color:#f59e0b!important}.legendItem i.s8{border-color:#6366f1!important}.legendItem i.s9{border-color:#ec4899!important}.legendItem i.s10{border-color:#94a3b8!important}
+
+@media(max-width:1050px){body.v2-shell .metricsGridV4{grid-template-columns:1fr!important}body.v2-shell .metricResources{grid-column:auto!important}.resourceGrid{grid-template-columns:1fr!important}.resourcePane{height:300px!important}}
+/* Console gets the whole application workspace; sidebar remains navigation, not an inner column. */
+body.v2-console-wide .v2PageTitle{min-width:180px}
+body.v2-console-wide .workspace{padding:12px 16px 16px!important}
+body.v2-console-wide #operation.section.active{height:100%!important;min-height:100%!important}
+body.v2-console-wide #operation .subtabs{margin-bottom:8px}
+body.v2-console-wide #console.panel.active{height:calc(100vh - 150px)!important;border-radius:10px!important}
+
+/* UI v2.2 — preserve original navigation/functionality inside the new shell. */
+body.v2-shell #operationTabs,
+body.v2-shell #registrationTabs,
+body.v2-shell #supervisionTabs{
+ display:flex!important;
+ min-height:46px;
+ align-items:center;
+ gap:6px;
+ margin:0 0 12px;
+ padding:6px;
+ border:1px solid var(--v2-border);
+ border-radius:11px;
+ background:var(--v2-surface);
+ box-shadow:var(--v2-shadow);
+ overflow-x:auto;
+}
+body.v2-shell #operationTabs button,
+body.v2-shell #registrationTabs button,
+body.v2-shell #supervisionTabs button{
+ white-space:nowrap;
+ border:0;
+ border-radius:8px;
+ background:transparent;
+ color:var(--v2-muted);
+ padding:8px 12px;
+ font-weight:650;
+}
+body.v2-shell #operationTabs button.active,
+body.v2-shell #registrationTabs button.active,
+body.v2-shell #supervisionTabs button.active{
+ background:var(--v2-accent-soft);
+ color:var(--v2-accent);
+}
+body.v2-shell #supervisionTabs .supervisionRefresh{margin-left:auto;border:1px solid var(--v2-border)!important;background:var(--v2-bg)!important}
+body.v2-shell #operation.section.active{height:100%!important;min-height:0!important;display:flex!important;flex-direction:column}
+body.v2-shell #operation>.panel{height:auto!important;min-height:0;flex:1;width:100%;box-sizing:border-box;overflow:hidden}
+body.v2-shell #operation>.panel.active{display:flex!important;flex-direction:column}
+body.v2-shell #operation .resultArea{flex:1;min-height:0;overflow:auto}
+body.v2-shell #operation .commandBar{margin-top:auto;flex:0 0 auto;width:100%;box-sizing:border-box}
+body.v2-shell #operation .commandBar input{min-width:0;flex:1}
+body.v2-shell #registration.section.active{height:100%!important;min-height:0!important;display:flex!important;flex-direction:column}
+body.v2-shell #registration>.regPanel{height:auto!important;min-height:0;flex:1;width:100%;box-sizing:border-box}
+body.v2-shell #supervision.section.active{height:auto!important;min-height:100%!important}
+body.v2-shell .metricModal{z-index:10000!important}
+body.v2-shell .metricModal.open{display:flex!important}
+body.v2-shell .metricModalBox{width:min(1500px,94vw)!important;height:min(820px,90vh)!important;max-width:none!important;box-sizing:border-box;background:var(--v2-surface)!important;border:1px solid var(--v2-border)!important}
+body.v2-shell #metricModalChart{height:calc(100% - 52px)!important;min-height:500px!important;width:100%!important}
+body.v2-shell .metricExpand{position:relative;z-index:3;pointer-events:auto!important}
+body.v2-shell .metricChart{cursor:crosshair}
+body.v2-shell .metricChartCard,body.v2-shell .resourcePane{overflow:visible}
+html[data-theme="dark"] body.v2-shell #operationTabs,
+html[data-theme="dark"] body.v2-shell #registrationTabs,
+html[data-theme="dark"] body.v2-shell #supervisionTabs{background:#121e2e!important;border-color:#26364b!important}
+@media(prefers-color-scheme:dark){html[data-theme="auto"] body.v2-shell #operationTabs,html[data-theme="auto"] body.v2-shell #registrationTabs,html[data-theme="auto"] body.v2-shell #supervisionTabs{background:#121e2e!important;border-color:#26364b!important}}
+
+/* UI v2.3 — viewport, hierarchy and readability corrections from live screenshots. */
+:root{--v2-side:230px;--dx-card-h:330px;--dx-chart-h:270px}
+body.v2-shell{height:100vh!important;min-height:100vh!important;overflow:hidden!important}
+.v2App{height:100vh!important;min-height:0!important;overflow:hidden!important}
+.v2Topbar{height:64px!important;min-height:64px!important;padding:0 20px!important}
+.v2NodeIdentity{display:flex;align-items:center;gap:14px;min-width:0}
+.v2NodeIdentity #nodeCall{font-size:21px!important;line-height:1;font-weight:800;letter-spacing:-.02em;color:var(--v2-text)}
+.v2NodeIdentity #status{font-size:13px!important;font-weight:750;padding:6px 11px!important;min-width:auto;border-radius:999px!important}
+.v2Topbar .topActions{margin-left:auto!important;display:flex;gap:8px;align-items:center}
+.v2Logo{height:62px!important}.v2Logo strong{font-size:19px!important}.v2Logo small{font-size:12px!important;color:#91a3bd!important}
+.v2NavBtn{font-size:15px!important;padding:12px 12px!important;gap:12px!important}.v2Icon{font-size:17px!important}
+.v2SidebarFoot{display:block!important;padding:12px 8px 4px!important;font-size:10px!important;line-height:1.35;color:#8192aa!important}
+.v2SideReady{display:flex;align-items:center;gap:8px;margin-bottom:8px}.v2SideVersion{color:#a7b6ca;font-weight:650;margin-bottom:3px}.v2SideCopyright{font-size:9px;color:#71839c}
+body.v2-shell footer{display:none!important}
+
+/* The workspace never grows beyond the browser viewport. Each view owns its scrolling. */
+body.v2-shell .workspace{flex:1!important;min-height:0!important;height:auto!important;overflow:hidden!important;padding:14px 16px 16px!important;box-sizing:border-box!important}
+body.v2-shell .section.active{height:100%!important;min-height:0!important;max-height:100%!important;overflow:auto!important;box-sizing:border-box!important}
+
+/* Operation: original model, new shell. Tabs + one full remaining panel, command bar at bottom. */
+body.v2-shell #operation.section.active{display:flex!important;flex-direction:column!important;overflow:hidden!important}
+body.v2-shell #operationTabs{flex:0 0 auto!important;margin-bottom:10px!important;min-height:50px!important}
+body.v2-shell #operationTabs button{font-size:15px!important;padding:9px 14px!important}
+body.v2-shell #operation>.panel{flex:1 1 auto!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:hidden!important;padding:12px!important}
+body.v2-shell #operation>.panel.active{display:flex!important;flex-direction:column!important}
+body.v2-shell #operation .panelHead{flex:0 0 auto!important}.panelHead h2{font-size:21px!important}
+body.v2-shell #operation .resultArea{flex:1 1 auto!important;min-height:0!important;overflow:auto!important}
+body.v2-shell #operation .commandBar{flex:0 0 auto!important;margin-top:10px!important}
+body.v2-shell #console.panel.active{height:auto!important;min-height:0!important;max-height:none!important}
+
+/* Registration / Supervision / Timeline controls must be readable, not miniature tags. */
+body.v2-shell #registrationTabs button,body.v2-shell #supervisionTabs button{font-size:14px!important;padding:9px 13px!important;font-weight:700!important}
+body.v2-shell #supervisionTabs{min-height:52px!important;margin-bottom:10px!important}
+body.v2-shell .segmented button{font-size:13px!important;padding:7px 11px!important;font-weight:700!important}
+body.v2-shell .healthPill,body.v2-shell .stateBadge{font-size:12px!important;padding:4px 9px!important}
+body.v2-shell .panelSub{font-size:12px!important}
+body.v2-shell #timeline .panelHead h2,body.v2-shell #metrics .panelHead h2{font-size:22px!important}
+body.v2-shell #timeline .metricsMeta,body.v2-shell #metrics .metricsMeta{font-size:12px!important;gap:10px!important}
+
+/* Metrics: no card/chart may paint into the next row. */
+body.v2-shell .metricsGridV4{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:14px!important;align-items:start!important}
+body.v2-shell .metricsGridV4>.metricChartCard:not(.metricResources){height:var(--dx-card-h)!important;min-height:var(--dx-card-h)!important;max-height:var(--dx-card-h)!important;overflow:hidden!important;padding:12px 14px!important;box-sizing:border-box!important}
+body.v2-shell .metricsGridV4>.metricChartCard:not(.metricResources) .metricChart{height:var(--dx-chart-h)!important;min-height:0!important;max-height:var(--dx-chart-h)!important;overflow:hidden!important}
+body.v2-shell .metricChartCard,body.v2-shell .resourcePane{overflow:hidden!important}
+body.v2-shell .chartHead{min-height:42px!important;flex:0 0 42px!important;align-items:center!important}
+body.v2-shell .chartHead h3{font-size:15px!important;line-height:1.2!important;font-weight:750!important;color:var(--v2-text)!important}
+body.v2-shell .chartHead span{font-size:11px!important}
+body.v2-shell .metricExpand{font-size:12px!important;padding:6px 9px!important}
+body.v2-shell .metricResources{overflow:hidden!important}
+body.v2-shell .resourcePane{height:300px!important}.resourcePane .metricChart{height:250px!important;min-height:0!important}
+
+/* Keep tables readable without making the entire page wider/taller than the viewport. */
+body.v2-shell th{font-size:10px!important}body.v2-shell td{font-size:13px!important}
+body.v2-shell .tableWrap,body.v2-shell .supervisionTableWrap,body.v2-shell .regTableWrap{max-width:100%!important;overflow:auto!important}
+
+/* Removed obsolete sidebar expansion: contradicted the compact tablet layout. */
+/* Final geometry guard: header + plot + card padding always fit inside 330px. */
+:root{--dx-chart-h:260px}
+
+/* UI v2.4 — live screenshot corrections. Keep new shell, preserve original information hierarchy. */
+:root{--v2-side:220px;--dx-card-h:300px;--dx-chart-h:236px}
+/* No redundant DX badge and no duplicate ready indicator in sidebar. */
+.v2Logo{padding-left:10px!important}.v2Logo>div{display:block}.v2SideReady,.v2LogoMark{display:none!important}
+.v2SidebarFoot{font-size:12px!important;line-height:1.45!important}.v2SideVersion{font-size:12px!important}.v2SideCopyright{font-size:11px!important}
+/* Restore original-scale typography. */
+body.v2-shell{font-size:14px!important}
+.v2NavBtn{font-size:15px!important;font-weight:700!important}
+body.v2-shell .subtabs button,body.v2-shell #operationTabs button,body.v2-shell #registrationTabs button,body.v2-shell #supervisionTabs button{font-size:15px!important;padding:9px 14px!important;font-weight:700!important}
+body.v2-shell .healthPill,body.v2-shell .stateBadge{font-size:13px!important;padding:4px 9px!important}
+body.v2-shell .segmented button{font-size:14px!important;padding:7px 11px!important}
+body.v2-shell th{font-size:13px!important;letter-spacing:0!important;text-transform:none!important;padding:8px 10px!important}
+body.v2-shell td{font-size:14px!important;padding:8px 10px!important}
+body.v2-shell .kpiLabel{font-size:12px!important;letter-spacing:.03em!important}
+body.v2-shell .panelSub,body.v2-shell .metricsMeta{font-size:13px!important}
+/* Active subtab is already the title: remove repeated inner headings, keep actions/subtitles. */
+body.v2-shell #registration .regPanel>.panelHead h2{display:none!important}
+body.v2-shell #registration .regPanel>.panelHead{min-height:42px!important;justify-content:flex-end!important}
+body.v2-shell #supervision .superPanel>.panelHead h2{display:none!important}
+body.v2-shell #supervision .superPanel>.panelHead{min-height:42px!important}
+/* Metrics and Timeline already have a left navigation title: don't repeat it inside content. */
+body.v2-shell #metrics>.panel>.panelHead h2,body.v2-shell #timeline>.panel>.panelHead h2{display:none!important}
+/* Console is its own section, never an Operation child. */
+body.v2-shell #consoleSection.section.active{display:flex!important;flex-direction:column!important;overflow:hidden!important}
+body.v2-shell #consoleSection #console{display:flex!important;flex:1!important;min-height:0!important;height:100%!important;flex-direction:column!important}
+body.v2-shell #consoleSection .consoleOutput{flex:1!important;min-height:0!important;overflow:auto!important}
+/* Metrics: 3 columns on desktop, strict card clipping and enough vertical room for axis labels + slider. */
+body.v2-shell .metricsGridV4{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:14px!important;align-items:start!important}
+body.v2-shell .metricsGridV4>.metricChartCard:not(.metricResources){height:var(--dx-card-h)!important;min-height:var(--dx-card-h)!important;max-height:var(--dx-card-h)!important;overflow:hidden!important;padding:12px 14px!important}
+body.v2-shell .metricsGridV4>.metricChartCard:not(.metricResources) .metricChart{height:var(--dx-chart-h)!important;min-height:var(--dx-chart-h)!important;max-height:var(--dx-chart-h)!important;overflow:hidden!important}
+body.v2-shell .chartHead{height:40px!important;min-height:40px!important;flex:0 0 40px!important}
+body.v2-shell .chartHead h3{font-size:16px!important;font-weight:750!important;line-height:1.2!important}
+body.v2-shell .chartHead span{font-size:12px!important}
+body.v2-shell .metricExpand{font-size:13px!important;padding:6px 9px!important}
+body.v2-shell .metricResources{grid-column:1/-1!important;overflow:hidden!important}
+body.v2-shell .resourceGrid{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+body.v2-shell .resourcePane{overflow:hidden!important}
+/* Never allow page/card width to exceed viewport. */
+body.v2-shell .workspace,body.v2-shell .section,body.v2-shell .panel,body.v2-shell .regPanel,body.v2-shell .superPanel{max-width:100%!important;box-sizing:border-box!important}
+
+
+/* UI v2.5 — source-of-truth typography and screenshot fixes. */
+body.v2-shell{font-family:Arial,Helvetica,sans-serif!important;font-size:16px!important}
+/* Brand and node are primary identity, intentionally prominent. */
+body.v2-shell .v2Logo{height:82px!important;padding:4px 10px 18px!important;align-items:center!important}
+body.v2-shell .v2Logo strong{font-family:Arial,Helvetica,sans-serif!important;font-size:28px!important;line-height:1.05!important;font-weight:800!important;letter-spacing:0!important;color:#f3f7ff!important}
+body.v2-shell .v2Logo small{font-family:Arial,Helvetica,sans-serif!important;font-size:17px!important;line-height:1.2!important;margin-top:5px!important;color:#aabbd2!important}
+body.v2-shell .v2NodeIdentity #nodeCall{font-family:Arial,Helvetica,sans-serif!important;font-size:30px!important;line-height:1!important;font-weight:800!important;letter-spacing:0!important}
+body.v2-shell .v2NodeIdentity #status{font-family:Arial,Helvetica,sans-serif!important;font-size:16px!important;padding:7px 13px!important}
+/* Original UI scale: stop miniaturising labels, tabs, tables and controls. */
+body.v2-shell .v2NavBtn{font-family:Arial,Helvetica,sans-serif!important;font-size:16px!important;padding:11px 12px!important}
+body.v2-shell #operationTabs button,body.v2-shell #registrationTabs button,body.v2-shell #supervisionTabs button,
+body.v2-shell .segmented button,body.v2-shell button,body.v2-shell input,body.v2-shell select{font-family:Arial,Helvetica,sans-serif!important;font-size:16px!important}
+body.v2-shell #operationTabs button,body.v2-shell #registrationTabs button,body.v2-shell #supervisionTabs button{padding:8px 12px!important;font-weight:600!important}
+body.v2-shell th,body.v2-shell td{font-family:Arial,Helvetica,sans-serif!important;font-size:16px!important;letter-spacing:0!important;text-transform:none!important}
+body.v2-shell .panelSub,body.v2-shell .metricsMeta,body.v2-shell .supervisionState{font-size:14px!important}
+body.v2-shell .healthPill,body.v2-shell .stateBadge{font-size:14px!important}
+body.v2-shell .chartHead{min-height:48px!important;flex-basis:48px!important}
+body.v2-shell .chartHead h3{font-family:Arial,Helvetica,sans-serif!important;font-size:18px!important;line-height:1.2!important;font-weight:700!important}
+body.v2-shell .chartHead span{font-size:14px!important}
+body.v2-shell .metricExpand{font-size:14px!important;padding:7px 10px!important}
+/* Delete user is a real framed action, like every other button. */
+body.v2-shell #deleteUserOpen{border:1px solid #b94a4a!important;background:var(--v2-surface)!important;color:#a32626!important;border-radius:6px!important;padding:7px 12px!important}
+body.v2-shell #deleteUserOpen:hover{background:rgba(185,74,74,.10)!important}
+/* Bottom command entry in every Operation pane. */
+body.v2-shell #operation .opCommandForm{display:flex!important;width:100%!important;gap:8px!important;margin-top:8px!important;padding-top:8px!important;flex:0 0 auto!important}
+body.v2-shell #operation .opCommandForm input{flex:1!important;min-width:0!important;height:40px!important}
+body.v2-shell #operation .opCommandForm button{flex:0 0 auto!important;min-width:86px!important;height:40px!important}
+/* Metrics: all resources are independent normal cards. 3 columns only when there is real room. */
+body.v2-shell .metricsGridV4{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:16px!important;align-items:start!important}
+body.v2-shell .metricsGridV4>.metricChartCard{height:390px!important;min-height:390px!important;max-height:390px!important;overflow:hidden!important;padding:12px 14px!important;box-sizing:border-box!important}
+body.v2-shell .metricsGridV4>.metricChartCard .metricChart{height:318px!important;min-height:318px!important;max-height:318px!important;overflow:hidden!important;background:transparent!important}
+/* Empty chart must use card/theme background in dark mode too. */
+body.v2-shell .metricEmpty,body.v2-shell .metricChart .emptyState{height:100%!important;display:flex!important;align-items:center!important;justify-content:center!important;background:transparent!important;color:var(--v2-muted)!important;border:0!important}
+body.v2-shell .metricChart{background:transparent!important}
+body.v2-shell .v2SidebarFoot{font-family:Arial,Helvetica,sans-serif!important;font-size:13px!important;line-height:1.45!important;color:#91a3bd!important}
+body.v2-shell .v2SideVersion{font-size:13px!important;font-weight:600!important}
+body.v2-shell .v2SideCopyright{font-size:12px!important;margin-top:3px!important}
+@media(max-width:1500px){body.v2-shell .metricsGridV4{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:980px){body.v2-shell .metricsGridV4{grid-template-columns:1fr!important}.v2NodeIdentity #nodeCall{font-size:24px!important}}
+
+/* UI v2.6 — exact cleanup requested after live review. */
+/* The supervision status banner is redundant; snapshot lives on the tab row, left of Refresh. */
+body.v2-shell .supervisionBannerHidden{display:none!important}
+body.v2-shell #supervisionTabs .supervisionSnapshotInline{margin-left:auto;font-size:14px;color:var(--v2-muted);white-space:nowrap}
+body.v2-shell #supervisionTabs .supervisionRefresh{margin-left:0!important}
+/* Search starts directly with its search box: no reserved blank heading row. */
+body.v2-shell #registration #search{padding-top:0!important}
+body.v2-shell #registration #search .searchBar{margin-top:0!important}
+/* Metrics metadata/coverage strips and timeline metadata are intentionally gone. */
+body.v2-shell #metrics .metricsGridV4{margin-top:14px!important;row-gap:22px!important;column-gap:16px!important}
+/* A little more air between chart rows, without increasing card overlap risk. */
+body.v2-shell .metricsGridV4>.metricChartCard{margin-bottom:0!important}
+
+/* UI v2.7 requested refinements */
+body.v2-shell .v2BrandMain{font-size:32px!important;line-height:1.05!important;font-weight:800!important;}
+body.v2-shell .v2BrandSub{font-size:19px!important;line-height:1.2!important;margin-top:5px!important;}
+body.v2-shell .v2Topbar{position:relative!important;justify-content:flex-end!important;}
+body.v2-shell .v2NodeIdentity{position:absolute!important;left:50%!important;transform:translateX(-50%)!important;gap:16px!important;white-space:nowrap!important;}
+body.v2-shell .v2NodeIdentity #nodeCall{font-size:34px!important;}
+body.v2-shell .v2NodeIdentity #status{font-size:17px!important;padding:8px 14px!important;}
+body.v2-shell .infoTip{cursor:help;text-decoration:underline dotted;text-underline-offset:3px;}
+@media(max-width:760px){body.v2-shell .v2NodeIdentity{position:static!important;transform:none!important;margin-right:auto!important;}body.v2-shell .v2NodeIdentity #nodeCall{font-size:24px!important;}}
+
+/* v2.9 requested layout */
+.connectionControls{display:flex;flex-direction:column;align-items:flex-end;gap:8px}.connectionFilterButtons{width:auto}.connectionSearch{width:min(340px,100%);min-width:260px}.updateMatrix{display:grid;gap:10px;margin-top:8px}.updateRow{display:grid;grid-template-columns:minmax(150px,1fr) auto;gap:16px;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:8px}.updateRow>div{display:flex;gap:8px}.updateOutput{min-height:180px;max-height:340px;overflow:auto;margin-top:12px;white-space:pre-wrap}.historyMaintenance .noticeText:empty{display:none}@media(max-width:760px){.connectionControls{align-items:stretch}.connectionSearch{width:100%;min-width:0}.updateRow{grid-template-columns:1fr}.updateRow>div{justify-content:flex-start}}
+
+/* v3.1 compact supervision toolbar and independent maintenance result window */
+body.v2-shell .superToolbar{display:flex;align-items:center;gap:12px;margin-bottom:12px;min-width:0;flex-wrap:wrap}
+body.v2-shell .superToolbar>.kpiGrid{flex:1 1 650px;min-width:0;margin:0!important}
+body.v2-shell .superToolbar .connectionControls{display:flex;flex-direction:row;align-items:center;gap:10px;flex:0 1 auto;flex-wrap:wrap}
+body.v2-shell .superToolbar .connectionFilterButtons,body.v2-shell .superToolbar .filterBar{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+body.v2-shell .superToolbar input{min-width:150px;width:190px;max-width:100%;margin:0}
+body.v2-shell .superToolbar-maintenance>button{flex:0 0 auto}
+body.v2-shell #traffic>.kpiGrid{margin-top:0!important}
+body.v2-shell #traffic>.panelHead{display:none!important}
+body.v2-shell .manualUpdates{display:flex;flex-direction:column;gap:16px;margin-top:14px}
+body.v2-shell .updateMatrix{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+body.v2-shell .updateRow{display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:14px;min-width:0}
+body.v2-shell .updateRow>strong{text-align:center;font-size:17px}
+body.v2-shell .updateRow>div{display:flex;justify-content:center;gap:8px;flex-wrap:wrap}
+body.v2-shell .updateResultsCard .updateOutput{margin-top:12px;min-height:220px;max-height:420px;overflow-y:auto;overflow-x:auto}
+@media(max-width:1100px){body.v2-shell .updateMatrix{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){body.v2-shell .updateMatrix{grid-template-columns:1fr}}
+
+/* v3.2: Diagnostics toolbar and consistent dark Supervision surfaces. */
+body.v2-shell #diagnostics .diagnosticsToolbar{display:flex;align-items:center;gap:12px;margin:0 0 14px;min-width:0}
+body.v2-shell #diagnostics .diagnosticsToolbar>.kpiGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));flex:0 1 1088px;min-width:0;gap:10px}
+body.v2-shell #diagnostics .diagnosticsToolbar>.healthPill{flex:0 0 auto;white-space:nowrap;margin-left:4px}
+body.v2-shell .v2SideCopyright{font-weight:800!important;color:#c4d3e8!important}
+/* Apply the theme to the whole Supervision hierarchy, not just the cards. */
+html[data-theme="dark"] body.v2-shell #supervision .superPanel{background:#0b1421!important;color:#dbe7f5!important}
+html[data-theme="dark"] body.v2-shell #supervision .superCard,
+html[data-theme="dark"] body.v2-shell #supervision .kpiCard,
+html[data-theme="dark"] body.v2-shell #supervision .tableWrap,
+html[data-theme="dark"] body.v2-shell #supervision .supervisionTableWrap{background:#142335!important;border-color:#34485f!important;color:#e5edf7!important;box-shadow:none!important}
+html[data-theme="dark"] body.v2-shell #supervision th{background:#1d3044!important;color:#c4d3e4!important;border-color:#34485f!important}
+html[data-theme="dark"] body.v2-shell #supervision td{background:#142335!important;color:#e5edf7!important;border-color:#34485f!important}
+html[data-theme="dark"] body.v2-shell #supervision .metricRow,
+html[data-theme="dark"] body.v2-shell #supervision .metricRow dt,
+html[data-theme="dark"] body.v2-shell #supervision .metricRow dd{color:#e5edf7!important;border-color:#40546a!important}
+html[data-theme="dark"] body.v2-shell #supervision .metricRow dt,
+html[data-theme="dark"] body.v2-shell #supervision .kpiLabel,
+html[data-theme="dark"] body.v2-shell #supervision .kpiCard small{color:#aebfd2!important}
+html[data-theme="dark"] body.v2-shell #supervision input:not([type="checkbox"]),
+html[data-theme="dark"] body.v2-shell #supervision select{background:#23374d!important;color:#f2f7fc!important;border:1px solid #58718b!important;box-shadow:none!important}
+html[data-theme="dark"] body.v2-shell #supervision input::placeholder{color:#b6c6d6!important}
+html[data-theme="dark"] body.v2-shell #supervision button:not(.active){background:#21354b!important;color:#e6f0fa!important;border-color:#57708a!important}
+html[data-theme="dark"] body.v2-shell #supervision button.active{background:#17619c!important;color:#fff!important}
+html[data-theme="dark"] body.v2-shell #supervision .healthPill.ok{background:#173d35!important;border-color:#529785!important;color:#d5f5e9!important}
+/* Dialogs must use their own readable, coordinated input palette. */
+html[data-theme="dark"] body.v2-shell dialog .dialogCard{background:#18293b!important;color:#eef4fc!important;border:1px solid #49627b!important}
+html[data-theme="dark"] body.v2-shell dialog .dialogCard h2{color:#eaf3ff!important}
+html[data-theme="dark"] body.v2-shell dialog .dialogCard .loginHint{color:#bbcadb!important}
+html[data-theme="dark"] body.v2-shell dialog .dialogCard input,
+html[data-theme="dark"] body.v2-shell dialog .dialogCard textarea,
+html[data-theme="dark"] body.v2-shell dialog .dialogCard select{background:#edf3fa!important;color:#162b40!important;border:1px solid #8ba4bd!important;box-shadow:inset 0 1px 2px rgba(15,35,55,.07)!important}
+html[data-theme="dark"] body.v2-shell dialog .dialogCard input::placeholder,
+html[data-theme="dark"] body.v2-shell dialog .dialogCard textarea::placeholder{color:#60758b!important;opacity:1}
+html[data-theme="dark"] body.v2-shell dialog .dialogCard button:not(.dangerButton){background:#e9f2fb!important;color:#173d62!important;border-color:#9cb6d0!important}
+@media(max-width:1050px){body.v2-shell #diagnostics .diagnosticsToolbar{flex-wrap:wrap}body.v2-shell #diagnostics .diagnosticsToolbar>.kpiGrid{flex-basis:100%;grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(prefers-color-scheme:dark){html[data-theme="auto"] body.v2-shell #supervision .superPanel{background:#0b1421!important;color:#dbe7f5!important}html[data-theme="auto"] body.v2-shell #supervision .superCard,html[data-theme="auto"] body.v2-shell #supervision .kpiCard,html[data-theme="auto"] body.v2-shell #supervision .tableWrap{background:#142335!important;border-color:#34485f!important;color:#e5edf7!important}html[data-theme="auto"] body.v2-shell dialog .dialogCard{background:#18293b!important;color:#eef4fc!important}html[data-theme="auto"] body.v2-shell dialog .dialogCard input,html[data-theme="auto"] body.v2-shell dialog .dialogCard textarea{background:#edf3fa!important;color:#162b40!important}}
+
+/* v3.3 — coherent dark palette for all supervision views; scoped to dark only. */
+html[data-theme="dark"] body.v2-shell{--v2-bg:#0c1623;--v2-surface:#17283a;--v2-border:#354b62;--v2-muted:#b8c9d9;--v2-accent:#67b9f2;color:#eaf2fa!important}
+html[data-theme="dark"] body.v2-shell #supervision,
+html[data-theme="dark"] body.v2-shell #supervision.section.active,
+html[data-theme="dark"] body.v2-shell #supervision .superPanel,
+html[data-theme="dark"] body.v2-shell #supervision .superPanel.active{background:#0c1623!important;color:#eaf2fa!important}
+html[data-theme="dark"] body.v2-shell #supervision .superPanel{min-height:0!important;height:auto!important;overflow:visible!important}
+html[data-theme="dark"] body.v2-shell #supervision .superCard,
+html[data-theme="dark"] body.v2-shell #supervision .kpiCard,
+html[data-theme="dark"] body.v2-shell #supervision .rbnCard,
+html[data-theme="dark"] body.v2-shell #supervision .topologyInspector,
+html[data-theme="dark"] body.v2-shell #supervision .tableWrap,
+html[data-theme="dark"] body.v2-shell #supervision .supervisionTableWrap{background:#17283a!important;border:1px solid #354b62!important;color:#eaf2fa!important;box-shadow:none!important}
+html[data-theme="dark"] body.v2-shell #supervision .kpiCard strong,
+html[data-theme="dark"] body.v2-shell #supervision .rbnHead strong,
+html[data-theme="dark"] body.v2-shell #supervision .topologyInspector h3,
+html[data-theme="dark"] body.v2-shell #supervision .topologyInspector .topologyInspectorTitle .topoType,
+html[data-theme="dark"] body.v2-shell #supervision .superCard strong{color:#f2f7fd!important}
+html[data-theme="dark"] body.v2-shell #supervision .kpiLabel,
+html[data-theme="dark"] body.v2-shell #supervision .kpiCard small,
+html[data-theme="dark"] body.v2-shell #supervision .rbnHead span,
+html[data-theme="dark"] body.v2-shell #supervision .topologyLegend,
+html[data-theme="dark"] body.v2-shell #supervision .topologyInspector dt,
+html[data-theme="dark"] body.v2-shell #supervision .topologyInspector .topoType{color:#b8c9d9!important}
+html[data-theme="dark"] body.v2-shell #supervision .kpiCard strong{color:#80c9fa!important}
+html[data-theme="dark"] body.v2-shell #supervision .superCard td,
+html[data-theme="dark"] body.v2-shell #supervision .rbnCard td,
+html[data-theme="dark"] body.v2-shell #supervision .topologyInspector dd{color:#eaf2fa!important}
+html[data-theme="dark"] body.v2-shell #supervision table,
+html[data-theme="dark"] body.v2-shell #supervision tbody,
+html[data-theme="dark"] body.v2-shell #supervision tr{background:#17283a!important;color:#eaf2fa!important}
+html[data-theme="dark"] body.v2-shell #supervision th{background:#22394e!important;color:#d1dfed!important;border-color:#425970!important}
+html[data-theme="dark"] body.v2-shell #supervision td{background:transparent!important;border-color:#354b62!important}
+html[data-theme="dark"] body.v2-shell #supervision tbody tr:hover{background:#233c52!important}
+html[data-theme="dark"] body.v2-shell #supervision .topologyStage{background:#152638!important;border-color:#425970!important}
+html[data-theme="dark"] body.v2-shell #supervision .topoNode text{fill:#e6eff9!important;stroke:#152638!important}
+html[data-theme="dark"] body.v2-shell #supervision .topoNode.self text,
+html[data-theme="dark"] body.v2-shell #supervision .topoNode.direct text{fill:#ffffff!important}
+html[data-theme="dark"] body.v2-shell #supervision .topoEdge{stroke:#7183a1;opacity:.5}
+html[data-theme="dark"] body.v2-shell #supervision .topoEdge.pc92{stroke:#a28bc7}
+html[data-theme="dark"] body.v2-shell #supervision .topoEdge.direct{stroke:#5ac5c5;opacity:.85}
+html[data-theme="dark"] body.v2-shell #supervision .topologyInspector .topoRelations{border-color:#425970!important}
+html[data-theme="dark"] body.v2-shell #supervision .topoRelation{background:#22394e!important;border-color:#506c86!important;color:#eaf2fa!important}
+html[data-theme="dark"] body.v2-shell #supervision .topologyHint{background:#22394e!important;color:#c9d9e9!important}
+html[data-theme="dark"] body.v2-shell #supervision .topologyEmpty{color:#c9d9e9!important}
+html[data-theme="dark"] body.v2-shell #supervision input:not([type="checkbox"]),
+html[data-theme="dark"] body.v2-shell #supervision select{background:#22394e!important;color:#f3f8ff!important;border-color:#5d7892!important}
+html[data-theme="dark"] body.v2-shell #supervision input::placeholder{color:#bbccdc!important;opacity:1}
+html[data-theme="dark"] body.v2-shell #supervision .supervisionTabs{background:#17283a!important;border-color:#354b62!important}
+html[data-theme="dark"] body.v2-shell #supervision .supervisionTabs button{background:#22394e!important;border-color:#4a627a!important;color:#e5f0fb!important}
+html[data-theme="dark"] body.v2-shell #supervision .supervisionTabs button.active{background:#12669d!important;border-color:#318ac0!important;color:#fff!important}
+html[data-theme="dark"] body.v2-shell #supervision .healthPill.ok{background:#173e38!important;color:#b8f4d8!important;border-color:#529f8b!important}
+html[data-theme="dark"] body.v2-shell #supervision .updateResultsCard .updateOutput{background:#101f2e!important;color:#e7f0fa!important;border-color:#425970!important}
+html[data-theme="dark"] body.v2-shell #supervision .updateRow{background:#1c3043!important;border-color:#425970!important}
+html[data-theme="dark"] body.v2-shell #supervision .updateRow button{background:#28465f!important;color:#eff7ff!important;border-color:#65829d!important}
+/* The same palette applies when Auto resolves to dark. */
+@media(prefers-color-scheme:dark){html[data-theme="auto"] body.v2-shell #supervision,html[data-theme="auto"] body.v2-shell #supervision .superPanel{background:#0c1623!important;color:#eaf2fa!important}html[data-theme="auto"] body.v2-shell #supervision .rbnCard,html[data-theme="auto"] body.v2-shell #supervision .topologyInspector{background:#17283a!important;color:#eaf2fa!important;border-color:#354b62!important}html[data-theme="auto"] body.v2-shell #supervision .rbnHead strong,html[data-theme="auto"] body.v2-shell #supervision .topologyInspector h3{color:#f2f7fd!important}html[data-theme="auto"] body.v2-shell #supervision .topologyStage{background:#152638!important}html[data-theme="auto"] body.v2-shell #supervision .kpiCard strong{color:#80c9fa!important}}
+
+/* v0.75.0: compact, accessible login in both themes. */
+#loginDialog{width:min(400px,calc(100vw - 32px));max-width:400px;border-radius:16px;overflow:hidden}
+#loginDialog .loginCard{box-sizing:border-box;min-width:0;max-width:none;width:100%;padding:26px 28px}
+#loginDialog .loginCard label{max-width:320px;margin:16px auto;font-size:15px}
+#loginDialog .loginCard input{box-sizing:border-box;width:100%;max-width:320px;min-height:42px;padding:9px 12px;border-radius:9px}
+#loginDialog .dialogActions{max-width:320px;margin:20px auto 0}
+html[data-theme="dark"] #loginDialog{background:#17283a;border:1px solid #50677e;box-shadow:0 22px 70px #0009}
+html[data-theme="dark"] #loginDialog .loginCard{background:#17283a!important;color:#ecf4ff!important}
+html[data-theme="dark"] #loginDialog .loginCard input{background:#243a50!important;color:#f5f9ff!important;border:1px solid #708aa3!important;box-shadow:none!important}
+html[data-theme="dark"] #loginDialog .loginCard input:focus{border-color:#83c5f5!important;outline:2px solid #4d9bd655;outline-offset:1px}
+html[data-theme="dark"] #loginDialog .loginCard button{background:#2778b6!important;color:#fff!important;border-color:#5ba9df!important}
+@media(prefers-color-scheme:dark){html[data-theme="auto"] #loginDialog .loginCard{background:#17283a!important;color:#ecf4ff!important}html[data-theme="auto"] #loginDialog .loginCard input{background:#243a50!important;color:#f5f9ff!important;border:1px solid #708aa3!important}}
+
+/* dxweb-admin 0.77.0: SYSOP-only navigation stays visible, but uses a clearly inactive grey treatment for priv < 9. */
+body.v2-shell .v2NavBtn.sysopDenied,
+body.v2-shell .mainTabs button.sysopDenied,
+.mainTabs button.sysopDenied {
+  opacity:1!important;
+  filter:none!important;
+  cursor:not-allowed!important;
+  pointer-events:none!important;
+  color:#7f8a99!important;
+  background:#303946!important;
+  border-color:#46515f!important;
+  box-shadow:none!important;
+  transform:none!important;
+}
+body.v2-shell .v2NavBtn.sysopDenied .v2Icon,
+body.v2-shell .v2NavBtn.sysopDenied .v2Badge,
+body.v2-shell .v2NavBtn.sysopDenied [class*="badge" i],
+body.v2-shell .v2NavBtn.sysopDenied [class*="tag" i] {
+  color:#8993a0!important;
+  background:#3a4451!important;
+  border-color:#505b68!important;
+  box-shadow:none!important;
+}
+body.v2-shell .v2NavBtn.sysopDenied:hover,
+body.v2-shell .mainTabs button.sysopDenied:hover,
+.mainTabs button.sysopDenied:hover {
+  color:#7f8a99!important;
+  background:#303946!important;
+  border-color:#46515f!important;
+}
+html[data-theme="light"] body.v2-shell .v2NavBtn.sysopDenied,
+html[data-theme="light"] body.v2-shell .mainTabs button.sysopDenied {
+  color:#87909a!important;
+  background:#d9dde2!important;
+  border-color:#c5cbd2!important;
+}
+html[data-theme="light"] body.v2-shell .v2NavBtn.sysopDenied .v2Icon,
+html[data-theme="light"] body.v2-shell .v2NavBtn.sysopDenied .v2Badge,
+html[data-theme="light"] body.v2-shell .v2NavBtn.sysopDenied [class*="badge" i],
+html[data-theme="light"] body.v2-shell .v2NavBtn.sysopDenied [class*="tag" i] {
+  color:#8b949e!important;
+  background:#cbd1d7!important;
+  border-color:#b9c0c8!important;
+}
+/* v0.29 Metrics/Diagnostics additions: preserve existing visual system. */
+.metricsSummaryGrid{margin-top:12px}.diagnosticsScope{margin:12px 2px 0;font-size:.82rem;opacity:.72}.metricsSummaryGrid .superTable td:not(:first-child),.diagnosticsGrid .superTable td:last-child,#diagFilteringRows td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+/* Keep fallback SVG line/area/legend/tooltip colors identical to ECharts palette. */
+.chartSeries.s1{stroke:#3b82f6}.chartArea.s1{fill:#3b82f6}.chartSeries.s2{stroke:#8b5cf6}.chartArea.s2{fill:#8b5cf6}.chartSeries.s3{stroke:#f97316}.chartArea.s3{fill:#f97316}.chartSeries.s4{stroke:#ef4444}.chartArea.s4{fill:#ef4444}.chartSeries.s5{stroke:#06b6d4}.chartArea.s5{fill:#06b6d4}.chartSeries.s6{stroke:#e879f9}.chartArea.s6{fill:#e879f9}.chartSeries.s7{stroke:#f59e0b}.chartArea.s7{fill:#f59e0b}.chartSeries.s8{stroke:#6366f1}.chartArea.s8{fill:#6366f1}.chartSeries.s9{stroke:#ec4899}.chartArea.s9{fill:#ec4899}.chartSeries.s10{stroke:#94a3b8}.chartArea.s10{fill:#94a3b8}
+
+/* v0.34 Top accepted-spot rankings: enough vertical room for 20 readable bars. */
+.metricRankCard .metricChart{min-height:360px;height:360px}
+.metricModal #metricModalChart{min-height:560px}
+.rankFallback{display:grid;gap:3px;padding:8px 12px;font-size:12px}.rankFallback div{display:flex;justify-content:space-between;gap:16px}
+
+/* v0.35: persistent Metrics controls and exact rate-summary column alignment. */
+body.v2-shell #metrics .metricsHead{position:sticky!important;top:0!important;z-index:35!important;background:var(--v2-surface)!important;border:1px solid var(--v2-border)!important;border-radius:10px!important;padding:10px 12px!important;box-shadow:var(--v2-shadow)!important}
+body.v2-shell #metrics .metricsSummaryGrid .superTable{table-layout:fixed!important;width:100%!important}
+body.v2-shell #metrics .metricsSummaryGrid .superTable th:nth-child(1),body.v2-shell #metrics .metricsSummaryGrid .superTable td:nth-child(1){width:30%;text-align:left!important}
+body.v2-shell #metrics .metricsSummaryGrid .superTable th:nth-child(2),body.v2-shell #metrics .metricsSummaryGrid .superTable td:nth-child(2){width:14%;text-align:right!important}
+body.v2-shell #metrics .metricsSummaryGrid .superTable th:nth-child(3),body.v2-shell #metrics .metricsSummaryGrid .superTable td:nth-child(3){width:16%;text-align:right!important}
+body.v2-shell #metrics .metricsSummaryGrid .superTable th:nth-child(4),body.v2-shell #metrics .metricsSummaryGrid .superTable td:nth-child(4){width:13%;text-align:right!important}
+body.v2-shell #metrics .metricsSummaryGrid .superTable th:nth-child(5),body.v2-shell #metrics .metricsSummaryGrid .superTable td:nth-child(5){width:12%;text-align:center!important}
+body.v2-shell #metrics .metricsSummaryGrid .superTable th:nth-child(6),body.v2-shell #metrics .metricsSummaryGrid .superTable td:nth-child(6){width:15%;text-align:left!important}
+
+/* v0.39: sticky controls, diagnostic column alignment, hover help */
+#metrics.section.active{overflow:auto!important;position:relative!important}
+#metrics>.metricsPanel{height:auto!important;min-height:100%!important;overflow:visible!important}
+#diagnostics .superTable{table-layout:fixed}
+#diagnostics .superTable th:last-child,#diagnostics .superTable td:last-child{text-align:right!important;padding-right:14px!important}
+#diagnostics .diagnosticsGrid .superTable th:first-child,#diagnostics .diagnosticsGrid .superTable td:first-child{width:72%!important;text-align:left!important}
+#diagnostics .diagnosticsGrid .superTable th:last-child,#diagnostics .diagnosticsGrid .superTable td:last-child{width:28%!important;text-align:right!important}
+#diagnostics #diagFilteringRows tr td:nth-child(1){width:28%}#diagnostics #diagFilteringRows tr td:nth-child(2){width:52%}#diagnostics #diagFilteringRows tr td:nth-child(3){width:20%;text-align:right!important}
+#diagnostics table:has(#diagFilteringRows) th:nth-child(1){width:28%}#diagnostics table:has(#diagFilteringRows) th:nth-child(2){width:52%}#diagnostics table:has(#diagFilteringRows) th:nth-child(3){width:20%;text-align:right!important}
+.chartHead h3[title],.superCard h3[title]{cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
+
+/* v0.40 diagnostics layout + true workspace-sticky controls */
+#diagnostics .diagnosticsDecisionGrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start;margin-top:12px}
+#diagnostics .diagnosticsDecisionGrid .superCard{min-width:0}
+#diagnostics .diagnosticsRatesGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
+#diagnostics .rateContextTable{table-layout:fixed!important;width:100%!important}
+#diagnostics .rateContextTable th:nth-child(1),#diagnostics .rateContextTable td:nth-child(1){width:30%;text-align:left!important}
+#diagnostics .rateContextTable th:nth-child(2),#diagnostics .rateContextTable td:nth-child(2){width:14%;text-align:right!important}
+#diagnostics .rateContextTable th:nth-child(3),#diagnostics .rateContextTable td:nth-child(3){width:16%;text-align:right!important}
+#diagnostics .rateContextTable th:nth-child(4),#diagnostics .rateContextTable td:nth-child(4){width:13%;text-align:right!important}
+#diagnostics .rateContextTable th:nth-child(5),#diagnostics .rateContextTable td:nth-child(5){width:12%;text-align:center!important}
+#diagnostics .rateContextTable th:nth-child(6),#diagnostics .rateContextTable td:nth-child(6){width:15%;text-align:left!important}
+#diagnostics .diagnosticsDecisionGrid .superTable th:last-child,#diagnostics .diagnosticsDecisionGrid .superTable td:last-child{text-align:right!important;width:28%!important}
+@media(max-width:1150px){#diagnostics .diagnosticsDecisionGrid{grid-template-columns:1fr 1fr}#diagnostics .diagFilteringCard{grid-column:1/-1}#diagnostics .diagnosticsRatesGrid{grid-template-columns:1fr}}
+
+/* v0.41 verified UI corrections */
+/* The section is the actual scroll container. Do not let the metrics panel clip its sticky header. */
+body.v2-shell #metrics.section.active{overflow:auto!important;position:relative!important}
+body.v2-shell #metrics .metricsPanel{overflow:visible!important;height:auto!important;max-height:none!important;min-height:100%!important}
+body.v2-shell #metrics .metricsHead{position:sticky!important;top:0!important;z-index:140!important;margin:0 0 14px!important;padding:12px 14px!important;border:1px solid var(--v2-border)!important;border-radius:10px!important;background:var(--v2-surface)!important;box-shadow:var(--v2-shadow)!important}
+/* Diagnostics: 50% filtering + 25% origin + 25% neighbour. */
+body.v2-shell #diagnostics .diagnosticsDecisionGrid{grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr)!important;gap:12px!important}
+body.v2-shell #diagnostics .diagnosticsDecisionGrid .superTable th:last-child,
+body.v2-shell #diagnostics .diagnosticsDecisionGrid .superTable td:last-child{text-align:right!important;width:72px!important}
+@media(max-width:1150px){body.v2-shell #diagnostics .diagnosticsDecisionGrid{grid-template-columns:1fr 1fr!important}body.v2-shell #diagnostics .diagFilteringCard{grid-column:1/-1!important}}
+@media(max-width:760px){body.v2-shell #diagnostics .diagnosticsDecisionGrid{grid-template-columns:1fr!important}body.v2-shell #diagnostics .diagFilteringCard{grid-column:auto!important}}
+/* Visual cue for all elements that carry explanatory hover text. */
+body.v2-shell [data-help],body.v2-shell h3[title],body.v2-shell .kpiLabel[title]{cursor:help}
+
+/* v0.44 rank charts: vertical Top-30 presentation */
+.metricRankCard .metricChart{min-height:380px;height:380px}
+
+/* v0.46 diagnostics input tables share one row. */
+#diagnostics .diagnosticsInputGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
+#diagnostics .diagnosticsInputGrid .superCard{min-width:0}
+@media(max-width:1050px){#diagnostics .diagnosticsInputGrid{grid-template-columns:1fr}}
+
+/* Spot columns v0.60.4 — responsive optional groups and resizable Comment. */
+.spotOptionalControls{display:flex;align-items:center;gap:12px;min-width:0;margin-right:12px}
+.spotOptionGroup{display:flex;align-items:center;gap:5px;white-space:nowrap;font-size:11px;line-height:1.05}
+.spotOptionGroup>span{font-weight:600}
+.spotOptionChecks{display:flex;flex-direction:column;gap:2px}
+.spotOptionChecks label{display:flex;align-items:center;gap:3px;cursor:pointer;margin:0;white-space:nowrap}
+.spotOptionChecks input{margin:0;padding:0!important;width:12px;height:12px;flex:0 0 12px;box-sizing:border-box}
+.spotTable{table-layout:fixed!important;min-width:0!important}
+.spotTable col{width:auto}
+.spotTable th,.spotTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.spotTable th:nth-child(3),.spotTable td:nth-child(3){text-align:right}
+.spotTable th.commentHeader{position:sticky;overflow:visible}
+.commentHeader{position:relative}
+.commentResizeHandle{position:absolute;right:0;top:0;bottom:0;width:9px;cursor:col-resize;touch-action:none;z-index:5}
+.commentResizeHandle:hover{background:rgba(55,115,190,.25)}
+.spotResultArea{min-width:0;overflow-x:auto}
+@media(max-width:1050px){.spotOptionalControls{gap:6px;margin-right:6px}.spotOptionGroup{font-size:10px;gap:3px}}
+
+/* Keep the controls in the existing toolbar height; scroll horizontally if needed. */
+.panelHead:has(.spotOptionalControls){flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden}
+.panelHead:has(.spotOptionalControls)>div{flex-wrap:nowrap;flex-shrink:0}
+
+/* Spot core cells must never be ellipsized. Comment alone may clip. */
+.spotTable tbody td:nth-child(-n+5){text-overflow:clip!important}
+.spotOptionGroup input[data-spot-group]{margin:0 3px 0 0;padding:0!important;width:12px;height:12px;flex:0 0 12px}
+
+/* Spot layout 0.60.4: same-size filter labels and no unnecessary horizontal overflow. */
+.spotOptionalControls .spotOptionGroup{font-size:14px!important;line-height:normal;font-weight:600;gap:4px}
+.spotOptionalControls input[data-spot-group]{width:14px;height:14px;flex-basis:14px}
+.spotTable th:nth-child(3),.spotTable td:nth-child(3){padding-right:8px!important}
+.spotTable{box-sizing:border-box!important;max-width:none}
+
+/* Optional operator locator; no additional Operation bar height. */
+.geoLocatorControl{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:14px;font-weight:600;margin-right:10px}
+.geoLocatorControl input{width:84px;min-width:84px;box-sizing:border-box;font:inherit;font-size:13px;padding:3px 5px}
+.geoLocatorControl input:invalid{outline:2px solid #c55}
+
+/* Stable Comment header alignment regardless of optional header rows. */
+.spotTable thead .spotHeadGroup th.commentHeader{ text-align:left!important; padding-left:8px!important; }
+/* Compact Spots heading only; preserve the other panel headings. */
+.spotTitleLine h2{font-size:17px!important;}
+
+/* Geographic values: right-aligned, including the unit and column heading. */
+.spotTable th.spotGeoNumeric,.spotTable td.spotGeoNumeric{text-align:right!important;font-variant-numeric:tabular-nums;}
+
+/* Spot presentation: per-session text size, alternating rows and new-feed emphasis. */
+#spots .spotResultArea .spotTable{font-size:calc(1em * var(--spot-font-scale,1))!important}
+#spots .spotResultArea .spotTable tbody td{font-size:inherit!important}
+#spots .spotTable tbody tr:nth-child(even){background:rgba(85,126,162,.075)}
+#spots .spotTable tbody tr:nth-child(odd){background:transparent}
+#spots .spotTable tbody tr.spotFresh{background:rgba(57,174,119,.26)!important;animation:spotNewFade 3s ease-out both}
+@keyframes spotNewFade{0%,45%{background-color:rgba(57,174,119,.32)}100%{background-color:transparent}}
+.spotFontControl{display:inline-flex;align-items:center;gap:2px;white-space:nowrap;margin-left:12px}
+.spotFontControl button{min-width:27px;padding:3px 6px;font:inherit;cursor:pointer}
+.spotFontControl #spotFontReset{min-width:57px;font-variant-numeric:tabular-nums}
+@media(max-width:850px){
+ #spots .panelHead:has(.spotOptionalControls){flex-wrap:wrap!important;overflow:visible!important;align-items:flex-start}
+ #spots .panelHead:has(.spotOptionalControls)>div{flex-wrap:wrap!important;flex-shrink:1!important;min-width:0}
+ #spots .spotTitleLine{flex-wrap:wrap;gap:8px 12px}
+ #spots .spotOptionalControls{flex-wrap:wrap;gap:6px 10px}
+ #spots .geoLocatorControl{margin-right:4px}
+}
+@media(max-width:480px){.spotFontControl{margin-left:0}#spots .spotTitleLine{width:100%}}
+@media(prefers-reduced-motion:reduce){#spots .spotTable tbody tr.spotFresh{animation:none;background:rgba(57,174,119,.19)!important}}
+
+/* Console text-size controls, same visual language as Spots. */
+.consoleFontControl{display:inline-flex;align-items:center;gap:2px;white-space:nowrap;margin-left:auto}
+.consoleFontControl button{min-width:27px;padding:3px 6px;font:inherit;cursor:pointer}
+.consoleFontControl #consoleFontReset{min-width:57px;font-variant-numeric:tabular-nums}
+
+/* v0.78.18: responsive sidebar variables applied after historical :root overrides.
+   761-1180px uses icon-only navigation; <=760px retains horizontal navigation. */
+@media (min-width:761px) and (max-width:1180px){
+ :root{--v2-side:74px}
+ .v2Logo div,.v2NavBtn span:last-child,.v2SidebarFoot span:last-child{display:none}
+ .v2Logo,.v2NavBtn{justify-content:center;padding-left:0;padding-right:0}
+ .v2Icon{width:auto}
+ .v2Sidebar{padding-left:10px;padding-right:10px}
+}
+@media (max-width:760px){:root{--v2-side:0px}}
+
+/* v0.78.19: phone-size Spots controls. Scope to Admin only; do not change desktop.
+   Optional column selections remain in JS/storage and reappear on larger screens. */
+@media (max-width:760px){
+ #spots .spotTitleLine{display:flex;align-items:center;flex-wrap:nowrap;gap:4px;min-width:0;width:100%}
+ #spots .spotTitleLine h2{display:none!important}
+ #spots .spotFeedChecks{display:flex;align-items:center;gap:4px;flex:0 0 auto;font-size:11px}
+ #spots .spotFeedChecks label{display:inline-flex;align-items:center;gap:2px;white-space:nowrap}
+ #spots .spotOrderToggle{flex:0 0 auto;min-width:0;padding:3px 4px;font-size:10px;white-space:nowrap}
+ #spots .spotFontControl{display:inline-flex;align-items:center;gap:2px;margin-left:0;flex:0 0 auto}
+ #spots .spotFontControl button{min-width:22px;padding:3px 4px;font-size:11px}
+ #spots .spotFontControl #spotFontReset{min-width:37px;width:37px;padding:3px 1px;font-size:10px}
+ #spots .geoLocatorControl,#spots .spotOptionalControls{display:none!important}
+ #spots .panelHead{min-width:0}
+ #spots .spotResultArea{min-width:0;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+}
+@media (max-width:350px){
+ #spots .spotTitleLine{gap:2px}
+ #spots .spotFeedChecks{gap:2px}
+ #spots .spotFontControl{gap:1px}
+}
+
+/* 0.78.27: numeric placeholder alignment without altering columns. */
+.superTable td.unitCell{text-align:right!important}
+.superTable td.unitCell:not(:has(.vu)){padding-right:8px!important}
+/* Match numeric header position to value-unit cells on PC92 tables. */
+.pc92Activity th:not(:first-child),.pc92Totals th:not(:first-child){padding-right:8px!important}
+.pc92Neighbour .pc92IoHead{padding-right:7px!important}
+.nodePeerTable th.bytesHead{padding-right:8px!important}
+
+/* Responsive spot columns: field classes avoid positional drift when C/R is hidden. */
+#spots .spotTable th.spotField-freq,#spots .spotTable td.spotField-freq{text-align:right!important;padding-right:8px!important}
+#spots .spotTable th.spotField-dx,#spots .spotTable td.spotField-dx,#spots .spotTable th.spotField-spotter,#spots .spotTable td.spotField-spotter{text-align:left!important;padding-left:8px!important}
+
+/* Independent panel zoom; affects output, not toolbars or command forms. */
+.panelZoomControl{display:inline-flex;align-items:center;gap:3px;margin-left:10px;white-space:nowrap}
+.panelZoomControl button{font:inherit;font-size:12px;min-width:26px;padding:3px 5px;cursor:pointer}
+.panelZoomControl [data-zoom-reset]{min-width:52px;font-variant-numeric:tabular-nums}
+#filters .commandOutput,#ann .feedlog,#wwv .feedlog,#wcy .feedlog,#contest .commandOutput{font-size:calc(13px * var(--panel-zoom,1))!important}
+@media(max-width:760px){.panelZoomControl{margin-left:4px;gap:2px}.panelZoomControl button{padding:2px 4px;min-width:23px}}
+
+/* Visual filter editor, reused from DXWeb */
+/* Compact visual filter editor v2.8.20 */
+.vf-toolbar{display:flex;align-items:end;gap:6px;flex-wrap:wrap;margin-bottom:6px}.vf-toolbar label{display:flex;flex-direction:column;gap:2px;font-size:11px}.vf-toolbar select{min-width:0;max-width:110px}.vf-rules{display:grid;gap:3px;max-height:155px;overflow:auto;margin:6px 0}.vf-rule{display:flex;gap:4px;align-items:center}.vf-rule button:first-child{flex:1;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}.vf-rule button:last-child,.vf-cond>button{min-width:28px;padding:3px}.vf-cond{display:flex;gap:5px;align-items:center;margin:4px 0;flex-wrap:wrap}.vf-cond select{max-width:130px;min-width:65px}.vf-cond .vf-value{flex:0 1 auto}.vf-cond input{width:auto;min-width:5ch;max-width:22ch}.vf-cond details{position:relative}.vf-cond summary{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;border:1px solid #b9cad9;padding:5px;border-radius:4px}.vf-bandchoices{display:grid;grid-template-columns:repeat(4,minmax(65px,1fr));gap:3px;max-height:150px;overflow:auto;padding:5px;border:1px solid #cddae6;background:#fff}.vf-bandchoices label{white-space:nowrap;font-size:12px}.vf-bandchoices input{min-width:0}.vf-toolbar button{white-space:nowrap}#vfEditor{border-top:1px solid #d5e0ea;padding-top:7px}#vfEditor[hidden],#vfAdvancedArea[hidden]{display:none}#vfAdvancedArea input{width:100%;max-width:100%}
+
+/* v2.8.21: narrow Field selector, leave space for value and row actions */
+.vf-cond select{max-width:185px;min-width:110px}.vf-cond .vf-value input{max-width:20ch}
+
+/* v2.8.22: editable nested condition groups */
+.vf-node{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:4px 0}.vf-node.vf-group{display:block;border-left:2px solid #8ea8c1;padding:3px 0 3px 9px;margin:6px 0}.vf-grouphead{display:flex;gap:5px;align-items:center;margin-bottom:4px}.vf-node button{padding:3px 7px;min-width:24px}.vf-node .vf-value input{width:auto;max-width:20ch}.vf-node .vf-value select{max-width:9ch}.vf-node>select{max-width:185px}
+
+/* v2.8.23: outer-level logical combination */
+#vfWrapAnd{font-weight:600}
+
+/* v2.8.26: visual nesting, distinct group rails and bounded vertical scrolling */
+#vfConditions{max-height:min(52vh,510px);overflow-y:auto;overflow-x:auto;scrollbar-gutter:stable;padding:6px 10px 12px 3px;overscroll-behavior:contain}
+#vfConditions .vf-group{--vf-rail: #3485b8;border-left:3px solid var(--vf-rail);border-bottom:2px solid var(--vf-rail);border-radius:0 0 0 7px;padding:5px 0 8px 10px;margin:8px 0 10px 2px;position:relative;background:color-mix(in srgb,var(--vf-rail) 4%,transparent)}
+#vfConditions .vf-group[style*="--vf-depth: 1"]{--vf-rail:#b077bd}
+#vfConditions .vf-group[style*="--vf-depth: 2"]{--vf-rail:#c18b38}
+#vfConditions .vf-group[style*="--vf-depth: 3"]{--vf-rail:#3e9d84}
+#vfConditions .vf-grouphead{position:sticky;left:0;z-index:1}
+#vfConditions .vf-grouphead:before{content:attr(data-label);font-size:10px;color:var(--vf-rail);font-weight:700}
+#vfConditions .vf-group:hover{background:color-mix(in srgb,var(--vf-rail) 9%,transparent)}
+#vfRestoreVisual[hidden]{display:none}
+
+/* v2.8.26: character-accurate parenthesis spans; alternating upper/lower lanes */
+.vf-preview-visual{overflow-x:auto;overflow-y:hidden;background:#fff;border:1px solid #d5e0ea;padding:8px 10px;margin:5px 0;max-width:100%}
+.vf-preview-line{position:relative;display:table;width:max-content;white-space:pre;font:12px/20px ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;tab-size:4;color:#20334a}
+.vf-preview-bar{position:absolute;display:block;height:3px;border-radius:2px;pointer-events:auto;opacity:.92}
+.vf-preview-bar:hover{height:5px;filter:brightness(.85)}
+#filterPreviewText[hidden]{display:none}
+
+
+#filters .vf-split{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(260px,1fr);gap:12px;align-items:start}#filters .vf-left,#filters .vf-right{min-width:0}#filters .filterBuilder{border:1px solid #d5e0ea;border-radius:6px;padding:10px;background:#f8fbfe}#filters .filterBuilderHelp{font-size:12px;margin-top:7px}#filters .vf-response-title{font-weight:600;margin-bottom:8px}#filters .vf-right .resultArea{min-height:180px;max-height:350px;overflow:auto}#filters .vf-left button,#filters .vf-left select{cursor:pointer}@media(max-width:850px){#filters .vf-split{grid-template-columns:minmax(0,1fr)}}
+
+/* Filters: retain DXWeb's full-height two-column editor in Admin v0.78.33. */
+body.v2-shell #operation #filters.panel.active{min-height:0!important;overflow:hidden!important}
+body.v2-shell #operation #filters .vf-split{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:10px;flex:1 1 auto;min-height:0;min-width:0;overflow:hidden;align-items:stretch}
+body.v2-shell #operation #filters .vf-left,body.v2-shell #operation #filters .vf-right{min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+body.v2-shell #operation #filters .vf-left{overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;overscroll-behavior:contain}
+body.v2-shell #operation #filters .vf-left .filterBuilder{margin:0;min-width:0;flex:0 0 auto}
+body.v2-shell #operation #filters .vf-right{border:1px solid var(--ui-border,#d5e0ea);border-radius:6px;padding:10px;background:var(--ui-surface,#f8fbfe)}
+body.v2-shell #operation #filters .vf-response-title{font-weight:700;color:var(--ui-accent,#155aa8);font-size:14px;margin-bottom:8px}
+body.v2-shell #operation #filters .vf-right .resultArea{flex:1 1 auto!important;min-height:0!important;max-height:none!important;overflow:auto!important;background:var(--ui-surface,#fff);white-space:pre-wrap}
+body.v2-shell #operation #filters .vf-right .commandBar{margin-top:0!important;flex:0 0 auto!important;min-width:0;width:100%;box-sizing:border-box}
+body.v2-shell #operation #filters .vf-right .commandBar input{min-width:0;flex:1}
+@media(max-width:850px){body.v2-shell #operation #filters.panel.active{overflow-y:auto!important}body.v2-shell #operation #filters .vf-split{display:flex;flex-direction:column;overflow:visible;min-height:auto;flex:0 0 auto}body.v2-shell #operation #filters .vf-left{overflow:visible;flex:0 0 auto}body.v2-shell #operation #filters .vf-right{min-height:260px;flex:0 0 300px}body.v2-shell #operation #filters .vf-right .resultArea{min-height:150px!important}}
+
+/* v0.78.34: preserve the full C/R heading and source values in Spots. */
+#spots .spotTable th.spotField-type,
+#spots .spotTable td.spotField-type{padding-left:3px!important;padding-right:3px!important;text-align:center!important;text-overflow:clip!important}
+
+/* Live Debug */
+body.v2-shell #liveDebugSection.section.active{display:flex!important;flex-direction:column;min-height:0!important;height:calc(100vh - 125px)!important}
+body.v2-shell #liveDebug.panel{display:flex!important;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+.liveDebugToolbar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:12px;border-bottom:1px solid var(--v2-border)}
+.liveDebugToolbar label{display:flex;align-items:center;gap:6px;font-size:12px}.liveDebugToolbar input,.liveDebugToolbar select{max-width:170px}
+#liveDebugOutput{flex:1;min-height:0;overflow:auto;margin:0;padding:14px;white-space:pre;overflow-wrap:normal;word-break:normal;font-family:monospace;font-size:calc(13px * var(--panel-zoom,1))!important;line-height:1.45}
+.liveDebugMatch{background:rgba(245,158,11,.25)}
+
+/* v0.78.37: legible Live Debug toolbar labels. */
+body.v2-shell #liveDebug .liveDebugToolbar label{font-size:15px;font-weight:600}
+
+/* v0.78.38: Live Debug text contrast in dark/light/automatic themes. */
+html[data-theme="dark"] body.v2-shell #liveDebugOutput,
+body.theme-dark.v2-shell #liveDebugOutput{background:#0b1220!important;color:#e5e7eb!important}
+html[data-theme="light"] body.v2-shell #liveDebugOutput{background:#f5f8fb!important;color:#24384b!important}
+@media(prefers-color-scheme:dark){
+ html[data-theme="auto"] body.v2-shell #liveDebugOutput{background:#0b1220!important;color:#e5e7eb!important}
+}
+@media(prefers-color-scheme:light){
+ html[data-theme="auto"] body.v2-shell #liveDebugOutput{background:#f5f8fb!important;color:#24384b!important}
+}
+body.v2-shell #liveDebugOutput .liveDebugMatch{background:#fbbf24!important;color:#111827!important}
+
+/* Terminal Linux: independent zoom and scrollback, no line wrapping of source PTY. */
+body.v2-shell #terminalSection.section.active{display:flex!important;flex-direction:column;min-height:0!important;height:calc(100vh - 125px)!important}
+body.v2-shell #terminal.panel{display:flex!important;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+.terminalToolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px;border-bottom:1px solid var(--v2-border)}
+.terminalToolbar label{font-size:15px;font-weight:600;display:flex;gap:8px;align-items:center}
+.terminalToolbar input{min-width:180px}.terminalToolbar span{font-size:12px;opacity:.75}
+#terminalOutput{flex:1;min-height:0;overflow:hidden;padding:10px;background:#0b1220;color:#e5e7eb}
+#terminalOutput .xterm{height:100%}
+
+/* Cross-app visual baseline v1: ordinary action controls only.
+ * Do not affect panel zoom, terminal/xterm, table typography or sidebar. */
+.commandBar button,.dialogActions button{
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:16px!important;
+  line-height:1.25;
+  border-radius:6px;
+  padding:7px 12px;
+}
+button:focus-visible,input:focus-visible,select:focus-visible{
+  outline:2px solid #2563eb;
+  outline-offset:2px;
+}
+.commandBar,.dialogActions{min-width:0}
+.commandBar input,.dialogActions button{min-width:0}
+@media(max-width:700px){
+  .commandBar,.dialogActions{flex-wrap:wrap;gap:8px}
+  .commandBar input{flex:1 1 140px;max-width:100%}
+}
+
+/* Cross-app visual normalization v2: shared geometry for ordinary controls.
+ * Panel zoom, spot zoom, terminal, sidebar and icon-only buttons are excluded. */
+:root{--dxui-control-height:26px;--dxui-control-radius:6px;--dxui-control-font:14px}
+.commandBar button,.dialogActions button,.bottomCommand button,
+.tabs button{
+  box-sizing:border-box;
+  height:var(--dxui-control-height);
+  min-height:var(--dxui-control-height);
+  max-height:var(--dxui-control-height);
+  border-radius:var(--dxui-control-radius);
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:var(--dxui-control-font)!important;
+  line-height:1.2!important;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  vertical-align:middle;
+}
+@media(max-width:700px){
+  :root{--dxui-control-height:26px;--dxui-control-font:12px}
+}
+
+/* Spots use DXWeb's actual monospace stack. Override the v2-shell table
+ * Arial !important rule without affecting administrative tables or zoom. */
+body.v2-shell #spots .spotResultArea .spotTable,
+body.v2-shell #spots .spotResultArea .spotTable tbody td{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;
+}
+body.v2-shell #spots .spotResultArea .spotTable tbody td{
+  font-size:inherit!important;
+  line-height:normal;
+}
+
+/* Cross-app visual geometry v3: matched spots and ordinary form controls.
+ * Preserve per-panel zoom, icon-only actions and specialist layouts. */
+:root{
+  --dxui-spot-row-padding-y:5px;
+  --dxui-spot-row-line-height:normal;
+  --dxui-spot-row-font:16px;
+  --dxui-input-height:26px;
+}
+#spots .spotResultArea .spotTable{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;
+  font-size:calc(var(--dxui-spot-row-font) * var(--spot-font-scale,1))!important;
+  line-height:var(--dxui-spot-row-line-height)!important;
+}
+#spots .spotResultArea .spotTable tbody td{
+  font-family:inherit!important;
+  font-size:inherit!important;
+  font-weight:400!important;
+  line-height:inherit!important;
+  padding-top:var(--dxui-spot-row-padding-y)!important;
+  padding-bottom:var(--dxui-spot-row-padding-y)!important;
+  vertical-align:middle;
+}
+#spots .spotResultArea .spotTable thead th{
+  line-height:1.2!important;
+  vertical-align:middle;
+}
+.commandBar input:not([type="checkbox"]),
+.dialogActions input:not([type="checkbox"]){
+  box-sizing:border-box;
+  height:var(--dxui-input-height);
+  min-height:var(--dxui-input-height);
+  border-radius:5px;
+}
+@media(max-width:700px){
+  :root{--dxui-input-height:26px}
+}
+
+/* Admin v2 overrides: match DXWeb spot row geometry and ordinary command bars. */
+body.v2-shell #spots .spotResultArea .spotTable tbody td{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;
+  font-size:inherit!important;
+  line-height:inherit!important;
+  padding-top:var(--dxui-spot-row-padding-y)!important;
+  padding-bottom:var(--dxui-spot-row-padding-y)!important;
+}
+body.v2-shell #operation .opCommandForm input:not([type="checkbox"]),
+body.v2-shell #operation .opCommandForm button{
+  height:var(--dxui-control-height)!important;
+  min-height:var(--dxui-control-height)!important;
+  max-height:var(--dxui-control-height)!important;
+}
+body.v2-shell #operation .opCommandForm input:not([type="checkbox"]){
+  font-size:var(--dxui-control-font)!important;
+}
+
+
+/* Cross-app visual normalization v4: shared toolbar and navigation geometry.
+ * Explicitly scoped to equivalent UI controls; never affect spot/console zoom,
+ * terminal emulator, filter-builder micro-actions or data-table cells. */
+:root{
+  --dxui-toolbar-gap:6px;
+  --dxui-toolbar-pad-x:10px;
+  --dxui-control-line:1.2;
+}
+.panelHead button.runBtn,.panelHead button.clearBtn,
+.panelHead #spotOpen,.panelHead #spotOrderToggle{
+  box-sizing:border-box;
+  height:var(--dxui-control-height);
+  min-height:var(--dxui-control-height);
+  max-height:var(--dxui-control-height);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:var(--dxui-control-radius);
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:var(--dxui-control-font)!important;
+  line-height:var(--dxui-control-line)!important;
+  vertical-align:middle;
+}
+.panelHead .panelZoomControl{align-items:center}
+.commandBar,.dialogActions{gap:var(--dxui-toolbar-gap)}
+.commandBar button,.dialogActions button,.bottomCommand button{
+  padding-inline:var(--dxui-toolbar-pad-x);
+}
+@media(min-width:768px){
+  .tabs button{line-height:var(--dxui-control-line)!important}
+}
+@media(max-width:700px){
+  :root{--dxui-toolbar-gap:5px;--dxui-toolbar-pad-x:7px}
+  .dialogActions{justify-content:flex-end}
+  .dialogActions button{max-width:100%}
+}
+
+/* Admin-specific equivalents of DXWeb's normal command/toolbar controls. */
+body.v2-shell #operation .panelHead button.runBtn,
+body.v2-shell #operation .panelHead button.clearBtn,
+body.v2-shell #operation #spots .panelHead #spotOpen,
+body.v2-shell #operation #spots .panelHead #spotOrderToggle,
+body.v2-shell .liveDebugToolbar>button,
+body.v2-shell .terminalToolbar>button{
+  box-sizing:border-box;
+  height:var(--dxui-control-height)!important;
+  min-height:var(--dxui-control-height)!important;
+  max-height:var(--dxui-control-height)!important;
+  border-radius:var(--dxui-control-radius)!important;
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:var(--dxui-control-font)!important;
+  line-height:var(--dxui-control-line)!important;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
+body.v2-shell .liveDebugToolbar,
+body.v2-shell .terminalToolbar{
+  gap:var(--dxui-toolbar-gap);
+  align-items:center;
+  min-width:0;
+}
+body.v2-shell .liveDebugToolbar label,
+body.v2-shell .terminalToolbar label{min-width:0}
+body.v2-shell .liveDebugToolbar input:not([type="checkbox"]),
+body.v2-shell .liveDebugToolbar select,
+body.v2-shell .terminalToolbar input{
+  box-sizing:border-box;
+  height:var(--dxui-input-height)!important;
+  min-height:var(--dxui-input-height)!important;
+  font-size:var(--dxui-control-font)!important;
+  border-radius:var(--dxui-control-radius);
+}
+body.v2-shell #operationTabs button,
+body.v2-shell #registrationTabs button,
+body.v2-shell #supervisionTabs button:not(.panelZoomControl button){
+  box-sizing:border-box;
+  min-height:var(--dxui-control-height)!important;
+  height:var(--dxui-control-height)!important;
+  max-height:var(--dxui-control-height)!important;
+  padding:4px var(--dxui-toolbar-pad-x)!important;
+  font-size:var(--dxui-control-font)!important;
+  line-height:var(--dxui-control-line)!important;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
+@media(max-width:700px){
+  body.v2-shell .liveDebugToolbar,
+  body.v2-shell .terminalToolbar{gap:var(--dxui-toolbar-gap)}
+  body.v2-shell .liveDebugToolbar label,
+  body.v2-shell .terminalToolbar label{max-width:100%}
+  body.v2-shell .liveDebugToolbar input:not([type="checkbox"]),
+  body.v2-shell .terminalToolbar input{max-width:min(100%,220px)}
+}
+
+
+/* Cross-app visual normalization v5: equal-sized spot toolbar controls.
+ * Scope intentionally excludes spot rows and the zoomed content itself. */
+body.v2-shell #operation #spots .panelHead .spotTitleLine,
+body.v2-shell #operation #spots .panelHead > div,
+body.v2-shell #operation #spots .panelHead .spotFeedChecks,
+body.v2-shell #operation #spots .panelHead .spotFontControl,
+body.v2-shell #operation #spots .panelHead .spotOptionalControls { align-items:center; }
+body.v2-shell #operation #spots .panelHead #spotOrderToggle,
+body.v2-shell #operation #spots .panelHead #spotOpen,
+body.v2-shell #operation #spots .panelHead button.clearBtn,
+body.v2-shell #operation #spots .panelHead .spotFontControl button {
+  box-sizing:border-box!important;
+  height:26px!important;
+  min-height:26px!important;
+  max-height:26px!important;
+  padding:0 7px!important;
+  border-radius:5px!important;
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:13px!important;
+  font-weight:400!important;
+  line-height:1.2!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  vertical-align:middle!important;
+  white-space:nowrap;
+}
+body.v2-shell #operation #spots .panelHead .spotFontControl button:not([data-zoom-reset]) {padding-inline:7px!important;min-width:27px!important;}
+body.v2-shell #operation #spots .panelHead .spotFontControl button#spotFontReset {padding-inline:7px!important;}
+body.v2-shell #operation #spots .panelHead .geoLocatorControl input {
+  box-sizing:border-box!important;
+  height:26px!important;
+  min-height:26px!important;
+  max-height:26px!important;
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:13px!important;
+  line-height:1.2!important;
+}
+body.v2-shell #operation #spots .panelHead .spotFeedChecks label,
+body.v2-shell #operation #spots .panelHead .spotOptionalControls label,
+body.v2-shell #operation #spots .panelHead .geoLocatorControl {
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:13px!important;
+  line-height:1.2!important;
+}
+@media(max-width:700px){
+  body.v2-shell #operation #spots .panelHead #spotOrderToggle,
+  body.v2-shell #operation #spots .panelHead #spotOpen,
+  body.v2-shell #operation #spots .panelHead button.clearBtn,
+  body.v2-shell #operation #spots .panelHead .spotFontControl button {
+    height:26px!important;min-height:26px!important;max-height:26px!important;
+    font-size:13px!important;
+    padding-inline:7px!important;
+  }
+}
+
+/* v0.06: compact common toolbar height; match locator boxes (26px). */
+body.v2-shell #operation #spots .panelHead button.runBtn,
+body.v2-shell #operation #spots .panelHead button.clearBtn,
+body.v2-shell #operation #spots .panelHead #spotOpen,
+body.v2-shell #operation #spots .panelHead #spotOrderToggle,
+body.v2-shell #operation #spots .panelHead .spotFontControl button,
+body.v2-shell #operation #spots .panelHead .geoLocatorControl input {
+  box-sizing:border-box!important;
+  height:26px!important;min-height:26px!important;max-height:26px!important;
+  line-height:1.2!important;vertical-align:middle!important;
+}
+
+/* v0.78.54: Live Debug Source selector must display the entire option.
+ * Keep the toolbar wrapping naturally on narrow screens. */
+body.v2-shell #liveDebug .liveDebugToolbar label:has(> #liveDebugSource){
+  flex:0 0 auto;
+  min-width:max-content;
+  max-width:none;
+  white-space:nowrap;
+}
+body.v2-shell #liveDebug #liveDebugSource{
+  box-sizing:border-box;
+  width:96px;
+  min-width:96px;
+  max-width:none;
+  flex:0 0 96px;
+  padding-left:8px;
+  padding-right:20px;
+}
+
+/* v0.78.55: prevent vertical clipping of the selected Live Debug source.
+ * Global form padding (7px vertical) does not fit the normalized 26px control. */
+body.v2-shell #liveDebug #liveDebugSource{
+  padding-top:0!important;
+  padding-bottom:0!important;
+  line-height:normal!important;
+  vertical-align:middle;
+}
+
+/* Network Chat: same typography and independent persistent zoom as feed panels. */
+#networkChatSection #networkChatOutput {font-size:calc(13px * var(--panel-zoom,1))!important;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;min-height:16rem}
+#networkChatSection .networkChatHint {font-size:12px;opacity:.75;padding:0 12px}
+#networkChatSection .panelHead {flex-wrap:wrap;gap:8px}
+#networkChatSection select {max-width:100%;font:inherit}
+
+/* v0.78.57: Network Chat uses the entire available workspace, like Live Debug. */
+body.v2-shell #networkChatSection.section.active{display:flex!important;flex-direction:column!important;height:100%!important;min-height:0!important;overflow:hidden!important}
+body.v2-shell #networkChatSection #networkChat.panel{display:flex!important;flex-direction:column!important;flex:1 1 auto!important;width:100%!important;height:auto!important;min-height:0!important;max-height:none!important;box-sizing:border-box!important;overflow:hidden!important}
+body.v2-shell #networkChatSection #networkChatOutput{flex:1 1 auto!important;min-height:0!important;height:auto!important;max-height:none!important;overflow:auto!important;margin:0!important;white-space:pre-wrap}
+body.v2-shell #networkChatSection .networkChatHint{flex:0 0 auto;margin:8px 0 0;padding:0 4px;font-size:11px}
+@media(max-width:760px){body.v2-shell #networkChatSection.section.active{min-height:65vh!important}body.v2-shell #networkChatSection .panelHead{align-items:flex-start}}
+
+/* Independent log consoles: scoped to Live Debug, existing RAW controls unchanged. */
+.logDeskToolbar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.logWorkspace{position:relative;min-height:650px;border:1px solid var(--border,#536477);border-radius:8px;overflow:auto}
+.logFloat{position:absolute;width:min(570px,94%);height:300px;min-width:300px;min-height:190px;resize:both;overflow:hidden;display:flex;flex-direction:column;background:var(--panel-bg,#192330);color:var(--text,#e5e7eb);border:1px solid #728198;border-radius:8px;box-shadow:0 6px 20px #0004}
+.logFloatHead{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 8px;cursor:move;background:var(--surface,#334155);touch-action:none}
+.logFloatActions{display:flex;gap:3px;align-items:center}.logFloatActions button{padding:2px 5px}
+.logFloatBar{display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding:6px}.logFloatBar>input:first-child{flex:1;min-width:100px}
+.logFloatOutput{flex:1;min-height:0;overflow:auto;margin:0;padding:8px;background:#0b1220;color:#e5e7eb;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.45 monospace}
+.logFloatState{font-size:11px;padding:3px 8px}.logMax{left:0!important;top:0!important;width:100%!important;height:100%!important;resize:none}
+@media(max-width:700px){.logWorkspace{min-height:600px}.logFloat{width:96%!important;left:2%!important;min-width:0}.logFloatHead{cursor:default}.logFloatActions{flex-wrap:wrap}}
+
+/* v0.78.62: compact log workspace controls on the Source toolbar. */
+body.v2-shell #liveDebug .liveDebugToolbar .logDeskToolbar{display:inline-flex;align-items:center;gap:var(--dxui-toolbar-gap,5px);flex-wrap:wrap;margin:0 0 0 auto;padding:0}
+body.v2-shell #liveDebug .liveDebugToolbar .logDeskToolbar button{box-sizing:border-box;height:var(--dxui-control-height,28px);min-height:0;padding:0 8px;font-family:Arial,Helvetica,sans-serif;font-size:var(--dxui-control-font,12px);border-radius:var(--dxui-control-radius,5px)}
+body.v2-shell #liveDebug .logFloatHead button,body.v2-shell #liveDebug .logFloatBar button{font-size:11px;line-height:1.15;padding:3px 6px;min-height:22px;height:auto}
+body.v2-shell #liveDebug .logFloatActions{flex-wrap:nowrap}
+body.v2-shell #liveDebug .logFloat{min-width:0}
+@media(max-width:700px){body.v2-shell #liveDebug .liveDebugToolbar .logDeskToolbar{margin-left:0}}
+
+/* v0.78.64: unified compact Debug workbench. */
+body.v2-shell #liveDebugSection.section.active{height:auto!important;min-height:calc(100vh - 125px)!important}
+body.v2-shell #liveDebug.panel{flex:0 0 auto;overflow:visible}
+body.v2-shell #liveDebugOutput[hidden]{display:none!important}
+body.v2-shell #liveDebug .liveDebugToolbar{padding:6px 9px;gap:5px}
+body.v2-shell #liveDebug .liveDebugToolbar button,body.v2-shell #liveDebug .liveDebugToolbar select,body.v2-shell #liveDebug .liveDebugToolbar input{height:var(--dxui-control-height,28px);min-height:0;box-sizing:border-box}
+body.v2-shell #liveDebug .logFloatHead button,body.v2-shell #liveDebug .logFloatBar button,body.v2-shell #liveDebug .logFloatBar input:not([type="checkbox"]){height:var(--dxui-control-height,28px);min-height:0;box-sizing:border-box;padding:0 6px;font-size:var(--dxui-control-font,12px);border-radius:var(--dxui-control-radius,5px)}
+body.v2-shell #liveDebug .logFloatBar label{font-size:12px;display:inline-flex;align-items:center;gap:3px}
+body.v2-shell #liveDebug .logFloatBar input[type="checkbox"]{width:14px;height:14px}
+body.v2-shell #liveDebug .logFloatActions{flex-shrink:0}
+body.v2-shell #liveDebug .logFloatHead{min-height:32px}
+body.v2-shell #liveDebug .logFloatOutput{white-space:pre;overflow-wrap:normal;word-break:normal}
+body.v2-shell .logWorkspace{flex:1 1 auto;min-height:calc(100vh - 270px);overflow:auto}
+.logHelpDialog{width:min(740px,95vw);max-height:85vh;overflow:auto;border:1px solid #728198;border-radius:9px;background:var(--panel-bg,#192330);color:var(--text,#e5e7eb);padding:18px;box-shadow:0 15px 60px #0008}
+.logHelpDialog::backdrop{background:#0009}
+.logHelpTop{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.logHelpContent{line-height:1.55;font-size:13px}
+.logHelpContent code{font-family:monospace;background:#64748b25;padding:1px 4px;border-radius:3px}
+@media(max-width:700px){body.v2-shell .logWorkspace{min-height:480px}body.v2-shell #liveDebug .logFloat{max-width:100%}}
+
+/* v0.78.65: compact per-window controls; override legacy generic button styles. */
+body.v2-shell #liveDebug .rawLegacyControls[hidden]{display:none!important}
+body.v2-shell #liveDebug .logFloat button,
+body.v2-shell #liveDebug .logFloat input:not([type="checkbox"]){height:var(--dxui-control-height,28px)!important;min-height:0!important;max-height:28px!important;line-height:1.1!important;padding:0 6px!important;font-size:var(--dxui-control-font,12px)!important;font-weight:500!important;box-sizing:border-box!important;border-radius:var(--dxui-control-radius,5px)!important}
+body.v2-shell #liveDebug .logFloatBar{padding:4px 6px;gap:4px}
+body.v2-shell #liveDebug .logFloatHead{padding:3px 6px;min-height:30px}
+body.v2-shell #liveDebug .logFloatBar label{font-size:11px}
+body.v2-shell #liveDebug .logFloatBar input[type="number"]{width:48px!important;min-width:48px!important;flex:0 0 48px!important}
+body.v2-shell #liveDebug .logFloatBar input[type="date"]{width:132px!important;flex:0 0 132px!important}
+body.v2-shell #liveDebug .logFloatBar>input:first-child{min-width:110px;flex:1 1 140px}
+body.v2-shell #liveDebug .logFloatActions button{flex-shrink:0}
+
+/* v0.78.66: force window controls to the exact Source select control metrics. */
+body .logWorkspace .logFloat .logFloatBar button,
+body .logWorkspace .logFloat .logFloatHead button,
+body .logWorkspace .logFloat .logFloatBar input:not([type="checkbox"]),
+body .logWorkspace .logFloat .logFloatBar select {
+  appearance:auto;box-sizing:border-box!important;
+  height:var(--dxui-control-height,28px)!important;
+  min-height:0!important;max-height:var(--dxui-control-height,28px)!important;
+  padding:0 6px!important;margin:0!important;
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:var(--dxui-control-font,12px)!important;
+  font-weight:400!important;line-height:normal!important;
+  border-radius:var(--dxui-control-radius,5px)!important;
+  width:auto;min-width:0;
+}
+body .logWorkspace .logFloat .logFloatBar input[type="number"]{width:48px!important}
+body .logWorkspace .logFloat .logFloatBar input[type="date"]{width:132px!important}
+body .logWorkspace .logFloat .logFloatBar>input:first-child{flex:1 1 140px;min-width:110px}
+
+/* DXWeb Admin logo: left side of the node callsign topbar, not the sidebar. */
+body.v2-shell .v2Topbar{position:relative!important}
+body.v2-shell .v2Topbar .dxAdminTopLogo{position:absolute;left:20px;top:50%;transform:translateY(-50%);display:block;width:clamp(140px,15vw,220px);height:auto;max-height:56px;object-fit:contain;object-position:left center;z-index:1}
+@media(max-width:1180px){body.v2-shell .v2Topbar .dxAdminTopLogo{width:clamp(105px,13vw,165px)}}
+@media(max-width:760px){body.v2-shell .v2Topbar .dxAdminTopLogo{left:8px;width:clamp(64px,16vw,105px);max-height:38px}body.v2-shell .v2Topbar .v2NodeIdentity{margin-left:clamp(68px,17vw,110px)!important;min-width:0}}
+
+
+/* Unified DXSpider night palette v0.01 — presentation only, no layout/behaviour changes.
+   Contrast-oriented navy/slate surfaces; shared tokens across both frontends. */
+html[data-theme="dark"] {
+ --dx-night-bg:#172331;--dx-night-panel:#243447;--dx-night-raised:#2d4156;
+ --dx-night-input:#1c2b3c;--dx-night-border:#60768d;
+ --dx-night-text:#f0f5fa;--dx-night-muted:#c2d0de;
+ --dx-night-accent:#92c9ff;--dx-night-active:#285f9d;
+ --dx-night-hover:#38536e;--dx-night-focus:#ffd178;
+ color-scheme:dark;background:var(--dx-night-bg);color:var(--dx-night-text);
+ --ui-bg:var(--dx-night-bg);--ui-surface:var(--dx-night-panel);
+ --ui-surface-2:var(--dx-night-raised);--ui-surface-3:var(--dx-night-raised);
+ --ui-border:var(--dx-night-border);--ui-text:var(--dx-night-text);
+ --ui-muted:var(--dx-night-muted);--ui-accent:var(--dx-night-accent);
+ --ui-accent-soft:rgba(146,201,255,.18);
+ --v2-bg:var(--dx-night-bg);--v2-surface:var(--dx-night-panel);
+ --v2-border:var(--dx-night-border);--v2-muted:var(--dx-night-muted);
+ --v2-text:var(--dx-night-text);--v2-accent:var(--dx-night-accent);
+ --v2-accent-soft:rgba(146,201,255,.18);
+ --v2-chart-surface:var(--dx-night-panel);--v2-chart-grid:rgba(194,208,222,.23);
+}
+html[data-theme="dark"] body,
+html[data-theme="dark"] body.v2-shell,
+html[data-theme="dark"] body.v2-shell .workspace,
+html[data-theme="dark"] .workspace,
+html[data-theme="dark"] body.v2-shell #supervision .superPanel,
+html[data-theme="dark"] body.v2-shell #metrics.section.active {background:var(--dx-night-bg)!important;color:var(--dx-night-text)!important}
+html[data-theme="dark"] :is(.topbar,.v2Topbar,.v2ContextBar,footer,.panel,.superCard,.kpiCard,.metricChartCard,.chartCard,.metricsPanel,.timelinePanel,.dialogCard,.tabs,.subtabs,.tableWrap,.regTableWrap,.supervisionTableWrap,.supervisionBanner,.resultArea,.filterBuilder,.vf-left,.vf-right,.commandOutput,.feedlog,.logFloat,.logFloatHead,.logFloatBar) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] body.v2-shell :is(.v2Topbar,.v2ContextBar,.metricChartCard,.panel,.superCard,.kpiCard,.tableWrap,.supervisionTableWrap),
+html[data-theme="dark"] body.v2-shell #supervision :is(.superCard,.kpiCard,.tableWrap,.supervisionTableWrap) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(.tabs,.mainTabs,.subtabs,#operationTabs,#registrationTabs,#supervisionTabs) {background:var(--dx-night-panel)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(button,input,select,textarea,.themeToggle),
+html[data-theme="dark"] body.v2-shell #supervision :is(input:not([type="checkbox"]),select,button:not(.active)),
+html[data-theme="dark"] body.v2-shell dialog .dialogCard :is(input,textarea,select,button:not(.dangerButton)) {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(input,textarea)::placeholder {color:var(--dx-night-muted)!important;opacity:1}
+html[data-theme="dark"] :is(button,.themeToggle):hover:not(:disabled) {background:var(--dx-night-hover)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="dark"] :is(.tabs,.subtabs,.mainTabs,.segmented) button.active,
+html[data-theme="dark"] body.v2-shell .segmented button.active,
+html[data-theme="dark"] body.v2-shell #supervision button.active,
+html[data-theme="dark"] #spots .panelHead #spotPause.active {background:var(--dx-night-active)!important;color:#fff!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="dark"] :is(.panelHead h2,.panelHead h3,.dialogCard h2,.nodeCall,.brand,.cardTitle h3) {color:var(--dx-night-accent)!important}
+html[data-theme="dark"] :is(.counter,.fieldHint,.themeControl,.panelSub,.cardHint,.superNote,.metricsMeta,.kpiLabel,.kpiCard small,.chartHead span,.miniHead span,footer,footer .copyright,.brandCopyright) {color:var(--dx-night-muted)!important;opacity:1!important}
+html[data-theme="dark"] :is(th,.spotTable th,.superTable thead th,.regTable thead th),
+html[data-theme="dark"] body.v2-shell #supervision th {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(td,.spotTable td,.superTable td,.regTable td),
+html[data-theme="dark"] body.v2-shell #supervision td {border-color:var(--dx-night-border)!important;color:var(--dx-night-text)!important}
+html[data-theme="dark"] body.v2-shell #supervision td {background:var(--dx-night-panel)!important}
+html[data-theme="dark"] :is(.spotTable,.superTable,.regTable) tbody tr:hover {background:var(--dx-night-hover)!important}
+html[data-theme="dark"] :is(.commandOutput,.feedlog,.consoleOutput,.resultArea) {background:var(--dx-night-input)!important;color:var(--dx-night-text)!important}
+html[data-theme="dark"] :is(.metricRow,.metricRow dt,.metricRow dd,.metricsV2,.metricList dd,.kpiCard strong) {color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(.metricRow dt,.metricList dt) {color:var(--dx-night-muted)!important}
+html[data-theme="dark"] :is(button,input,select,textarea,a,[tabindex]):focus-visible {outline:2px solid var(--dx-night-focus)!important;outline-offset:2px!important}
+html[data-theme="dark"] :is(button,input,select,textarea):disabled {opacity:.58;cursor:not-allowed}
+
+
+@media (prefers-color-scheme:dark) {
+
+/* Unified DXSpider night palette v0.01 — presentation only, no layout/behaviour changes.
+   Contrast-oriented navy/slate surfaces; shared tokens across both frontends. */
+html[data-theme="auto"] {
+ --dx-night-bg:#172331;--dx-night-panel:#243447;--dx-night-raised:#2d4156;
+ --dx-night-input:#1c2b3c;--dx-night-border:#60768d;
+ --dx-night-text:#f0f5fa;--dx-night-muted:#c2d0de;
+ --dx-night-accent:#92c9ff;--dx-night-active:#285f9d;
+ --dx-night-hover:#38536e;--dx-night-focus:#ffd178;
+ color-scheme:dark;background:var(--dx-night-bg);color:var(--dx-night-text);
+ --ui-bg:var(--dx-night-bg);--ui-surface:var(--dx-night-panel);
+ --ui-surface-2:var(--dx-night-raised);--ui-surface-3:var(--dx-night-raised);
+ --ui-border:var(--dx-night-border);--ui-text:var(--dx-night-text);
+ --ui-muted:var(--dx-night-muted);--ui-accent:var(--dx-night-accent);
+ --ui-accent-soft:rgba(146,201,255,.18);
+ --v2-bg:var(--dx-night-bg);--v2-surface:var(--dx-night-panel);
+ --v2-border:var(--dx-night-border);--v2-muted:var(--dx-night-muted);
+ --v2-text:var(--dx-night-text);--v2-accent:var(--dx-night-accent);
+ --v2-accent-soft:rgba(146,201,255,.18);
+ --v2-chart-surface:var(--dx-night-panel);--v2-chart-grid:rgba(194,208,222,.23);
+}
+html[data-theme="auto"] body,
+html[data-theme="auto"] body.v2-shell,
+html[data-theme="auto"] body.v2-shell .workspace,
+html[data-theme="auto"] .workspace,
+html[data-theme="auto"] body.v2-shell #supervision .superPanel,
+html[data-theme="auto"] body.v2-shell #metrics.section.active {background:var(--dx-night-bg)!important;color:var(--dx-night-text)!important}
+html[data-theme="auto"] :is(.topbar,.v2Topbar,.v2ContextBar,footer,.panel,.superCard,.kpiCard,.metricChartCard,.chartCard,.metricsPanel,.timelinePanel,.dialogCard,.tabs,.subtabs,.tableWrap,.regTableWrap,.supervisionTableWrap,.supervisionBanner,.resultArea,.filterBuilder,.vf-left,.vf-right,.commandOutput,.feedlog,.logFloat,.logFloatHead,.logFloatBar) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] body.v2-shell :is(.v2Topbar,.v2ContextBar,.metricChartCard,.panel,.superCard,.kpiCard,.tableWrap,.supervisionTableWrap),
+html[data-theme="auto"] body.v2-shell #supervision :is(.superCard,.kpiCard,.tableWrap,.supervisionTableWrap) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(.tabs,.mainTabs,.subtabs,#operationTabs,#registrationTabs,#supervisionTabs) {background:var(--dx-night-panel)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(button,input,select,textarea,.themeToggle),
+html[data-theme="auto"] body.v2-shell #supervision :is(input:not([type="checkbox"]),select,button:not(.active)),
+html[data-theme="auto"] body.v2-shell dialog .dialogCard :is(input,textarea,select,button:not(.dangerButton)) {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(input,textarea)::placeholder {color:var(--dx-night-muted)!important;opacity:1}
+html[data-theme="auto"] :is(button,.themeToggle):hover:not(:disabled) {background:var(--dx-night-hover)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="auto"] :is(.tabs,.subtabs,.mainTabs,.segmented) button.active,
+html[data-theme="auto"] body.v2-shell .segmented button.active,
+html[data-theme="auto"] body.v2-shell #supervision button.active,
+html[data-theme="auto"] #spots .panelHead #spotPause.active {background:var(--dx-night-active)!important;color:#fff!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="auto"] :is(.panelHead h2,.panelHead h3,.dialogCard h2,.nodeCall,.brand,.cardTitle h3) {color:var(--dx-night-accent)!important}
+html[data-theme="auto"] :is(.counter,.fieldHint,.themeControl,.panelSub,.cardHint,.superNote,.metricsMeta,.kpiLabel,.kpiCard small,.chartHead span,.miniHead span,footer,footer .copyright,.brandCopyright) {color:var(--dx-night-muted)!important;opacity:1!important}
+html[data-theme="auto"] :is(th,.spotTable th,.superTable thead th,.regTable thead th),
+html[data-theme="auto"] body.v2-shell #supervision th {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(td,.spotTable td,.superTable td,.regTable td),
+html[data-theme="auto"] body.v2-shell #supervision td {border-color:var(--dx-night-border)!important;color:var(--dx-night-text)!important}
+html[data-theme="auto"] body.v2-shell #supervision td {background:var(--dx-night-panel)!important}
+html[data-theme="auto"] :is(.spotTable,.superTable,.regTable) tbody tr:hover {background:var(--dx-night-hover)!important}
+html[data-theme="auto"] :is(.commandOutput,.feedlog,.consoleOutput,.resultArea) {background:var(--dx-night-input)!important;color:var(--dx-night-text)!important}
+html[data-theme="auto"] :is(.metricRow,.metricRow dt,.metricRow dd,.metricsV2,.metricList dd,.kpiCard strong) {color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(.metricRow dt,.metricList dt) {color:var(--dx-night-muted)!important}
+html[data-theme="auto"] :is(button,input,select,textarea,a,[tabindex]):focus-visible {outline:2px solid var(--dx-night-focus)!important;outline-offset:2px!important}
+html[data-theme="auto"] :is(button,input,select,textarea):disabled {opacity:.58;cursor:not-allowed}
+
+}
+
+/* Sidebar wordmark v0.78.84: replace old text, remove topbar logo. */
+body.v2-shell .v2Topbar .dxAdminTopLogo{display:none!important}
+body.v2-shell .v2Logo{height:100px!important;min-height:100px!important;box-sizing:border-box!important;padding:5px 4px 12px!important;justify-content:center!important;overflow:hidden!important}
+body.v2-shell .v2Logo .dxAdminSideLogo{display:block!important;width:100%!important;max-width:190px!important;max-height:78px!important;height:auto!important;object-fit:contain!important}
+@media(min-width:761px) and (max-width:1180px){body.v2-shell .v2Logo{height:68px!important;min-height:68px!important;padding:3px!important}body.v2-shell .v2Logo .dxAdminSideLogo{width:65px!important;max-height:56px!important}}
+@media(max-width:760px){body.v2-shell .v2Logo{display:none!important}}
+
+/* Semantic user notices: shared DXWeb / DXWeb Admin palette. */
+:root,html[data-theme="light"] {
+ --dx-notice-buddy:#006f92;--dx-notice-user:#8d3970;
+ --dx-notice-node:#946000;--dx-notice-system:#526174;
+}
+html[data-theme="dark"] {
+ --dx-notice-buddy:#49d9f2;--dx-notice-user:#f0a1ca;
+ --dx-notice-node:#f2c36b;--dx-notice-system:#aab7c8;
+}
+@media (prefers-color-scheme:dark) {
+ html[data-theme="auto"] {
+  --dx-notice-buddy:#49d9f2;--dx-notice-user:#f0a1ca;
+  --dx-notice-node:#f2c36b;--dx-notice-system:#aab7c8;
+ }
+}
+#spots .spotTable tbody td.spotUserNotice {
+ text-align:left!important;font-weight:600;
+ color:var(--dx-notice-system)!important;
+}
+#spots .spotTable tbody td.spotNotice-buddy {color:var(--dx-notice-buddy)!important}
+#spots .spotTable tbody td.spotNotice-user {color:var(--dx-notice-user)!important}
+#spots .spotTable tbody td.spotNotice-node {color:var(--dx-notice-node)!important}
+
+/* Spot views v1.0.7: only new controls; existing panelHead and table styles untouched. */
+#spots .spotViewBar{display:flex;align-items:center;gap:5px;padding:4px 8px;min-width:0;flex-wrap:wrap;border-bottom:1px solid var(--border,#42576a)}
+#spots .spotViewTabs{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+#spots .spotViewBar button,#spots .spotViewBar select{font:inherit;font-size:12px;padding:3px 8px;border-radius:4px}
+#spots .spotViewTab.selected{font-weight:700;outline:1px solid currentColor}
+#spots .spotViewSortLabel{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:12px}
+#spots .spotFilterOverlay[hidden],#spots .spotViewBar [hidden]{display:none!important}
+#spots .spotFilterOverlay{position:fixed;inset:0;z-index:10000;background:#0009;display:flex;align-items:center;justify-content:center;padding:12px}
+#spots .spotFilterModal{background:var(--panel,#203548);color:var(--text,#e7eef5);border:1px solid var(--border,#526c80);border-radius:8px;width:min(650px,100%);max-height:90vh;overflow:auto;padding:16px;box-shadow:0 15px 40px #0006}
+#spots .spotFilterHeading,#spots .spotFilterConditions,#spots .spotFilterActions{display:flex;align-items:center;justify-content:space-between;gap:10px}
+#spots .spotFilterNameLabel{display:flex;align-items:center;gap:12px;margin:14px 0}
+#spots #spotFilterName{width:220px;max-width:70%}
+#spots .spotFilterRule{display:grid;grid-template-columns:110px 135px minmax(100px,1fr) 32px;gap:6px;margin:8px 0}
+#spots .spotFilterRule input{min-width:0}
+#spots .spotFilterHelp{font-size:12px;opacity:.8}
+#spots .spotFilterActions{margin-top:14px}
+#spots .spotFilterActions span{flex:1}
+@media(max-width:540px){#spots .spotFilterRule{grid-template-columns:1fr 1fr 32px}#spots .spotFilterRule input{grid-column:1 / 3;grid-row:2}#spots .spotFilterRule button{grid-column:3;grid-row:1 / 3}}
+/* Match the existing Operation control dimensions without touching existing controls. */
+body.v2-shell #operation #spots .spotViewBar button,
+body.v2-shell #operation #spots .spotViewBar select{
+ box-sizing:border-box;height:26px;min-height:26px;max-height:26px;
+ padding:0 7px;border-radius:5px;font-family:Arial,Helvetica,sans-serif;
+ font-size:13px;font-weight:400;line-height:1.2;
+ background:var(--ui-surface-2);color:var(--ui-text);
+ border:1px solid var(--ui-border,#7890a0);
+}
+body.v2-shell #operation #spots .spotViewBar .spotViewTab.selected{
+ background:var(--ui-accent-soft);color:var(--ui-accent);
+ border-color:var(--ui-accent);outline:0;font-weight:600;
+}
+body.v2-shell #operation #spots .spotFilterModal{
+ background:var(--ui-surface-1,var(--ui-surface-2));color:var(--ui-text);
+ border-color:var(--ui-border,#7890a0);
+}
+
+/* Spot header sorting: active arrow only, preserving existing header dimensions. */
+#spots .spotTable th[data-spot-sort]{cursor:pointer;user-select:none}
+#spots .spotTable th[data-spot-sort]:focus-visible{outline:2px solid currentColor;outline-offset:-2px}
+#spots .spotSortArrow{font-weight:700;white-space:nowrap}
+
+
+/* Spot Views v0.08: keep the UTC label and arrow together within its measured column. */
+#spots .spotTable thead th.spotField-utc{white-space:nowrap!important;text-overflow:clip!important;overflow:hidden!important;padding-left:5px!important;padding-right:5px!important}
+#spots .spotTable thead th.spotField-utc .spotSortArrow{display:inline!important;white-space:nowrap!important}
+
+/* New matches on inactive custom spot views (browser-only state). */
+#spots .spotViewTab.hasMatch:not(.selected)::after{content:"";display:inline-block;width:7px;height:7px;margin-left:7px;border-radius:50%;background:#f59e0b;box-shadow:0 0 0 2px rgba(245,158,11,.18);vertical-align:middle}
+
+/* Temporary BETA indicator: decoration only; does not affect topbar layout. */
+body.v2-shell .v2Topbar{position:relative!important}
+body.v2-shell .v2Topbar::before{content:"BETA";position:absolute;left:20px;top:50%;transform:translateY(-50%);font-family:Arial,Helvetica,sans-serif;font-size:34px;font-weight:800;line-height:1;color:#d97706;pointer-events:none;z-index:1}
+@media(max-width:760px){body.v2-shell .v2Topbar::before{left:8px;font-size:clamp(14px,3.5vw,24px)}}
+
+/* DXWeb Neighbours native view */
+.neighTools{display:flex;gap:7px;margin:10px 0}.neighTools button{min-width:42px}.neighWorkspace{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:12px;min-height:580px}.neighSvg{width:100%;height:600px;border:1px solid var(--border,#34485f);border-radius:9px;background:#0c192a}.neighDetail{padding:14px;border:1px solid var(--border,#34485f);border-radius:9px;overflow:auto}.neighField{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #46556a;font-size:13px}.neighField strong{text-align:right}.neighSvg g[role=button]{cursor:pointer}@media(max-width:800px){.neighWorkspace{grid-template-columns:1fr;min-height:0}.neighSvg{height:460px}.neighDetail{max-height:330px}}
+
+/* Four-item maintenance and Network Chat additions */
+.networkChatComposer{display:flex;gap:8px;margin-top:10px;align-items:center}.networkChatComposer input{flex:1;min-width:0}.networkChatComposer button{min-width:85px}.dbInventoryRow{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:7px 0;border-bottom:1px solid var(--border,#5553)}.dbInventoryRow small{grid-column:1/-1;overflow-wrap:anywhere;opacity:.75}.refreshAwaiting{background:#d59b22!important;color:#171717!important;box-shadow:0 0 0 2px #f2c75b!important}
+
+/* Refresh feedback only while an actual request is pending. At rest the original theme wins. */
+body.v2-shell #supervisionTabs .supervisionRefresh.refreshAwaiting{background:#d59b22!important;color:#171717!important;box-shadow:0 0 0 2px #f2c75b!important}
+
+/* System policy controls: match the existing navigation button dimensions. */
+.policyHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:7px}
+.policyHead h3{margin:0}
+.policyHead button{font-size:15px;font-weight:700;padding:9px 14px;border-radius:8px;cursor:pointer}
+.policyToggle{display:flex;align-items:center;gap:9px;margin:12px 0}
+#sessionPolicyState,#metricsPolicyState{display:block;margin-top:8px;font-size:13px}

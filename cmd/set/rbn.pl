@@ -1,9 +1,8 @@
 #
-# set user type to 'S' for Spider node
+# set user type to 'N' for an outgoing RBN connection
 #
-# Please note that this is only effective if the user is not on-line
 #
-# Copyright (c) 1998 - Dirk Koopman
+# Copyright (c) 2022 - Dirk Koopman G1TLH
 #
 #
 #
@@ -39,7 +38,7 @@ foreach $call (@args) {
 			$user->homenode($main::mycall);
 			$user->lockout(0);
 			$user->priv(0) unless $user->priv;
-			$user->close();
+			$user->put();
 			push @out, $self->msg($create ? 'nodenc' : 'noden', $call);
 		} else {
 			push @out, $self->msg('e3', "Set RBN", $call);

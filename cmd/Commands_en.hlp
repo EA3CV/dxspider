@@ -1312,6 +1312,181 @@ message either sent by or sent to your callsign.
 === 5^READ-^
 As a sysop you may read any message on the system
 
+=== 0^request/register <email> <language> [ssid-list]^Request user registration
+Allows a user to request registration in DXSpider.
+
+The callsign is always taken from the connected session and must not be
+specified in the command.
+
+The <language> parameter selects the language used for notifications related
+to the request. It is specified as a two-letter language code, for example:
+
+  EN    English
+  ES    Spanish
+  DE    German
+  FR    French
+
+The language code is always stored in uppercase. If a template for the
+selected language is not installed, the English (.EN) template is used
+automatically.
+
+The default language in the Web registration form is EN.
+
+The optional [ssid-list] also requests registration of one or more SSIDs
+associated with the base callsign.
+
+Valid SSIDs are 1 to 99. They can be specified individually, separated by
+commas, or "-" can be used to specify an inclusive SSID range.
+
+For example:
+
+  1          SSID 1
+  1,2,5      SSIDs 1, 2 and 5
+  1-5        SSID range 1 through 5, inclusive
+  1,3-5,9    SSIDs 1, 3 through 5, and 9
+
+SSID 0 and zero-padded forms such as 01 through 09 are not valid.
+
+Examples:
+
+  request/register user@example.net ES
+  request/register user@example.net EN 1,2,5
+  request/register user@example.net DE 1-5
+  request/register user@example.net FR 1,3-5,9
+
+Only one PENDING request can exist for a callsign. Previous ACCEPTED,
+REJECTED or REMOVED requests are retained in the history.
+
+A SYSOP can create a request for another callsign by specifying the callsign
+as the first parameter:
+
+  request/register <callsign> <email> <language> [ssid-list]
+
+SYSOP examples:
+
+  request/register EA0XYZ user@example.net ES
+  request/register EA0XYZ user@example.net EN 1,2,5
+  request/register EA0XYZ user@example.net DE 1-5
+  request/register EA0XYZ user@example.net FR 1,3-5,9
+
+=== 9^show/register [<callsign>|<id>]^Show registration requests
+Shows requests and registration history.
+
+With no arguments, shows all requests currently in PENDING state.
+
+Example:
+
+  show/register
+
+If a callsign is specified, shows the complete registration history for that
+callsign.
+
+Example:
+
+  show/register EA0XYZ
+
+A request identifier can also be specified directly.
+
+Example:
+
+  show/register 20260924-0001
+
+CALL and CALL-SSID searches are grouped by base callsign and the history is
+shown with the newest requests first.
+
+=== 9^accept/register <id|callsign> [note]^Accept a registration request
+Accepts a request that is in PENDING state.
+
+The request can be identified by its ID.
+
+Example:
+
+  accept/register 20260924-0001
+
+It can also be identified by callsign.
+
+Example:
+
+  accept/register EA0XYZ
+
+When a callsign is used, there must be exactly one PENDING request for that
+callsign.
+
+An administrative note can optionally be added.
+
+Example:
+
+  accept/register EA0XYZ Registration checked
+
+When a request is accepted:
+
+- existing registered SSIDs are preserved;
+- newly requested SSIDs are added;
+- omitted SSIDs are never interpreted as removals;
+- if the base callsign already has a password, it is reused;
+- otherwise a new password is generated;
+- the same password is used for the base callsign and all registered SSIDs;
+- requested and accepted SSIDs are stored separately in the history.
+
+The password is never stored in registration.json or written to debug logs.
+
+=== 9^reject/register <id|callsign> [note]^Reject a registration request
+Rejects a request that is in PENDING state.
+
+The request can be identified by its ID.
+
+Example:
+
+  reject/register 20260924-0001
+
+It can also be identified by callsign.
+
+Example:
+
+  reject/register EA0XYZ
+
+When a callsign is used, there must be exactly one PENDING request for that
+callsign.
+
+An administrative note can optionally be added.
+
+Example:
+
+  reject/register EA0XYZ Callsign not verified
+
+The request is retained in the history with REJECTED status.
+
+Rejection does not prevent a later request from being created for the same
+callsign.
+
+=== 9^remove/register <callsign> [note]^Remove a user registration
+Removes the registration state of a user.
+
+The operation acts on the base callsign and every existing CALL-1 through
+CALL-99 DXUser record for that callsign.
+
+Example:
+
+  remove/register EA0XYZ
+
+An administrative note can optionally be added.
+
+Example:
+
+  remove/register EA0XYZ Registration removed by SYSOP
+
+When registration is removed:
+
+- DXUser records are preserved;
+- registered is set to 0;
+- the password is removed;
+- a REMOVED history record is created with the affected SSIDs;
+- any affected connected sessions are disconnected so the new state is loaded
+  on the next login.
+
+A disconnect failure is logged but does not roll back a registration removal
+that has already been persisted.
+
 === 0^REJECT^Set a filter to reject something
 Create a filter to reject something
 
@@ -1932,6 +2107,13 @@ then this command will set your QRA locator for you. For example:-
 
 === 9^SET/LOCKOUT <call>^Stop a callsign connecting to the cluster
 === 9^UNSET/LOCKOUT <call>^Allow a callsign to connect to the cluster
+
+If <call> is a bare callsign with no SSID, then the command will scan all the
+callsigns in the User database that both that AND callsigns-xx and will
+(un)lock those records. If a specific callsign-xx is used then only that callsign
+will (un)locked.
+
+If you only want to (un)lock a bare callsign then add '-0' e.g G1TLH-0.
 
 === 8^SET/MAXCONNECT <value> [<call> ..]^Set max incoming connections for user/node
 Set the maximum no of connections (parents) an incoming user or node is
@@ -2567,6 +2749,32 @@ Upto 366 days can be checked both in the past and in the future.
 Please note that the times are given as the UT times of the requested
 UT day.
 	
+=== 9^SHOW/HEALTH [status|connections|traffic|pc92|peers [CALL]|queues|web|rbn|topology|self_health|all]^Show local DXSpider health and supervision information
+Show the current operational state of the local DXSpider node. This
+read-only command requires SYSOP privilege 9. Without arguments it shows
+status. Data is obtained from DXSupervisor / DXHealth snapshots.
+
+Options:
+  status       Node version, build, uptime and operational summary.
+  connections  Current connections and their state.
+  traffic      Physical incoming and outgoing protocol traffic counters.
+  pc92         PC92 A, C, D and K protocol counters.
+  peers [CALL] Traffic counters for direct peers; optionally select CALL.
+  queues       Input queues and pending connections.
+  web          Web transport channels and their counters.
+  rbn          RBN channels and counters.
+  topology     Network nodes and users currently known by DXSpider.
+  self_health  DXSupervisor request, error and generation-time counters.
+  all          Display all the above sections.
+
+Examples:
+  SH/HEALTH
+  SH/HEALTH TRAFFIC
+  SH/HEALTH PC92
+  SH/HEALTH PEERS EA3CV-2
+  SH/HEALTH SELF_HEALTH
+  SH/HEALTH ALL
+
 === 0^SHOW/HFSTATS [days] [date]^Show the HF DX Statistics 
 Show the HF DX spots breakdown by band for the last <days> no of days 
 (default is 31), starting from a <date> (default: today).
@@ -2621,13 +2829,18 @@ Instructions are available in local/Internet.pm
 === 1^SHOW/ISOLATE^Show list of ISOLATED nodes
 
 === 9^SHOW/LOCKOUT <prefix>|ALL^Show the list of locked out or excluded callsigns
+This command works in the same general way as SET/LOCKOUT, in that using a bare
+callsign without ssid will show all the callsign + ssid users as well as the bare callsign. In
+order to just see the base callsign's lock status, use the ssid '-0'. E.g. G1TLH-0.
+
+The ALL keyword will search through the user database for callsigns that are locked.
 
 === 8^SHOW/LOG [<callsign>]^Show excerpts from the system log
 This command outputs a short section of the system log.  On its own
 it will output a general logfile.  With the optional callsign it will
 show output from the log associated with that callsign.
 
-=== 0^SHOW/MOON [ndays] [<prefix>|<callsign>]^Show Moon rise and set times
+=== 0^SHOW/MOON [ndays] [<prefix>|<callsign> | local] ^Show Moon rise and set times
 Show the Moon rise and set times for a (list of) prefixes or callsigns, 
 together with the azimuth and elevation of the sun currently at those
 locations.
@@ -2657,8 +2870,12 @@ or in three days time:-
 
 Upto 366 days can be checked both in the past and in the future.
 
-Please note that the rise and set times are given as the UT times of rise and 
-set on the requested UT day.
+Please note that the rise and set times are given as the UTC times of rise and 
+set on the requested UTC day UNLESS you add the keyword 'local' (without quotes)
+to the list of callsigns e.g:
+
+  SH/MOON G1TLH W5UN local
+  SH/MOON LOCAL G1TLH W5UN
 
 === 0^SHOW/MOTD^Show your MOTD (the Message of the Day)
 The Message of the Day is normally printed whenever one logs on. However
@@ -2924,8 +3141,12 @@ or in three days time:-
 
 Upto 366 days can be checked both in the past and in the future.
 
-Please note that the rise and set times are given as the UT times of rise 
-and set on the requested UT day.
+Please note that the rise and set times are given as the UTC times of rise and 
+set on the requested UTC day UNLESS you add the keyword 'local' (without quotes)
+to the list of callsigns e.g:
+
+  SH/SUN G1TLH W5UN local
+  SH/SUN  LOCAL G1TLH W5UN
 
 === 0^SHOW/TIME [<prefix>|<callsign>]^Show the local time 
 If no prefixes or callsigns are given then this command returns the local

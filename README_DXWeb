@@ -1,0 +1,80 @@
+DXSPIDER WEB INTEGRATION
+========================
+
+DXSpider supplies a native WebCluster interface used by two independent
+reference applications: dxweb/ (user frontend) and dxweb-admin/ (administration
+and supervision). DXSpider remains authoritative for command validation,
+protocol processing and user management. Browser sessions do not require
+individual traditional DXSpider network connections.
+
+APPLICATIONS
+------------
+DXWeb: dxweb/app.pl; direct HTTP port 7380.
+DXWeb Admin: dxweb-admin/admin.pl; direct HTTP port 7381.
+Both connect through independent technical #WEB-n connections to the DXSpider
+IntMsg listener, normally 127.0.0.1:27754 (TCP). The technical transport
+is not an authenticated browser identity.
+
+ACCESS MODES
+------------
+Without Nginx:
+  Browser -> DXWeb :7380 or DXWeb Admin :7381 -> DXSpider :27754
+
+With Nginx (managed by dxweb/dxweb-manager.pl):
+  Browser -> Nginx :7380 -> DXWeb 127.0.0.1:7480 -> DXSpider :27754
+  Browser -> Nginx :7381 -> Admin 127.0.0.1:7481 -> DXSpider :27754
+
+The application listener ports must be changed when enabling Nginx; do not
+bind Nginx and an application to the same address and port. Use HTTPS for
+public authenticated or administrative access. Never expose backend ports
+7480/7481 or the DXSpider IntMsg listener to untrusted networks.
+
+CONFIGURATION DIAGRAMS
+----------------------
+  dxweb/docs/DXWeb_Configuration_ES.png (Spanish)
+  dxweb/docs/DXWeb_Configuration_EN.png (English)
+
+INSTALLATION AND OPERATION
+--------------------------
+  INSTALL_DXWEB.es (Spanish installation manual)
+  INSTALL_DXWEB.en (British English installation manual)
+  dxweb/dxweb-manager.pl (installation and service manager)
+  dxweb/examples/ (systemd examples for manual testing)
+
+PROTOCOL
+--------
+  WebCluster_DXSpider_Protocol (protocol specification)
+  dxweb/PROTOCOL.txt (trust boundaries and application behavior)
+
+The two applications can be installed independently. The Nginx examples
+are optional and must be adapted to the actual deployment.
+
+SERVICE LIFECYCLE AND UPDATES
+-----------------------------
+DXSpider, DXWeb and DXWeb Admin are three separate services. DXWeb and
+DXWeb Admin can each be started, stopped, enabled or disabled independently
+of the DXSpider service. However, their live DXSpider-backed functionality
+requires a running and reachable DXSpider IntMsg listener.
+
+A DXSpider source update does not automatically reload code in already
+running processes. If an update changes DXWeb or DXWeb Admin files, restart
+the corresponding web service(s) to load those changes. Changes to Perl
+modules loaded by DXSpider (such as perl/Web.pm) require a DXSpider restart;
+restarting only the web services will not load them.
+
+For a coordinated restart after a DXSpider update, when operationally
+acceptable and after arranging for the brief service interruption:
+
+  systemctl restart dxspider.service
+  systemctl restart dxweb.service dxweb-admin.service
+
+Check service status afterward:
+
+  systemctl status dxspider.service dxweb.service dxweb-admin.service --no-pager
+
+Restarting all three is recommended after an update affecting multiple
+components, but is not required for a web-only update. Use the actual
+installed service names if they differ. Restarting DXSpider interrupts
+active DX cluster connections and should be scheduled accordingly.
+
+

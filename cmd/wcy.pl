@@ -48,7 +48,7 @@ push @out, $self->msg('wcy1', 'sa') unless defined $args{sa} && grep $args{sa} e
 push @out, $self->msg('wcy1', 'gmf') unless defined $args{gmf} && grep $args{gmf} eq $_, qw(qui act min maj sev mag war nil);
 push @out, $self->msg('wcy1', 'au') unless defined $args{au} && grep $args{au} eq $_, qw(no aurora strong);
 
-push @out, $self->msg('wcy2') if WCY::dup($d);
+push @out, $self->msg('wcy2') if !@out && WCY::dup($d, $self->call);
 #$DB::single=1;
 
 return (1, @out) if @out;

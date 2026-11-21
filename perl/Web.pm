@@ -3,7 +3,6 @@
 #
 # Copyright (c) 2015-2026 Dirk Koopman G1TLH
 #
-# This is a 
 
 use strict;
 
@@ -12,12 +11,507 @@ package Web;
 use DXDebug;
 use DXChannel;
 use DXLog;
+use DXJSON;
+use DXUtil;
+use DXUser;
+use DXCIDR;
+use DXReg;
+use DXSupervisor;
+use Route;
+use Route::User;
+use DXSubprocess;
+use Filter;
+use Scalar::Util qw(weaken);
+use Mojo::IOLoop;
+
+
+# One-request execution context for a logical WebCluster user.
+#
+# It is deliberately NOT created with DXChannel::alloc(), so it is never
+# inserted into %DXChannel::channels and never becomes a real connection.
+package Web::ActorConn;
+
+sub new
+{
+	my ($class, $ip) = @_;
+	return bless {
+		peerhost => $ip,
+		sockhost => $ip,
+	}, $class;
+}
+
+sub peerhost { return $_[0]->{peerhost}; }
+sub sockhost { return $_[0]->{sockhost}; }
+
+# A logical user has no independent socket. DXChannel::closeall() may
+# iterate over every channel and call conn->disconnect(); this must never
+# tear down the shared #WEB-n transport or throw an undefined-method error.
+sub disconnect { return; }
+
+# Permanent local identity for an authenticated WebCluster user.  The
+# technical #WEB-n socket remains owned exclusively by Web.pm.
+package Web::UserChannel;
+our @ISA = qw(DXCommandmode);
+
+# Deliver text addressed to a real authenticated channel through its owning
+# shared WebCluster transport.  Never write to the technical socket as a
+# separate DXChannel and never deliver to a replacement session.
+sub local_send
+{
+    my ($self, $letter, $message) = @_;
+    return if $self->{web_released} || $self->{web_disconnecting};
+    return unless defined $message;
+    # While a WebCluster command is executing, keep its direct output in
+    # the request response, not in the unsolicited message feed.
+    if ($self->{_web_command_capture}) {
+        push @{$self->{_web_command_output}}, $message;
+        return;
+    }
+    my $owner = $self->{web_owner} or return;
+    my $call = $self->{call};
+    my $owned = $owner->{web_users}{$call} or return;
+    return unless $owned->{authenticated};
+    return unless $owned->{channel} && $owned->{channel} == $self;
+    return unless defined $owned->{generation}
+        && $owned->{generation} == $self->{web_generation};
+    return unless $owner->is_webcluster;
+
+    my $payload = Web::_encode_protocol_object([
+        ['type', 'user_notice'], ['category', 'message'],
+        ['text', $message], ['targets', [$call]],
+    ]);
+    return unless defined $payload;
+    my $wire_bytes = length($payload) + length($owner->{call} || '') + 4;
+    return unless $owner->_web_feed_can_write($wire_bytes);
+    return $owner->local_send('B', $payload);
+}
+
+# DXChannel::send() normally writes to conn->{sock}.  WebUser channels have
+# no private socket, so route their ordinary messages through local_send.
+sub send
+{
+    my $self = shift;
+    for my $item (@_) {
+        for my $line (ref($item) eq 'ARRAY' ? @$item : $item) {
+            next unless defined $line;
+            $self->local_send('D', $_) for split /\n/, $line;
+        }
+    }
+    return;
+}
+
+sub send_now
+{
+    my ($self, $letter, @lines) = @_;
+    # The native v0.04 takeover path announces the reason before disconnect.
+    # Do not mislabel an ordinary SYSOP disconnect as a session replacement.
+    $self->{web_takeover_reason} = 'replaced'
+        if grep { defined($_) && !ref($_) && /^Another authenticated session for .* has replaced this connection\.$/ } @lines;
+    $self->send(@lines);
+}
+
+sub send_later
+{
+    my ($self, $letter, @lines) = @_;
+    $self->send(@lines);
+}
+
+sub disconnect
+{
+    my ($self) = @_;
+    return if $self->{web_disconnecting}++;
+    my $owner = $self->{web_owner};
+    my $call = $self->{call};
+    my $generation = $self->{web_generation};
+    if ($owner && $owner->{web_users} && $owner->{web_users}{$call}
+        && defined $owner->{web_users}{$call}{generation}
+        && defined $generation
+        && $owner->{web_users}{$call}{generation} == $generation
+        && $owner->{web_users}{$call}{channel}
+        && $owner->{web_users}{$call}{channel} == $self) {
+        # Tell the exact browser generation before removing its logical session.
+        # This is an unsolicited control message, not a generic user_notice.
+        $owner->_send_json({type => 'session_evicted', call => $call,
+                            generation => $generation, reason => 'replaced'})
+            if ($self->{web_takeover_reason} || '') eq 'replaced';
+        $owner->_remove_user($call, 'CHANNEL_DISCONNECT');
+    } else {
+        # A stale channel must never tear down a replacement session.
+        # Release its own health/transport state as well as its registry
+        # identity, without touching the current owner's web_users entry.
+        $self->web_release();
+    }
+    return;
+}
+
+# Initialise the persistent command session without DXCommandmode::start():
+# start() emits login notices, executes scripts and applies transport-specific
+# privilege rules.  Web.pm already owns authentication, routing and notices.
+sub web_initialise_command_state
+{
+    my ($self) = @_;
+    my $user = $self->{user} or die "web channel without DXUser";
+    $self->{dcall} = $self->{call};
+    $self->{lang} = $user->lang || $main::lang || 'en';
+    $self->{width} = 148;
+    $self->{remotecmd} = 0;
+    $self->{inscript} = 0;
+    $self->{badcount} = 0;
+    $self->{errors} = 0;
+    $self->{here} = 1;
+    $self->{state} = 'prompt';
+    $self->{sluggedpcs} = [];
+    $self->{isslugged} = 0;
+    $self->{beep} = $user->wantbeep;
+    $self->{ann} = $user->wantann;
+    $self->{wwv} = $user->wantwwv;
+    $self->{wcy} = $user->wantwcy;
+    $self->{talk} = $user->wanttalk;
+    $self->{wx} = $user->wantwx;
+    $self->{dx} = $user->wantdx;
+    $self->{logininfo} = $user->wantlogininfo;
+    $self->{ann_talk} = $user->wantann_talk;
+    $self->{wantrbn} = $user->wantrbn;
+    $self->{rbnseeme} = $user->rbnseeme;
+    $self->{lastmsgpoll} = $main::systime;
+    $self->{user_interval} = $user->user_interval || $main::user_interval;
+    $self->{cmdintstart} = 0;
+    $self->{cmdcount} = 0;
+    # Keep the effective privilege and registration set by Web::_user_add.
+    Filter::load_dxchan($self, $_, 0) for qw(spots wwv wcy ann rbn);
+    return 1;
+}
+
+# WebCluster command requests execute on this permanent channel.  Keep the
+# request-specific capture and asynchronous completion separate from the
+# lifetime of the channel itself.  In particular, NEVER disconnect the
+# permanent channel when a subprocess completes.
+sub web_command_begin
+{
+    my ($self) = @_;
+    # Never start a command through a retained reference to a disconnected
+    # channel.  The normal request dispatcher checks ownership too, but the
+    # channel must enforce its own lifetime boundary.
+    return if $self->{web_released} || $self->{web_disconnecting};
+    return if $self->{_web_command_capture} || $self->{_async_pending};
+    $self->{_web_command_generation} = ($self->{_web_command_generation} || 0) + 1;
+    $self->{_web_command_capture} = 1;
+    $self->{_web_command_output} = [];
+    $self->{_command_returned} = [];
+    return 1;
+}
+
+sub web_command_end
+{
+    my ($self) = @_;
+    my @messages = (@{$self->{_command_returned} || []},
+                    @{$self->{_web_command_output} || []});
+    delete @{$self}{qw(_web_command_capture _web_command_output
+                       _command_returned _async_completion)};
+    return grep { defined $_ && length $_ } @messages;
+}
+
+# Bound a stalled command without blocking the shared event loop.  A timed-out
+# subprocess may still complete, but its generation is invalidated and its
+# output must never be delivered into a later request.
+sub web_command_watchdog
+{
+    my ($self, $seconds, $on_timeout) = @_;
+    my $generation = $self->{_web_command_generation};
+    my $weak = $self;
+    Scalar::Util::weaken($weak);
+    Mojo::IOLoop->timer($seconds => sub {
+        my $channel = $weak or return;
+        return unless $channel->{_web_command_capture};
+        return unless ($channel->{_web_command_generation} || 0) == $generation;
+        return if $channel->{web_released} || $channel->{web_disconnecting};
+        $channel->{_web_command_generation}++;
+        $channel->{_async_pending} = 0;
+        $channel->web_command_end();
+        $on_timeout->($channel);
+    });
+}
+
+sub set_async_completion { $_[0]->{_async_completion} = $_[1]; return; }
+sub async_pending { return $_[0]->{_async_pending} || 0; }
+
+sub _async_finished
+{
+    my ($self) = @_;
+    $self->{_async_pending}-- if ($self->{_async_pending} || 0) > 0;
+    return if $self->{_async_pending};
+    return if $self->{web_released} || $self->{web_disconnecting};
+    my $cb = $self->{_async_completion};
+    if ($cb) {
+        eval { $cb->($self); };
+        LogDbg('err', "Web::UserChannel async completion failed: $@") if $@;
+    }
+    return;
+}
+
+# Reuse the existing subprocess implementation; the completion method above
+# deliberately differs from Web::Actor's one-shot disconnect behaviour.
+sub spawn_cmd { goto &Web::Actor::spawn_cmd; }
+
+# The physical socket is shared: never call DXChannel::disconnect() here.
+# Web.pm's _remove_user() owns routing and accounting for this session.
+sub web_release
+{
+    my ($self) = @_;
+    return if $self->{web_released}++;
+    $self->{web_disconnecting} = 1;
+    # Invalidate in-flight command output and callbacks before dropping the
+    # owner reference.  A subprocess may still finish after this release.
+    delete @{$self}{qw(_web_command_capture _web_command_output
+                       _command_returned _async_completion)};
+    DXHealth::connection_down($self);
+    $self->del();
+    delete $self->{web_owner};
+    delete $self->{conn};
+    return;
+}
+
+package Web::Actor;
+
+use Time::HiRes qw(gettimeofday);
+use DXUtil;
+use DXDebug;
+use DXLog;
+use DXSubprocess;
+
+our @ISA = qw(DXCommandmode);
+
+sub new
+{
+	my ($class, $call, $ip, $user, $priv, $registered) = @_;
+
+	# Reaching this constructor means Web.pm has already verified that this
+	# logical user belongs to this #WEB-n connection and was authenticated by
+	# WebCluster.  The flag is deliberately actor-local: never copy it into the
+	# persistent DXUser record.
+	my $actor = bless {
+		call        => $call,
+		dcall       => $call,
+		user        => $user,
+		sort        => 'U',
+		hostname    => $ip,
+		sockhost    => $ip,
+		conn        => Web::ActorConn->new($ip),
+		lang        => $user->lang || $main::lang || 'en',
+		priv        => defined $priv ? $priv : 0,
+		width       => 148,
+		registered  => defined $registered ? $registered : ($user->registered ? 1 : 0),
+		remotecmd   => 0,
+		inscript    => 0,
+		badip       => DXCIDR::find($ip) || 0,
+		badcount    => 0,
+		isslugged   => 0,
+		sluggedpcs  => [],
+		state       => 'prompt',
+		here        => 1,
+		errors      => 0,
+		_output     => [],
+	}, $class;
+
+	# Standard show/mydx (show/dx filter) needs the authenticated user's
+	# effective spot filter, just as a normal DXCommandmode session does.
+	# This is a transient actor, not a registered DXChannel.
+	Filter::load_dxchan($actor, 'spots', 0);
+	return $actor;
+}
+
+# Capture direct command output locally.  This is used, for example, by the
+# standard announce handler when policy deliberately keeps an announcement
+# local to the sender.
+sub send
+{
+	my $self = shift;
+	push @{$self->{_output}}, grep { defined $_ } @_;
+	return;
+}
+
+sub send_now
+{
+	my $self = shift;
+	shift;  # framing letter
+	push @{$self->{_output}}, grep { defined $_ } @_;
+	return;
+}
+
+sub send_later
+{
+	my $self = shift;
+	shift;  # framing letter
+	push @{$self->{_output}}, grep { defined $_ } @_;
+	return;
+}
+
+sub local_send
+{
+	my ($self, $let, $buf) = @_;
+	push @{$self->{_output}}, $buf if defined $buf;
+	return;
+}
+
+# cmd/dx.pl echoes the submitted spot to the invoking user.  WC already has
+# its request and will also receive the global HUMAN feed if the spot is
+# distributed, so suppress only that one-request echo.
+sub dx_spot
+{
+	return;
+}
+
+sub disconnect
+{
+	$_[0]->{_disconnected} = 1;
+	return;
+}
+
+# Web::Actor is not allocated through DXChannel::alloc(), therefore it must
+# not inherit DXChannel::DESTROY(), which decrements the global channel count.
+sub DESTROY { }
+
+sub output
+{
+	my $self = shift;
+	return @{$self->{_output} || []};
+}
+
+# Web::Actor is deliberately not a registered DXChannel.  Long-running
+# commands must therefore keep DXCommandmode's subprocess isolation without
+# relying on DXChannel::get($call) when the child completes.
+sub set_async_completion
+{
+	my ($self, $cb) = @_;
+	$self->{_async_completion} = $cb;
+	return;
+}
+
+sub async_pending
+{
+	my $self = shift;
+	return $self->{_async_pending} || 0;
+}
+
+sub _async_finished
+{
+	my $self = shift;
+	$self->{_async_pending}-- if ($self->{_async_pending} || 0) > 0;
+	return if $self->{_async_pending};
+
+	my $cb = $self->{_async_completion};
+	if ($cb) {
+		eval { $cb->($self); };
+		LogDbg('err', "Web::Actor async completion failed for $self->{dcall}: $@") if $@;
+	}
+	$self->disconnect;
+	return;
+}
+
+sub spawn_cmd
+{
+	my $self = shift;
+	my $line = shift;
+	my $cmdref = shift;
+	my %opts = @_;
+	my @out;
+
+	my $cb = delete $opts{cb};
+	my $prefix = delete $opts{prefix};
+	my $progress = delete $opts{progress};
+	my $args = delete $opts{args} || [];
+	my $t0 = [gettimeofday];
+
+	no strict 'refs';
+
+	# Keep the standard one-shot behaviour where it is explicitly requested.
+	if ($self->{_nospawn} || $main::is_win == 1) {
+		eval { @out = $cmdref->(@$args); };
+		if ($@) {
+			DXDebug::dbgprintring(25);
+			push @out, DXDebug::shortmess($@);
+		}
+		return @out;
+	}
+
+	my $web_generation = $self->isa('Web::UserChannel')
+        ? ($self->{_web_command_generation} || 0) : undef;
+	$self->{_async_pending} = ($self->{_async_pending} || 0) + 1;
+	my $fc = DXSubprocess->new;
+	$fc->run(
+		sub {
+			my $subpro = shift;
+			if (isdbg('progress')) {
+				my $s = qq{$self->{dcall} line: "$line"};
+				$s .= ", args: " . join(', ', map { defined $_ ? qq{'$_'} : q{'undef'} } @$args)
+					if $args && @$args;
+				dbg($s);
+			}
+			eval {
+				++$self->{_in_sub_process};
+				@out = $cmdref->(@$args);
+				--$self->{_in_sub_process} if $self->{_in_sub_process} > 0;
+			};
+			if ($@) {
+				DXDebug::dbgprintring(25);
+				push @out, DXDebug::shortmess($@);
+			}
+			return @out;
+		},
+		sub {
+			my ($fc, $err, @res) = @_;
+            # A stale subprocess must not write to a subsequent command's
+            # capture buffer, decrement its pending count, or run its callback.
+            if (defined $web_generation &&
+                ($self->{_web_command_generation} || 0) != $web_generation) {
+                return;
+            }
+
+			if ($err) {
+				my $s = "Web::Actor::spawn_cmd: call $self->{dcall} error $err";
+				dbg($s) if isdbg('chan');
+				$self->send($s) unless $self->{_disconnected};
+				$self->_async_finished;
+				return;
+			}
+
+			if ($cb && !$self->{_disconnected}) {
+				my $ok = eval { @res = $cb->($self, @res); 1; };
+				unless ($ok) {
+					DXDebug::dbgprintring(25);
+					@res = (DXDebug::shortmess($@));
+				}
+			}
+			if (@res && !$self->{_disconnected}) {
+				if (defined $prefix) {
+					$self->send(map {"$prefix$_"} @res);
+				} else {
+					$self->send(@res);
+				}
+			}
+			diffms("by Web::Actor $self->{dcall}", $line, $t0, scalar @res) if isdbg('progress');
+			$self->_async_finished;
+		}
+	);
+
+	return @out;
+}
+
+package Web;
 
 require Exporter;
 our @ISA = qw(DXCommandmode Exporter);
 our @EXPORT = qw(is_webcall find_next_webcall);
 
-our $maxssid = 64;				# the maximum number of bare @WEB connections we will allow - this is really to stop runaway connections from the dxweb app
+our $maxssid = 64;
+our $web_hwm = 64 * 1024;          # disposable feed/backlog limit
+our $web_hwm_resume = 32 * 1024;
+our $web_control_max = 512 * 1024; # bounded single control response/socket HWM
+our $web_generation_seq = 0;
+our $web_user_generation_seq = 0;
+
+my $json = DXJSON->new;
+my $web_wire_json = DXJSON->new->ascii(1); # Keep #WEB lines 7-bit clean
 
 sub is_webcall
 {
@@ -33,25 +527,1860 @@ sub find_next_webcall
 	return undef;
 }
 
-sub new 
+sub new
 {
-	my $self = (@_);
-	
+	# Technical #WEB-n channel.
+	# Use DXChannel::alloc(), not DXCommandmode::new(), because the latter
+	# would add #WEB-n itself to normal routing.
+	my $self = DXChannel::alloc(@_);
+
+	# #WEB-n is a shared technical transport, never a user/security context.
+	# Keep its effective channel privilege at zero regardless of the persistent
+	# DXUser record or any later logical-user authentication.
+	$self->{priv} = 0;
+
+	$self->{web_role} = '';
+	$self->{web_generation} = ++$web_generation_seq;
+	$self->{web_version} = 0;
+	$self->{web_users} = {};
+	$self->{web_feed_ann} = 1;
+	$self->{web_feed_wwv} = 1;
+	$self->{web_feed_wcy} = 1;
+	$self->{web_feed_wx} = 1;
+
 	return $self;
+}
+
+# DXCommandmode::start() normally copies the persistent DXUser privilege into
+# the channel.  #WEB-n is transport only, so suppress that copy even if an
+# old/persistent #WEB-n DXUser record were ever to contain a non-zero priv.
+sub start
+{
+	my $self = shift;
+	local $self->{user}{priv} = 0 if $self->{user};
+	my @ret = $self->SUPER::start(@_);
+	$self->{priv} = 0;
+	return wantarray ? @ret : $ret[-1];
+}
+
+# Return true only for an authenticated logical user owned by a local
+# DXWeb transport. Do not confuse remote Route users with local browser
+# sessions and do not create per-browser DXChannels.
+sub local_web_user_connected
+{
+	my ($call) = @_;
+	return 0 unless defined $call && length $call;
+	for my $channel (DXChannel::get_all()) {
+		next unless $channel && $channel->isa('Web');
+		next unless ($channel->{web_role} || '') =~ /\A(?:dxweb|dxweb-admin)\z/;
+		my $owned = $channel->{web_users}{$call} || next;
+		return 1 if $owned->{authenticated};
+	}
+	return 0;
+}
+
+sub is_webcluster
+{
+	my $self = shift;
+	return ($self->{web_role} || '') eq 'webcluster' ||
+	       ($self->{web_role} || '') eq 'dxweb' ||
+	       ($self->{web_role} || '') eq 'dxweb-admin';
+}
+
+# #WEB output safety. HUMAN/RBN/ANN are disposable; overload must never
+# grow the Mojo write buffer without bound or degrade the DXSpider node.
+sub _enable_webcluster_backpressure
+{
+	my $self = shift;
+	my $conn = $self->{conn};
+	my $sock = $conn && $conn->{sock};
+	return unless $sock;
+
+	$sock->high_water_mark($web_control_max) if $sock->can('high_water_mark');
+	$self->{web_feed_accepted} = 0;
+	$self->{web_feed_dropped} = 0;
+	$self->{web_feed_saturated} = 0;
+}
+
+sub _web_output_state
+{
+	my ($self, $bytes) = @_;
+	my $conn = $self->{conn};
+	my $sock = $conn && $conn->{sock};
+
+	return (0, 0) unless $sock;
+	return (0, 0) unless $sock->can('can_write') && $sock->can('bytes_waiting');
+
+	my $waiting = $sock->bytes_waiting;
+	my $can_write = $sock->can_write ? 1 : 0;
+	return ($can_write, $waiting);
+}
+
+sub _web_feed_can_write
+{
+	my ($self, $bytes) = @_;
+	$bytes ||= 0;
+
+	my ($can_write, $waiting) = $self->_web_output_state($bytes);
+	my $saturated = $self->{web_feed_saturated} ? 1 : 0;
+
+	if ($saturated) {
+		if (!$can_write || $waiting > $web_hwm_resume ||
+		    $waiting + $bytes > $web_hwm) {
+			++$self->{web_feed_dropped};
+			return 0;
+		}
+
+		$self->{web_feed_saturated} = 0;
+		LogDbg('DXCommand', sprintf(
+			'Web %s feed output recovered waiting=%d',
+			$self->{call}, $waiting
+		));
+	}
+	elsif (!$can_write || $waiting + $bytes > $web_hwm) {
+		$self->{web_feed_saturated} = 1;
+		++$self->{web_feed_dropped};
+		LogDbg('DXCommand', sprintf(
+			'Web %s feed output saturated waiting=%d hwm=%d; dropping web feed',
+			$self->{call}, $waiting, $web_hwm
+		));
+		return 0;
+	}
+
+	++$self->{web_feed_accepted};
+	return 1;
+}
+
+sub _web_control_can_write
+{
+	my ($self, $bytes) = @_;
+	return 1 unless $self->is_webcluster;
+
+	my ($can_write, $waiting) = $self->_web_output_state($bytes);
+	$bytes ||= 0;
+	return 0 if $bytes > $web_control_max;
+	return 1 if $can_write && $waiting + $bytes <= $web_control_max;
+
+	LogDbg('DXCommand', sprintf(
+		'Web %s control output saturated waiting=%d; disconnecting #WEB',
+		$self->{call}, $waiting
+	));
+	$self->disconnect unless $self->{disconnecting};
+	return 0;
+}
+
+# Logical Web users share one technical #WEB-n DXChannel.  Keep the transport
+# unfiltered, but retain the effective per-user filters in RAM and attach the
+# matching logical calls to each feed item.  The external Web process then
+# fans the item out only to those authenticated calls.  No per-spot disk I/O
+# and no artificial DXChannel are required.
+sub _web_read_filter
+{
+	my ($call, $sort) = @_;
+	my $base = $call;
+	$base =~ s/-\d+$//;
+	return Filter::read_in($sort, $call, 0) ||
+		Filter::read_in($sort, $base, 0) ||
+		Filter::read_in($sort, 'user_default', 0);
+}
+
+sub _web_refresh_user_filters
+{
+	my ($self, $call) = @_;
+	my $owned = $self->{web_users}{$call} or return;
+	my %filters;
+	for my $sort (qw(spots ann wwv wcy rbn)) {
+		$filters{$sort} = _web_read_filter($call, $sort);
+	}
+	$owned->{filters} = \%filters;
+	return 1;
+}
+
+sub _web_refresh_all_filters
+{
+	my $self = shift;
+	$self->_web_refresh_user_filters($_) for keys %{$self->{web_users} || {}};
+	return 1;
+}
+
+sub _web_filter_targets
+{
+	my ($self, $sort, @args) = @_;
+	my @targets;
+	for my $call (sort keys %{$self->{web_users} || {}}) {
+		my $owned = $self->{web_users}{$call} || next;
+		next unless $owned->{authenticated};
+		my $f = $owned->{filters}{$sort};
+		if ($f) {
+			my ($want) = $f->it(@args);
+			next unless $want;
+		}
+		push @targets, $call;
+	}
+	return \@targets;
+}
+
+sub web_rbn_users
+{
+	my $self = shift;
+	return grep { $self->{web_users}{$_}{authenticated} }
+		sort keys %{$self->{web_users} || {}};
+}
+
+sub web_rbn_filter
+{
+	my ($self, $call) = @_;
+	my $owned = $self->{web_users}{$call} or return;
+	return $owned->{filters}{rbn};
+}
+
+sub dx_spot
+{
+	my $self = shift;
+	if ($self->is_webcluster) {
+		return unless $self->{dx};
+		my @filter_args = @_ > 2 ? @_[2 .. $#_] : ();
+		my $targets = $self->_web_filter_targets('spots', @filter_args);
+		{
+			local $self->{_web_feed_targets} = [];
+			$self->SUPER::dx_spot(@_);
+		}
+		return unless @$targets;
+		local $self->{_web_feed_targets} = $targets;
+		return $self->SUPER::dx_spot(@_);
+	}
+	return $self->SUPER::dx_spot(@_);
+}
+
+# WebCluster needs absolute feed switches, while logical-user filtering is
+# evaluated with the same argument slices used by DXCommandmode.
+sub announce
+{
+	my $self = shift;
+	if ($self->is_webcluster) {
+		my $target = $_[3] || '';
+		return if $target eq 'WX' ? !$self->{web_feed_wx} : !$self->{web_feed_ann};
+		my @filter_args = @_ > 5 ? @_[5 .. $#_] : ();
+		my $targets = $self->_web_filter_targets('ann', @filter_args);
+		return unless @$targets;
+		local $self->{_web_feed_targets} = $targets;
+		return $self->SUPER::announce(@_);
+	}
+	return $self->SUPER::announce(@_);
+}
+
+sub wwv
+{
+	my $self = shift;
+	if ($self->is_webcluster) {
+		return unless $self->{web_feed_wwv};
+		my @filter_args = @_ > 9 ? @_[9 .. $#_] : ();
+		my $targets = $self->_web_filter_targets('wwv', @filter_args);
+		return unless @$targets;
+		local $self->{_web_feed_targets} = $targets;
+		return $self->SUPER::wwv(@_);
+	}
+	return $self->SUPER::wwv(@_);
+}
+
+sub wcy
+{
+	my $self = shift;
+	if ($self->is_webcluster) {
+		return unless $self->{web_feed_wcy};
+		my @filter_args = @_ > 2 ? @_[2 .. $#_] : ();
+		my $targets = $self->_web_filter_targets('wcy', @filter_args);
+		return unless @$targets;
+		local $self->{_web_feed_targets} = $targets;
+		return $self->SUPER::wcy(@_);
+	}
+	return $self->SUPER::wcy(@_);
+}
+
+# Keep DXSpider/IntMsg framing untouched, but normalise the WebCluster feed
+# payload after "|" to JSON.  This override only affects a negotiated
+# WebCluster technical channel; ordinary Web/CLI channels retain the native
+# DXCommandmode behaviour.
+#
+# X -> HUMAN spot, R -> RBN spot, N -> announcement, V -> WWV, Y -> WCY, W -> WX.
+# Encode a protocol object in a deterministic field order.  DXJSON is still
+# used for each value so escaping and JSON scalar/array handling remain native.
+# DXJSON::encode() deliberately returns undef for a top-level scalar 0
+# because its success check tests the encoded string for truth.  Protocol
+# fields such as feed.rbn legitimately contain 0, so encode values inside a
+# one-key object and then extract the encoded value.  This preserves DXJSON's
+# escaping/boolean/array handling while allowing a deterministic key order.
+sub _encode_protocol_value
+{
+	my ($value) = @_;
+	my $wrapped = $web_wire_json->encode({v => $value});
+	return unless defined $wrapped;
+
+	# DXJSON is canonical, and a one-key object is always {"v":<value>}.
+	return $1 if $wrapped =~ /^\{"v":(.*)\}$/s;
+	return;
+}
+
+sub _encode_protocol_object
+{
+	my ($pairs) = @_;
+	return unless $pairs && ref $pairs eq 'ARRAY';
+
+	my @out;
+	for my $pair (@$pairs) {
+		next unless $pair && ref $pair eq 'ARRAY' && @$pair == 2;
+		my ($key, $value) = @$pair;
+		my $ek = _encode_protocol_value($key);
+		my $ev = _encode_protocol_value($value);
+		return unless defined $ek && defined $ev;
+		push @out, "$ek:$ev";
+	}
+
+	return '{' . join(',', @out) . '}';
+}
+
+sub local_send
+{
+	my ($self, $let, $buf) = @_;
+
+	if ($self->is_webcluster && defined $buf) {
+		my %type_for = (
+			X => 'spot',
+			R => 'rbn',
+			N => 'ann',
+			V => 'wwv',
+			Y => 'wcy',
+			W => 'wx',
+		);
+
+		if (my $type = $type_for{$let}) {
+			my @pairs = (
+				['type',    $type],
+				['payload', $buf],
+			);
+			push @pairs, ['targets', $self->{_web_feed_targets}]
+				if ref($self->{_web_feed_targets}) eq 'ARRAY';
+			my $payload = _encode_protocol_object(\@pairs);
+
+			unless (defined $payload) {
+				LogDbg('err', "Web $self->{call}: cannot encode $type feed JSON");
+				return;
+			}
+
+			# Conservatively include framing, call and line ending.
+			my $wire_bytes = length($payload) + length($self->{call} || '') + 4;
+			return unless $self->_web_feed_can_write($wire_bytes);
+
+			return $self->SUPER::local_send($let, $payload);
+		}
+	}
+
+	return $self->SUPER::local_send($let, $buf);
+}
+
+# RX-only PC93 chat bridge for authenticated DXWeb Admin logical users.
+# Called after the native PC93 acceptance checks; never affects PC93 routing.
+# Recipient selection remains authoritative in DXSpider, never in the browser.
+# Notifications are transient: no shared history and no spot accounting.
+sub publish_user_notice
+{
+    my ($family, $key, $source, $node, $origin) = @_;
+    return unless $family eq 'buddy' || $family eq 'logininfo';
+    return unless defined $source && length $source;
+    my $base = $source;
+    $base =~ s/-\d+$// if $family eq 'buddy';
+    for my $channel (DXChannel::get_all()) {
+        next unless $channel && $channel->isa('Web');
+        next unless ($channel->{web_role} || '') =~ /\A(?:dxweb|dxweb-admin)\z/;
+        my %by_text;
+        for my $recipient (keys %{$channel->{web_users} || {}}) {
+            my $owned = $channel->{web_users}{$recipient} || next;
+            next unless $owned->{authenticated};
+            next if $recipient eq $source;
+            my $user = DXUser::get_current($recipient) || next;
+            if ($family eq 'buddy') {
+                my $buddies = $user->buddies;
+                my $matched = ref($buddies) eq 'ARRAY' && grep { $_ eq $base } @$buddies;
+                next unless $matched;
+            } else {
+                next unless $user->wantlogininfo;
+            }
+            my $lang = $user->lang || $main::lang || 'en';
+            my $message = DXM::msg($lang, $key, $source, $node);
+            next unless defined $message && length $message;
+            $message .= " from WEB" if $family eq "logininfo" && defined $origin && $origin eq "WEB";
+            push @{$by_text{$message}}, $recipient;
+        }
+        for my $message (keys %by_text) {
+            my $targets = $by_text{$message};
+            my $payload = _encode_protocol_object([
+                ['type','user_notice'], ['category', $family eq 'buddy' ? 'buddy' : $key =~ /n\z/ ? 'node' : 'user'], ['text',$message], ['targets',$targets],
+            ]);
+            next unless defined $payload;
+            unless ($channel->_web_feed_can_write(length($payload) + length($channel->{call} || '') + 4)) {
+                next;
+            }
+            $channel->SUPER::local_send('B', $payload);
+        }
+    }
+}
+
+# Show buddies already online, matching the command-mode login behavior.
+sub _web_initial_buddies
+{
+    my ($self, $recipient) = @_;
+    my $user = DXUser::get_current($recipient) || return;
+    my $buddies = $user->buddies;
+    return unless ref($buddies) eq 'ARRAY';
+    my $lang = $user->lang || $main::lang || 'en';
+    for my $buddy (@$buddies) {
+        my $route = Route::User::get($buddy) || next;
+        for my $node ($route->parents) {
+            my $key = $node eq $main::mycall ? 'loginb' : 'loginbn';
+            my $message = DXM::msg($lang, $key, $buddy, $node);
+            next unless defined $message && length $message;
+            my $payload = _encode_protocol_object([
+                ['type','user_notice'], ['category','buddy'], ['text',$message], ['targets',[$recipient]],
+            ]);
+            next unless defined $payload;
+            next unless $self->_web_feed_can_write(length($payload) + length($self->{call} || '') + 4);
+            $self->SUPER::local_send('B', $payload);
+        }
+    }
+}
+
+sub publish_network_chat
+{
+    my ($target, $from, $text, $onode) = @_;
+    return unless $target eq 'ERROR' || $target eq 'SYSOP';
+    for my $channel (DXChannel::get_all()) {
+        next unless $channel && $channel->isa('Web');
+        next unless ($channel->{web_role} || '') eq 'dxweb-admin';
+        my @targets;
+        for my $call (keys %{ $channel->{web_users} || {} }) {
+            my $owned = $channel->{web_users}{$call} || next;
+            next unless ($owned->{priv} || 0) >= 9;
+            next unless $owned->{authenticated};
+            if ($target eq 'ERROR') {
+                my $user = DXUser::get_current($call) || next;
+                next unless $user->in_group('ERROR');
+            }
+            push @targets, $call;
+        }
+        next unless @targets;
+        my $payload = _encode_protocol_object([
+            ['type', 'network_chat'], ['channel', $target],
+            ['from', $from], ['text', $text], ['onode', $onode || ''],
+            ['targets', \@targets],
+        ]);
+        next unless defined $payload;
+        next unless $channel->_web_feed_can_write(length($payload) + length($channel->{call} || '') + 4);
+        $channel->SUPER::local_send('C', $payload);
+    }
+}
+
+sub _send_json
+{
+	my ($self, $data) = @_;
+	my $s;
+
+	if ($data && ref $data eq 'HASH' && ($data->{type} || '') eq 'hello') {
+		my @pairs = (
+			['type', 'hello'],
+			['role', $data->{role}],
+		);
+		push @pairs, ['auth', $data->{auth}] if exists $data->{auth};
+		push @pairs, ['version', $data->{version}] if exists $data->{version};
+		push @pairs, ['status', $data->{status}] if exists $data->{status};
+		push @pairs, ['error', $data->{error}] if exists $data->{error};
+		push @pairs, ['supported', $data->{supported}] if exists $data->{supported};
+		$s = _encode_protocol_object(\@pairs);
+	}
+	elsif ($data && ref $data eq 'HASH' && ($data->{type} || '') eq 'response') {
+		my @pairs = (['type', 'response']);
+		push @pairs, ['id', $data->{id}] if exists $data->{id};
+		push @pairs, ['status', $data->{status}] if exists $data->{status};
+		push @pairs, ['action', $data->{action}] if exists $data->{action};
+
+		for my $key (qw(call ip authenticated auth_source password_required password_used priv registered scope human rbn ann wwv wcy wx result error messages field)) {
+			push @pairs, [$key, $data->{$key}] if exists $data->{$key};
+		}
+
+		# Preserve any future extension fields without disturbing the v1 prefix order.
+		my %known = map { $_ => 1 } qw(type id status action call ip authenticated auth_source password_required password_used priv registered scope human rbn ann wwv wcy wx result error messages field);
+		for my $key (sort grep { !$known{$_} } keys %$data) {
+			push @pairs, [$key, $data->{$key}];
+		}
+		$s = _encode_protocol_object(\@pairs);
+	}
+	else {
+		$s = $web_wire_json->encode($data);
+	}
+
+	unless (defined $s) {
+		LogDbg('err', "Web $self->{call}: cannot encode JSON");
+		return;
+	}
+
+	my $wire_bytes = length($s) + length($self->{call} || '') + 4;
+
+	# A single oversized control response is a producer/protocol error, not
+	# backpressure.  Do not sacrifice the #WEB control channel (and all logical
+	# web sessions) for it.  Replace it with a small correlated error response.
+	if ($wire_bytes > $web_control_max && $data && ref($data) eq 'HASH' &&
+	    ($data->{type} || '') eq 'response') {
+		LogDbg('err', sprintf('Web %s oversized control response bytes=%d hwm=%d action=%s',
+			$self->{call}, $wire_bytes, $web_control_max, ($data->{action} || '')));
+		$s = _encode_protocol_object([
+			['type','response'], ['id',$data->{id}], ['status','error'],
+			['action',$data->{action}], ['error','response_too_large'],
+		]);
+		return unless defined $s;
+		$wire_bytes = length($s) + length($self->{call} || '') + 4;
+	}
+
+	return unless $self->_web_control_can_write($wire_bytes);
+	$self->send_now('D', $s);
+}
+
+sub _response
+{
+	my ($self, $id, $status, $action, $extra) = @_;
+
+	my $out = {
+		type   => 'response',
+		id     => $id,
+		status => $status,
+		action => $action,
+	};
+
+	if ($extra && ref $extra eq 'HASH') {
+		$out->{$_} = $extra->{$_} for keys %$extra;
+	}
+
+	$self->_send_json($out);
+}
+
+sub _error
+{
+	my ($self, $id, $action, $error, $extra) = @_;
+	if ($action eq 'auth' || $action eq 'user_add' || $action eq 'user_del') {
+		my $who = ref($extra) eq 'HASH' ? ($extra->{call} || '-') : '-';
+		my $role = $self->{web_role} || 'webcluster';
+		dbg("Web $self->{call}: $action rejected call=$who role=$role reason=$error") if isdbg('connect');
+	}
+	$extra ||= {};
+	$extra->{error} = $error;
+	$self->_response($id, 'error', $action, $extra);
+}
+
+sub _normalise_user_call
+{
+	my $call = shift;
+	return unless defined $call && !ref $call;
+
+	$call = normalise_call(uc $call);
+	return unless defined $call && $call && is_callsign($call);
+	return $call;
+}
+
+sub _locked_out
+{
+	my ($call, $user) = @_;
+	my $lock;
+
+	my $basecall = $call;
+	$basecall =~ s/-\d+$//;
+
+	if ($user) {
+		$lock = $user->lockout;
+	}
+	elsif ($basecall ne $call) {
+		my $baseuser = DXUser::get_current($basecall);
+		$lock = $baseuser->lockout if $baseuser;
+	}
+
+	return $lock ? 1 : 0;
+}
+
+sub _admin_peer_is_loopback
+{
+	my $self = shift;
+
+	# This is the peer of the technical #WEB-n TCP connection as recorded by
+	# DXChannel::alloc(), not an address supplied in Web JSON.
+	for my $peer ($self->{hostname}, $self->{sockhost}) {
+		next unless defined $peer && !ref $peer;
+		my $ip = lc $peer;
+		$ip =~ s/^\[|\]$//g;
+		$ip =~ s/^::ffff://;
+		return 1 if $ip eq '::1' || $ip eq 'localhost';
+		return 1 if $ip =~ /^127(?:\.\d{1,3}){3}$/;
+	}
+	return 0;
+}
+
+# Authenticated duplicate-admission challenges are bound to the actual channel
+# object, not merely to a callsign or to the age of a browser request.
+my $web_takeover_challenge_seq = 0;
+
+sub _auth_request
+{
+	my ($self, $req) = @_;
+	my $id = $req->{id};
+
+	unless ((($self->{web_role} || '') eq 'dxweb' || ($self->{web_role} || '') eq 'dxweb-admin') &&
+	        ($self->{web_auth} || '') eq 'dxspider') {
+		$self->_error($id, 'auth', 'wrong_auth_mode');
+		return;
+	}
+
+	my $call = _normalise_user_call($req->{call});
+	my $ip = $req->{ip};
+	my $password = exists $req->{password} && !ref($req->{password}) ? $req->{password} : undef;
+
+	unless ($call) { $self->_error($id, 'auth', 'invalid_call'); return; }
+	unless (defined $ip && !ref $ip && is_ipaddr($ip)) {
+		$self->_error($id, 'auth', 'invalid_ip', {call => $call}); return;
+	}
+	$ip =~ s/^::ffff://i;
+	if (DXCIDR::find($ip)) { $self->_error($id, 'auth', 'bad_ip', {call => $call}); return; }
+
+	my $user = DXUser::get_current($call);
+	if (_locked_out($call, $user)) { $self->_error($id, 'auth', 'locked_out', {call => $call}); return; }
+	if ($user && !$user->is_user) { $self->_error($id, 'auth', 'not_user', {call => $call}); return; }
+
+	my $is_admin = ($self->{web_role} || '') eq 'dxweb-admin';
+	my $password_required;
+	# Capture the authoritative DXUser privilege once, before creating the
+	# transient Web logical user.  This is the privilege returned to dxweb-admin
+	# and later used by Web::Actor for normal command privilege enforcement.
+	my $dx_priv = $user ? 0 + ($user->priv || 0) : 0;
+
+	if ($is_admin) {
+		# Administrative authority is granted only by DXSpider itself.  The
+		# technical dxweb-admin transport must already be local (checked during
+		# HELLO), the account must have privilege >= 9, and a non-empty DXUser
+		# password must match.  Browser/client supplied privilege is ignored.
+		unless ($user && $dx_priv >= 9) {
+			$self->_error($id, 'auth', 'admin_privilege_required', {call => $call});
+			return;
+		}
+		my $stored = $user->passwd || '';
+		unless (length $stored) {
+			$self->_error($id, 'auth', 'password_required', {call => $call, password_required => 1});
+			return;
+		}
+		unless (defined($password) && length($password) && $password eq $stored) {
+			$self->_error($id, 'auth', 'bad_password', {call => $call, password_required => 1});
+			return;
+		}
+		$password_required = 1;
+	} else {
+		# Public dxweb keeps the normal DXSpider login/password semantics, but
+		# its effective actor privilege remains zero after authentication.
+		$password_required = $main::passwdreq || ($user && $user->passwd) ? 1 : 0;
+		if ($password_required) {
+			unless ($user && defined($password) && $password eq ($user->passwd || '')) {
+				$self->_error($id, 'auth', 'bad_password', {call => $call, password_required => 1});
+				return;
+			}
+		}
+	}
+
+	# Only a successfully authenticated request may negotiate a takeover.
+	# The confirmation must identify the exact channel still occupying CALL.
+	my $old = DXChannel::get($call);
+	if ($old && $old->is_user) {
+		my $token = $req->{takeover_token};
+		my $pending = $self->{web_takeover_pending}{$call};
+		if (defined($token) && !ref($token) && $token =~ /\A[0-9]+\z/ &&
+		    $pending && "$token" eq "$pending->{token}" &&
+		    time <= $pending->{expires} && $pending->{channel} &&
+		    $pending->{channel} == $old) {
+			delete $self->{web_takeover_pending}{$call};
+			# Only the precise, previously approved user channel can be displaced.
+			# The logical Web disconnect preserves the shared #WEB-n transport.
+			$old->send_now('D', "Another authenticated session for $call has replaced this connection.");
+			$old->disconnect;
+			if (DXChannel::get($call) || $main::routeroot->is_user($call)) {
+				$self->_error($id, 'auth', 'takeover_release_failed', {call => $call});
+				return;
+			}
+		} else {
+			my $new_token = ++$web_takeover_challenge_seq;
+			$self->{web_takeover_pending}{$call} = {
+				token => $new_token, channel => $old, expires => time + 60,
+			};
+			weaken($self->{web_takeover_pending}{$call}{channel});
+			$self->_error($id, 'auth', 'takeover_required', {
+				call => $call, takeover_token => $new_token,
+			});
+			return;
+		}
+	} elsif (defined $req->{takeover_token}) {
+		# An obsolete confirmation cannot authorize an unrelated admission.
+		delete $self->{web_takeover_pending}{$call};
+		$self->_error($id, 'auth', 'takeover_changed', {call => $call});
+		return;
+	}
+
+	# Reuse the existing logical-user presence path only after DXS authentication.
+	my %u = %$req;
+	$u{authenticated} = 1;
+	$u{type} = 'user_add';
+	# Authentication proves identity.  A normal Web User never inherits the
+	# persistent DXUser privilege.  Only the separately negotiated Admin
+	# transport may receive the server-side DXUser privilege for its isolated
+	# administrative actor.
+	my $effective_priv = $is_admin ? $dx_priv : 0;
+
+	$self->_user_add(\%u, {
+		priv => $effective_priv,
+		registered => $user ? ($user->registered ? 1 : 0) : 0,
+		password_used => $password_required ? 1 : 0,
+		auth_source => 'dxspider',
+	});
+}
+
+sub _user_add
+{
+	my ($self, $req, $authmeta) = @_;
+
+	my $id = $req->{id};
+	my $call = _normalise_user_call($req->{call});
+	my $ip = $req->{ip};
+
+	# In external mode authentication is asserted by the trusted WebCluster.
+	# In integrated dxweb mode this routine is reached only through _auth_request().
+	# Authentication state is never copied into DXUser->{registered}.
+	my $authenticated = $authmeta ? 1 : ($req->{authenticated} ? 1 : 0);
+	if (($self->{web_auth} || '') eq 'dxspider' && !$authmeta) {
+		$self->_error($id, 'user_add', 'use_auth');
+		return;
+	}
+	if (($self->{web_auth} || '') eq 'external' && !$authenticated) {
+		$self->_error($id, 'user_add', 'authentication_required', {call => $call});
+		return;
+	}
+
+	unless ($call) {
+		$self->_error($id, 'user_add', 'invalid_call');
+		return;
+	}
+
+	unless (defined $ip && !ref $ip && is_ipaddr($ip)) {
+		$self->_error($id, 'user_add', 'invalid_ip', {call => $call});
+		return;
+	}
+	$ip =~ s/^::ffff://i;
+
+	if (DXCIDR::find($ip)) {
+		$self->_error($id, 'user_add', 'bad_ip', {call => $call});
+		return;
+	}
+
+	if (exists $self->{web_users}{$call}) {
+		$self->_error($id, 'user_add', 'already_owned', {call => $call});
+		return;
+	}
+
+	# A local DXChannel is authoritative even if its routing presence has
+	# not yet been published (or is already being torn down).  This also
+	# prevents a WebCluster login from claiming a Telnet user channel.
+	if (DXChannel::get($call) || $main::routeroot->is_user($call)) {
+		$self->_error($id, 'user_add', 'already_connected', {call => $call});
+		return;
+	}
+
+	my $user = DXUser::get_current($call);
+
+	if (_locked_out($call, $user)) {
+		$self->_error($id, 'user_add', 'locked_out', {call => $call});
+		return;
+	}
+
+	if ($user && !$user->is_user) {
+		$self->_error($id, 'user_add', 'not_user', {call => $call});
+		return;
+	}
+
+	# Match main::new_channel's basecall-wide admission check, including
+	# SSIDs that have no persistent DXUser record yet.  basecall_no()
+	# includes the proposed connection in its count.
+	my ($callcount, @calls) = Route::basecall_no($call);
+	my $max = $user ? $user->maxconnect : undef;
+	$max = $main::maxconnect_user unless defined $max;
+	if ($max && $callcount > $max + ($main::allowmultiple || 0)) {
+		$self->_error($id, 'user_add', 'too_many_connections', {
+			call  => $call,
+			max   => $max,
+			nodes => \@calls,
+		});
+		return;
+	}
+
+	# Do not pre-create a missing DXUser here.  _add_thingy() calls the native
+	# check_add_user(), which must see a genuinely new user so it can initialise
+	# sort/homenode/node/priv/lockout/lastin using normal DXSpider semantics.
+	DXProt::_add_thingy(
+		$main::routeroot,
+		[$call, 0, 0, 1, undef, undef, $ip]
+	);
+
+	my $ref = Route::User::get($call);
+
+	unless ($ref && $main::routeroot->is_user($call)) {
+		$self->_error($id, 'user_add', 'route_add_failed', {call => $call});
+		return;
+	}
+
+	$main::me->route_pc16($main::mycall, undef, $main::routeroot, $ref);
+	$main::me->route_pc92a($main::mycall, undef, $main::routeroot, $ref)
+		unless $DXProt::pc92_slug_changes || !$DXProt::pc92_ad_enabled;
+
+	my $effective_priv = (($self->{web_role} || '') eq 'dxweb-admin' && $authmeta)
+		? ($authmeta->{priv} || 0) : 0;
+
+	$self->{web_users}{$call} = {
+		ip            => $ip,
+		startt        => $main::systime,
+		authenticated => $authenticated,
+		priv          => $effective_priv,
+		registered    => $authmeta ? ($authmeta->{registered} || 0) : 0,
+		password_used => $authmeta ? ($authmeta->{password_used} || 0) : 0,
+		auth_source   => $authmeta ? ($authmeta->{auth_source} || 'dxspider') : 'external',
+		generation    => ++$web_user_generation_seq,
+		auth_request_id => $authmeta ? $id : undef,
+	};
+    # Allocate a real local channel without calling DXCommandmode::new():
+    # Web.pm has already performed the sole routing announcement above.
+    my $channel;
+    my $allocated = eval {
+        my $current_user = DXUser::get_current($call);
+        die "missing DXUser for $call" unless $current_user;
+        $channel = DXChannel::alloc('Web::UserChannel', $call,
+                                    Web::ActorConn->new($ip), $current_user);
+        $channel->{web_owner} = $self;
+        $channel->{web_generation} = $self->{web_users}{$call}{generation};
+        $channel->{priv} = $effective_priv;
+        $channel->{registered} = $self->{web_users}{$call}{registered};
+        $channel->web_initialise_command_state();
+        1;
+    };
+    unless ($allocated) {
+        my $error = $@ || 'unknown error';
+        LogDbg('err', "Web $self->{call}: cannot allocate user channel $call: $error");
+        $channel->web_release() if $channel;
+        $self->_remove_user($call, 'CHANNEL_ALLOC_FAILED');
+        $self->_error($id, 'user_add', 'channel_add_failed', {call => $call});
+        return;
+    }
+    $self->{web_users}{$call}{channel} = $channel;
+	DXHealth::logical_web_up($call, $ip, $self->{call});
+	$self->{web_users}{$call}{logical_health_up} = 1;
+	$self->_web_refresh_user_filters($call);
+
+	$self->tell_login('loginu', $call, 'WEB');
+	$self->tell_buddies('loginb', $call);
+
+	my $role = $self->{web_role} || 'webcluster';
+	my $auth_source = $authmeta ? ($authmeta->{auth_source} || 'dxspider') : 'external';
+	dbg("Web $self->{call}: $call authenticated from $ip role=$role auth=$auth_source generation=$self->{web_users}{$call}{generation}") if isdbg('connect');
+
+	$self->_response($id, 'ok', $authmeta ? 'auth' : 'user_add', {
+		call          => $call,
+		ip            => $ip,
+		authenticated => $authenticated,
+		auth_source   => $authmeta ? 'dxspider' : 'external',
+		password_used => $authmeta ? ($authmeta->{password_used} || 0) : 0,
+		priv          => $effective_priv,
+		registered    => $authmeta ? ($authmeta->{registered} || 0) : 0,
+		generation    => $self->{web_users}{$call}{generation},
+	});
+	$self->_web_initial_buddies($call) if $authenticated;
+}
+
+sub _remove_user
+{
+	my ($self, $call, $reason) = @_;
+
+	my $owned = $self->{web_users}{$call};
+	return unless $owned;
+	# Route notifications and health hooks can re-enter cleanup. Only the
+	# first invocation may withdraw this generation's presence.
+	return if $owned->{web_removing}++;
+
+	my $ref = Route::User::get($call);
+
+	if ($ref && $main::routeroot->is_user($call)) {
+		DXProt::_del_thingy($main::routeroot, [$call, 0]);
+
+		$main::me->route_pc17($main::mycall, undef, $main::routeroot, $ref);
+		$main::me->route_pc92d($main::mycall, undef, $main::routeroot, $ref)
+			unless $DXProt::pc92_slug_changes || !$DXProt::pc92_ad_enabled;
+	}
+
+	# _add_thingy() already performs DXSpider's normal DXUser accounting when
+	# the presence is added.  Do not close() the DXUser again here: that would
+	# add a second connlist entry and persist a duplicate session record.
+    # Release only this generation's channel.  Never close #WEB-n or call
+    # DXUser::close(), since _add_thingy() already owns that accounting.
+    my $channel = delete $owned->{channel};
+    $channel->web_release() if $channel;
+	DXHealth::logical_web_down($call, $self->{call}) if $owned->{logical_health_up};
+	delete $self->{web_users}{$call};
+
+	$self->tell_login('logoutu', $call, 'WEB');
+	$self->tell_buddies('logoutb', $call);
+
+	my $role = $self->{web_role} || 'webcluster';
+	my $ip = $owned->{ip} || '-';
+	my $why = $reason || 'USER_DEL';
+	dbg("Web $self->{call}: $call disconnected from $ip role=$role reason=$why") if isdbg('connect');
+	return 1;
+}
+
+# Ordered, per-authentication cancellation.  The browser transport sends this
+# after its original auth request on the same technical connection.  Matching
+# the original request id prevents an old cancellation removing a new login.
+sub _auth_cancel
+{
+    my ($self, $req) = @_;
+    my $id = $req->{id};
+    unless (($self->{web_role} || '') =~ /\A(?:dxweb|dxweb-admin)\z/
+            && ($self->{web_auth} || '') eq 'dxspider') {
+        $self->_error($id, 'auth_cancel', 'wrong_auth_mode');
+        return;
+    }
+    my $call = _normalise_user_call($req->{call});
+    my $auth_id = $req->{auth_id};
+    unless ($call && defined($auth_id) && !ref($auth_id)
+            && "$auth_id" =~ /\A[0-9]+\z/) {
+        $self->_error($id, 'auth_cancel', 'invalid_auth_reference');
+        return;
+    }
+    my $owned = $self->{web_users}{$call};
+    my $removed = 0;
+    if ($owned && defined($owned->{auth_request_id})
+        && "$owned->{auth_request_id}" eq "$auth_id") {
+        $removed = $self->_remove_user($call, 'AUTH_CANCEL') ? 1 : 0;
+    }
+    $self->_response($id, 'ok', 'auth_cancel', {call => $call, removed => $removed});
+}
+
+sub _user_del
+{
+	my ($self, $req) = @_;
+
+	my $id = $req->{id};
+	my $call = _normalise_user_call($req->{call});
+
+	unless ($call) {
+		$self->_error($id, 'user_del', 'invalid_call');
+		return;
+	}
+
+	unless (exists $self->{web_users}{$call}) {
+		$self->_error($id, 'user_del', 'not_owned', {call => $call});
+		return;
+	}
+
+	# Browser-facing protocol v2 requires a generation on every deletion.
+	# A missing generation must not bypass ownership checks. Preserve legacy
+	# behaviour only for the separate webcluster role.
+	if (($self->{web_role} || '') =~ /\A(?:dxweb|dxweb-admin)\z/
+	    && !exists $req->{generation}) {
+		$self->_error($id, 'user_del', 'generation_required', {call => $call});
+		return;
+	}
+	if (exists $req->{generation}) {
+		my $generation = $req->{generation};
+		unless (defined($generation) && !ref($generation)
+		        && $generation =~ /\A[0-9]+\z/
+		        && $generation == $self->{web_users}{$call}{generation}) {
+			$self->_error($id, 'user_del', 'generation_mismatch', {call => $call});
+			return;
+		}
+	}
+
+	$self->_remove_user($call, 'USER_DEL');
+
+	$self->_response($id, 'ok', 'user_del', {
+		call => $call,
+	});
+}
+
+
+# Configure the technical #WEB-n DXUser for the two global WebCluster feeds.
+#
+# RBN.pm already sends consensus spots to normal user channels according to
+# the DXUser wantrbn/want* flags and uses VE7CC::dx_spot() when ve7cc is set.
+# These settings are therefore runtime-only transport preferences for this
+# WebCluster connection; they are restored on disconnect.
+sub _enable_webcluster_feeds
+{
+	my $self = shift;
+	my $user = $self->{user};
+	return unless $user;
+
+	my @fields = qw(wantrbn wantbeacon wantcw wantrtty wantpsk wantft);
+
+	$self->{_web_saved_user_feed_flags} ||= {};
+	for my $field (@fields) {
+		$self->{_web_saved_user_feed_flags}{$field} = $user->$field()
+			unless exists $self->{_web_saved_user_feed_flags}{$field};
+		$user->$field(1);
+	}
+
+	# HUMAN uses DXCommandmode::dx_spot(), RBN uses the technical DXUser's
+	# wantrbn flag, and ANN is intercepted by Web::announce() so it can be
+	# disabled absolutely (including announcements originated by this node).
+	$self->{dx} = 1;
+	$self->{wantrbn} = 1;
+	$self->{web_feed_ann} = 1;
+	$self->{web_feed_wwv} = 1;
+	$self->{web_feed_wcy} = 1;
+	$self->{web_feed_wx} = 1;
+	$self->{wwv} = 1;
+	$self->{wcy} = 1;
+	$self->{wx} = 1;
+	delete $self->{spotsfilter};
+	delete $self->{rbnfilter};
+}
+
+sub _restore_webcluster_feeds
+{
+	my $self = shift;
+	my $user = $self->{user};
+	my $saved = delete $self->{_web_saved_user_feed_flags};
+
+	return unless $user && $saved;
+
+	for my $field (keys %$saved) {
+		$user->$field($saved->{$field});
+	}
+}
+
+# Accept JSON boolean values represented either as ordinary 0/1 scalars or
+# as boolean objects that stringify to 0/1.  Other values are rejected so a
+# malformed control request cannot silently change a feed.
+sub _feed_bool
+{
+	my $value = shift;
+	return undef unless defined $value;
+
+	my $s = "$value";
+	return 0 if $s eq '0';
+	return 1 if $s eq '1';
+	return undef;
+}
+
+sub _feed_state
+{
+	my $self = shift;
+	my $user = $self->{user};
+
+	return {
+		human    => $self->{dx} ? 1 : 0,
+		rbn      => ($user && $user->wantrbn) ? 1 : 0,
+		ann      => $self->{web_feed_ann} ? 1 : 0,
+		wwv      => $self->{web_feed_wwv} ? 1 : 0,
+		wcy      => $self->{web_feed_wcy} ? 1 : 0,
+		wx       => $self->{web_feed_wx} ? 1 : 0,
+	};
+}
+
+sub _feed_request
+{
+	my ($self, $req) = @_;
+	my $id = $req->{id};
+	my $user = $self->{user};
+
+	unless ($user) {
+		$self->_error($id, 'feed', 'user_not_found');
+		return;
+	}
+
+	my %changes;
+	for my $field (qw(human rbn ann wwv wcy wx)) {
+		next unless exists $req->{$field};
+		my $value = _feed_bool($req->{$field});
+		unless (defined $value) {
+			$self->_error($id, 'feed', 'bad_arguments', {field => $field});
+			return;
+		}
+		$changes{$field} = $value;
+	}
+
+
+	if (exists $changes{human}) {
+		$self->{dx} = $changes{human};
+	}
+
+	if (exists $changes{rbn}) {
+		$user->wantrbn($changes{rbn});
+		$self->{wantrbn} = $changes{rbn};
+	}
+
+	if (exists $changes{ann}) { $self->{web_feed_ann} = $changes{ann}; }
+	if (exists $changes{wwv}) { $self->{web_feed_wwv} = $changes{wwv}; $self->{wwv} = $changes{wwv}; }
+	if (exists $changes{wcy}) { $self->{web_feed_wcy} = $changes{wcy}; $self->{wcy} = $changes{wcy}; }
+	if (exists $changes{wx})  { $self->{web_feed_wx}  = $changes{wx};  $self->{wx}  = $changes{wx}; }
+
+	my $state = $self->_feed_state;
+
+	dbg(sprintf(
+		'web: Web %s FEED human=%d rbn=%d ann=%d wwv=%d wcy=%d wx=%d',
+		$self->{call}, $state->{human}, $state->{rbn}, $state->{ann}, $state->{wwv}, $state->{wcy}, $state->{wx}
+	)) if isdbg('web');
+
+	$self->_response($id, 'ok', 'feed', $state);
+}
+
+
+# Resolve a WC-owned logical user into its permanent command channel.
+sub _actor_for_call
+{
+	my ($self, $rawcall) = @_;
+
+	my $call = _normalise_user_call($rawcall);
+	return (undef, undef, 'invalid_call') unless $call;
+
+	my $owned = $self->{web_users}{$call};
+	return (undef, $call, 'not_owned') unless $owned;
+	return (undef, $call, 'not_authenticated') unless $owned->{authenticated};
+
+	# Commands must be bound to the current, registered logical channel.
+	# Never fall back to a transient actor when the channel was released or
+	# replaced; routing alone cannot establish local session ownership.
+	my $channel = $owned->{channel};
+	return (undef, $call, 'channel_not_present')
+		unless $channel && DXChannel::get($call) && DXChannel::get($call) == $channel;
+	return (undef, $call, 'session_expired')
+		unless defined $owned->{generation} && defined $channel->{web_generation}
+		&& $owned->{generation} == $channel->{web_generation}
+		&& $channel->{web_owner} && $channel->{web_owner} == $self
+		&& !$channel->{web_released} && !$channel->{web_disconnecting};
+
+	return (undef, $call, 'not_present')
+		unless $main::routeroot->is_user($call);
+
+	my $user = DXUser::get_current($call);
+	return (undef, $call, 'user_not_found') unless $user;
+	return (undef, $call, 'not_user') unless $user->is_user;
+
+	my $ip = $owned->{ip};
+	return (undef, $call, 'invalid_ip')
+		unless defined $ip && is_ipaddr($ip);
+
+	# The authenticated DXChannel is the command actor for every request.
+	# Never allocate a transient command context with a second identity.
+	return ($channel, $call, undef);
+}
+
+sub _wc_text
+{
+	my ($value, $allow_empty) = @_;
+	return undef if ref $value;
+	return undef unless defined $value;
+	return undef if $value =~ /[\r\n\0]/;
+	return undef if !$allow_empty && $value eq '';
+	return $value;
+}
+
+# Execute a fixed standard user command through the normal DXSpider command
+# resolver.  The command name is supplied by Web.pm itself; WC never supplies
+# an arbitrary CLI command name.
+#
+# run_cmd() strips the handler's internal leading success flag and returns
+# only user-facing output.  Therefore:
+#   - no returned/captured text => processed normally by the standard handler
+#   - returned/captured text    => preserve that exact DXS result for WC
+#
+# We intentionally do not invent finer result semantics than the handler
+# exposes to a normal user.
+sub _run_wc_command
+{
+	my ($self, $actor, $cmd, $args) = @_;
+
+	my @returned;
+	my $eval_ok = eval {
+		@returned = $actor->run_cmd("$cmd $args");
+		1;
+	};
+
+	unless ($eval_ok) {
+		LogDbg('err', "Web $self->{call}: $cmd execution failed: $@");
+		return ('internal_error', []);
+	}
+
+	my @captured = $actor->output;
+	my @messages = grep { defined $_ && length $_ } (@returned, @captured);
+
+	return @messages ? ('message', \@messages) : ('processed', []);
+}
+
+sub _registration_ready
+{
+	return $main::reg_enable && DXReg::ready();
+}
+
+sub _registration_admin
+{
+	my ($self, $req, $minimum_priv) = @_;
+	$minimum_priv = 9 unless defined $minimum_priv;
+	return (undef, 'admin_context_required') unless ($self->{web_role} || '') eq 'dxweb-admin';
+	my $call = _normalise_user_call($req->{call});
+	return (undef, 'invalid_call') unless $call;
+	my $owned = $self->{web_users}{$call};
+	return (undef, 'not_owned') unless $owned;
+	return (undef, 'not_authenticated') unless $owned->{authenticated};
+	return (undef, 'password_required') unless $owned->{password_used};
+	return (undef, 'admin_privilege_required') unless ($owned->{priv} || 0) >= $minimum_priv;
+	return ($call, undef);
+}
+
+sub _supervisor_request
+{
+	my ($self, $req) = @_;
+	my $id = $req->{id};
+	my $what = lc($req->{what} || 'status');
+	# Only the internal dxweb-admin sampler may take these read-only snapshots
+	# without a logical browser user.  Any request carrying a call, and every
+	# other supervisor snapshot, requires priv>=9.
+	my $technical = (($self->{web_role} || '') eq 'dxweb-admin' &&
+	                 !defined($req->{call}) &&
+	                 $what =~ /^(?:status|connections|traffic|spot_ranks|rbn|self_health)$/) ? 1 : 0;
+	unless ($technical) {
+		my ($call, $err) = $self->_registration_admin($req, 9);
+		unless ($call) { $self->_error($id, 'supervisor', $err); return; }
+	}
+	unless ($what =~ /^(?:status|connections|traffic|spot_ranks|web|rbn|self_health|topology)$/) {
+		$self->_error($id, 'supervisor', 'unsupported_snapshot');
+		return;
+	}
+	my ($ok, $result) = DXSupervisor::snapshot($what);
+	unless ($ok) {
+		$self->_error($id, 'supervisor', $result->{error} || 'snapshot_failed');
+		return;
+	}
+	$self->_response($id, 'ok', 'supervisor', {what => $what, result => $result});
+}
+
+sub _registration_request
+{
+	my ($self, $req) = @_;
+	my $id = $req->{id};
+	unless (_registration_ready()) { $self->_error($id, 'reg_request', 'registration_unavailable'); return; }
+	my $ip = $req->{ip};
+	unless (defined $ip && !ref($ip) && is_ipaddr($ip)) { $self->_error($id, 'reg_request', 'invalid_ip'); return; }
+	$ip =~ s/^::ffff://i;
+	if (DXCIDR::find($ip)) { $self->_error($id, 'reg_request', 'bad_ip'); return; }
+	my $ssids = $req->{ssids};
+	$ssids = [] unless defined $ssids;
+	unless (ref($ssids) eq 'ARRAY') { $self->_error($id, 'reg_request', 'bad_arguments'); return; }
+	my ($ok, $result) = DXReg::create_request(
+		call => $req->{call}, email => $req->{email}, language => ($req->{language} || 'EN'),
+		ssids => $ssids, name => $req->{name}, locator => $req->{locator}, comment => $req->{comment}, source => 'USER', ip => $ip,
+	);
+	unless ($ok) { $self->_error($id, 'reg_request', 'registration_rejected', {messages => [$result]}); return; }
+	$self->_response($id, 'ok', 'reg_request', {result => $result});
+}
+
+sub _registration_pending
+{
+	my ($self, $req) = @_;
+	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_pending','registration_unavailable'); return; }
+	my ($call,$err)=$self->_registration_admin($req,9); unless($call){$self->_error($id,'reg_pending',$err);return}
+	my @rows=sort {($b->{created_at}||0)<=>($a->{created_at}||0)||($b->{id}||0)<=>($a->{id}||0)} DXReg::list_pending();
+	my $owned = $self->{web_users}{$call};
+	if (($owned->{priv} || 0) < 9) {
+		my %public = map { $_ => 1 } qw(id call status requested_ssids accepted_ssids affected_ssids affected_calls created_at processed_at processed_by language source);
+		@rows = map { my $row = $_; ref($row) eq 'HASH' ? { map { $_ => $row->{$_} } grep { $public{$_} } keys %$row } : {} } @rows;
+	}
+	$self->_response($id,'ok','reg_pending',{result=>\@rows});
+}
+
+sub _registration_history
+{
+	my ($self, $req) = @_;
+	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_history','registration_unavailable'); return; }
+	my ($call,$err)=$self->_registration_admin($req,9); unless($call){$self->_error($id,'reg_history',$err);return}
+	my @rows=DXReg::list_history();
+	my $owned = $self->{web_users}{$call};
+	if (($owned->{priv} || 0) < 9) {
+		my %public = map { $_ => 1 } qw(id call status requested_ssids accepted_ssids affected_ssids affected_calls created_at processed_at processed_by language source);
+		@rows = map { my $row = $_; ref($row) eq 'HASH' ? { map { $_ => $row->{$_} } grep { $public{$_} } keys %$row } : {} } @rows;
+	}
+	$self->_response($id,'ok','reg_history',{result=>\@rows});
+}
+
+sub _registration_search
+{
+	my ($self, $req) = @_;
+	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_search','registration_unavailable'); return; }
+	my ($call,$err)=$self->_registration_admin($req,9); unless($call){$self->_error($id,'reg_search',$err);return}
+	my $query=_wc_text($req->{query},0); unless(defined$query){$self->_error($id,'reg_search','bad_arguments');return}
+	my @rows=DXReg::search_history($query);
+	my $owned = $self->{web_users}{$call};
+	if (($owned->{priv} || 0) < 9) {
+		my %public = map { $_ => 1 } qw(id call status requested_ssids accepted_ssids affected_ssids affected_calls created_at processed_at processed_by language source);
+		@rows = map { my $row = $_; ref($row) eq 'HASH' ? { map { $_ => $row->{$_} } grep { $public{$_} } keys %$row } : {} } @rows;
+	}
+	$self->_response($id,'ok','reg_search',{result=>\@rows});
+}
+
+sub _registration_accept
+{
+	my ($self, $req) = @_;
+	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_accept','registration_unavailable'); return; }
+	my ($call,$err)=$self->_registration_admin($req); unless($call){$self->_error($id,'reg_accept',$err);return}
+	my $rid=$req->{request_id}; unless(defined$rid&&!ref($rid)&&"$rid"=~/^\d+$/){$self->_error($id,'reg_accept','bad_arguments');return}
+	my $note=exists($req->{note})?_wc_text($req->{note},1):undef; if(exists($req->{note})&&!defined$note){$self->_error($id,'reg_accept','bad_arguments');return}
+	my ($ok,$result)=DXReg::accept_request($rid,$call,$note);
+	unless($ok){$self->_error($id,'reg_accept','registration_rejected',{messages=>[$result]});return}
+	$self->_response($id,'ok','reg_accept',{result=>$result});
+}
+
+sub _registration_reject
+{
+	my ($self, $req) = @_;
+	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_reject','registration_unavailable'); return; }
+	my ($call,$err)=$self->_registration_admin($req); unless($call){$self->_error($id,'reg_reject',$err);return}
+	my $rid=$req->{request_id}; unless(defined$rid&&!ref($rid)&&"$rid"=~/^\d+$/){$self->_error($id,'reg_reject','bad_arguments');return}
+	my $note=exists($req->{note})?_wc_text($req->{note},1):undef; if(exists($req->{note})&&!defined$note){$self->_error($id,'reg_reject','bad_arguments');return}
+	my ($ok,$result)=DXReg::reject_request($rid,$call,$note);
+	unless($ok){$self->_error($id,'reg_reject','registration_rejected',{messages=>[$result]});return}
+	$self->_response($id,'ok','reg_reject',{result=>$result});
+}
+
+sub _registration_delete_user
+{
+	my ($self, $req) = @_;
+	my $id=$req->{id}; unless (_registration_ready()) { $self->_error($id,'reg_delete_user','registration_unavailable'); return; }
+	my ($call,$err)=$self->_registration_admin($req); unless($call){$self->_error($id,'reg_delete_user',$err);return}
+	my $target=_wc_text($req->{target},0); unless(defined$target){$self->_error($id,'reg_delete_user','bad_arguments');return}
+	my $note=exists($req->{note})?_wc_text($req->{note},1):undef; if(exists($req->{note})&&!defined$note){$self->_error($id,'reg_delete_user','bad_arguments');return}
+	my $ip=exists($req->{ip})?_wc_text($req->{ip},1):undef;
+	my ($ok,$result)=DXReg::delete_user_family($target,$call,$note,$ip);
+	unless($ok){$self->_error($id,'reg_delete_user','registration_rejected',{messages=>[$result]});return}
+	$self->_response($id,'ok','reg_delete_user',{result=>$result});
+}
+
+
+# Profile API: only an authenticated, locally routed logical user may read or
+# change their own DXUser record. Never accept a target callsign separately.
+sub _profile_fields
+{
+    my ($user) = @_;
+    my $email = $user->email;
+    $email = join(' ', @$email) if ref($email) eq 'ARRAY';
+    $email = '' if !defined($email) || ref($email);
+    return {
+        name => scalar($user->name || ''),
+        qth => scalar($user->qth || ''),
+        qra => scalar($user->qra || ''),
+        email => $email,
+    };
+}
+
+sub _profile_request
+{
+    my ($self, $req) = @_;
+    my $id = $req->{id};
+    unless (($self->{web_role} || '') eq 'dxweb' && ($self->{web_auth} || '') eq 'dxspider') {
+        $self->_error($id, 'profile', 'wrong_role'); return;
+    }
+    my ($actor, $call, $err) = $self->_actor_for_call($req->{call});
+    unless ($actor) { $self->_error($id, 'profile', $err); return; }
+    my $user = DXUser::get_current($call);
+    unless ($user) { $self->_error($id, 'profile', 'user_not_found'); return; }
+    my $action = $req->{action} || 'get';
+    if ($action eq 'save') {
+        my $fields = $req->{fields};
+        unless (ref($fields) eq 'HASH') { $self->_error($id,'profile','invalid_fields'); return; }
+        my $original = _profile_fields($user);
+        # Validate the complete request before changing a single field.
+        for my $key (keys %$fields) {
+            my $value = $fields->{$key};
+            unless ($key =~ /\A(?:name|qth|qra|email)\z/ && defined($value) && !ref($value)
+                    && length($value) && length($value) <= 120
+                    && $value !~ /[\x00-\x1f\x7f]/) {
+                $self->_error($id,'profile','invalid_fields'); return;
+            }
+            if ($key eq 'qra') {
+                $value = uc $value;
+                unless (is_qra($value)) { $self->_error($id,'profile','invalid_locator'); return; }
+                $fields->{$key} = $value;
+            }
+            if ($key eq 'email' && $value !~ /\A[^\s\@]+\@[^\s\@]+\.[^\s\@]+\z/) {
+                $self->_error($id,'profile','invalid_email'); return;
+            }
+            # Native set/name and set/qth remove braces, and set/email strips
+            # punctuation; refuse transformations that would surprise the user.
+            if (($key eq 'name' || $key eq 'qth') && $value =~ /[{}]/ ||
+                $key eq 'email' && $value =~ /[<>()\[\]{}]/) {
+                $self->_error($id,'profile','invalid_fields'); return;
+            }
+        }
+        # Profile updates use the same permanent channel as normal commands.
+        # Reserve its output capture so another command cannot interleave.
+        unless ($actor->web_command_begin()) {
+            $self->_error($id,'profile','command_busy'); return;
+        }
+        for my $key (qw(name qth qra email)) {
+            next unless exists $fields->{$key};
+            my $value = $fields->{$key};
+            next if $value eq $original->{$key};
+            my $ok = eval {
+                $actor->run_cmd("set/$key $value");
+                $actor->{_dxcss_last_cmd_ok};
+            };
+            if ($@ || !$ok || $actor->async_pending) {
+                my $why = $@ || ($actor->async_pending ? 'unexpected asynchronous command' : 'command rejected');
+                LogDbg('err', "Profile $call set/$key failed: $why");
+                $actor->web_command_end();
+                $self->_error($id,'profile','update_failed'); return;
+            }
+            $user = DXUser::get_current($call);
+            my $after = _profile_fields($user);
+            if ($after->{$key} ne $value) {
+                LogDbg('err', "Profile $call set/$key did not persist expected value");
+                $actor->web_command_end();
+                $self->_error($id,'profile','update_not_persisted'); return;
+            }
+        }
+        $actor->web_command_end();
+    } elsif ($action eq 'password') {
+        my $old = $req->{current_password};
+        my $new = $req->{new_password};
+        my $stored = $user->passwd || '';
+        # Same plaintext credential semantics as Web::_auth_request and native
+        # set/password. Passwordless sessions cannot establish credentials.
+        unless (defined($old) && !ref($old) && length($old) &&
+                defined($new) && !ref($new) && length($new) >= 8 && length($new) <= 120 &&
+                $new !~ /[\x00-\x20\x7f]/ && length($stored) && $old eq $stored) {
+            $self->_error($id,'profile','password_verification_failed'); return;
+        }
+        $user->passwd($new);
+        $user->put();
+        my $persisted = DXUser::get_current($call);
+        unless ($persisted && ($persisted->passwd || '') eq $new) {
+            $self->_error($id,'profile','update_not_persisted'); return;
+        }
+        dbg("web: Web profile password changed for $call") if isdbg('web');
+        $self->_response($id,'ok','profile',{call=>$call, action=>'password'});
+        return;
+    } elsif ($action ne 'get') {
+        $self->_error($id,'profile','invalid_action'); return;
+    }
+    $user = DXUser::get_current($call);
+    $self->_response($id,'ok','profile',{
+        call=>$call, action=>$action,
+        fields=>_profile_fields($user),
+        password_set=>length($user->passwd || '') ? 1 : 0,
+    });
+}
+
+# Verify both transport and logical-channel identity before delivering a
+# deferred command result. A callsign/generation match alone is insufficient
+# if a channel was replaced or explicitly released.
+sub _web_command_session_current
+{
+    my ($self, $call, $transport_generation, $user_generation, $channel) = @_;
+    return 0 unless defined $self->{web_generation}
+        && $self->{web_generation} == $transport_generation;
+    return 0 unless $self->is_webcluster;
+    my $owned = $self->{web_users}{$call} or return 0;
+    return 0 unless $owned->{authenticated};
+    return 0 unless defined $owned->{generation}
+        && $owned->{generation} == $user_generation;
+    return 0 unless $channel && $owned->{channel}
+        && $owned->{channel} == $channel;
+    return 0 unless DXChannel::get($call)
+        && DXChannel::get($call) == $channel;
+    return 0 unless $channel->{web_owner}
+        && $channel->{web_owner} == $self;
+    return 0 unless defined $channel->{web_generation}
+        && $channel->{web_generation} == $user_generation;
+    return 0 if $channel->{web_released} || $channel->{web_disconnecting};
+    return 1;
+}
+
+# Explicit PC93 group chat from the authenticated permanent WebChannel.
+# No fabricated DXChannel and no bypass of native PC93 generation.
+sub _network_chat_send_request
+{
+    my ($self,$req)=@_;
+    my $id=$req->{id};
+    unless (($self->{web_role}||'') eq 'dxweb-admin') {
+        $self->_error($id,'network_chat_send','admin_context_required');return;
+    }
+    my ($actor,$call,$err)=$self->_actor_for_call($req->{call});
+    unless ($actor) {$self->_error($id,'network_chat_send',$err);return}
+    my $owned=$self->{web_users}{$call};
+    unless (($owned->{priv}||0)>=9 && $actor->priv>=9 && $actor->isregistered) {
+        $self->_error($id,'network_chat_send','admin_privilege_required');return;
+    }
+    my $target=_wc_text($req->{channel},0);
+    my $message=_wc_text($req->{text},0);
+    unless (defined $target && ($target eq 'ERROR'||$target eq 'SYSOP') &&
+            defined $message && length($message)<=500 && $message =~ /\S/) {
+        $self->_error($id,'network_chat_send','invalid_message');return;
+    }
+    # ERROR is a real group: respect native membership. SYSOP is restricted
+    # to privileged administrators, as it is in the receive-side bridge.
+    unless ($target eq 'SYSOP' || $actor->user->in_group('ERROR')) {
+        $self->_error($id,'network_chat_send','not_in_group');return;
+    }
+    my @bad=BadWords::check("$target $message");
+    if (@bad) {$self->_error($id,'network_chat_send','rejected_by_badwords');return}
+    my $ok=eval {$actor->send_chats($target,$message);1};
+    unless ($ok) {
+        LogDbg('err',"Web network_chat_send failed: $@");
+        $self->_error($id,'network_chat_send','internal_error');return;
+    }
+    $self->_response($id,'ok','network_chat_send',{call=>$call,channel=>$target});
+}
+
+sub _command_request
+{
+    my ($self, $req) = @_;
+    my $id = $req->{id};
+    my ($actor, $call, $err) = $self->_actor_for_call($req->{call});
+    unless ($actor) { $self->_error($id, 'command', $err, $call ? {call => $call} : undef); return; }
+    my $command = _wc_text($req->{command}, 0);
+    unless (defined $command) { $self->_error($id, 'command', 'bad_arguments', {call => $call}); return; }
+
+    # Resolve the permanent registered channel, not the one-shot actor.
+    # Only one in-flight command can own its capture buffer at a time.
+    my $channel = $self->{web_users}{$call}{channel};
+    unless ($channel && $channel->web_command_begin()) {
+        $self->_error($id, 'command', 'command_busy', {call => $call});
+        return;
+    }
+
+    my $webcall = $self->{call};
+    my $generation = $self->{web_generation};
+    my $user_generation = $self->{web_users}{$call}{generation};
+    $channel->web_command_watchdog(8, sub {
+        my ($expired) = @_;
+        my $web = DXChannel::get($webcall);
+        return unless $web && $web->isa('Web') &&
+            $web->_web_command_session_current(
+                $call, $generation, $user_generation, $expired);
+        $web->_error($id, 'command', 'command_timeout', {call => $call});
+    });
+    $channel->set_async_completion(sub {
+        my ($done_channel) = @_;
+        my $web = DXChannel::get($webcall);
+        my $current = $web && $web->isa('Web') &&
+            $web->_web_command_session_current(
+                $call, $generation, $user_generation, $done_channel);
+        my @messages = $done_channel->web_command_end();
+        return unless $current;
+        $web->_web_refresh_all_filters();
+        $web->_response($id, 'ok', 'command', {call => $call, messages => \@messages});
+    });
+
+    my (@returned, $ok);
+    $ok = eval { @returned = $channel->run_cmd($command); 1 };
+    unless ($ok) {
+        LogDbg('err', "Web $self->{call}: command failed: $@");
+        $channel->web_command_end();
+        return unless $self->_web_command_session_current(
+            $call, $generation, $user_generation, $channel);
+        $self->_error($id, 'command', 'internal_error', {call => $call});
+        return;
+    }
+
+    # A subprocess completion can run before run_cmd() returns (depending on
+    # the event-loop implementation).  Its callback may already have ended
+    # the capture and sent the response.  Never resurrect that capture or
+    # send a second response for the same request.
+    return unless $channel->{_web_command_capture};
+    $channel->{_command_returned} = [@returned];
+    return if $channel->async_pending;
+
+    my @messages = $channel->web_command_end();
+    return unless $self->_web_command_session_current(
+        $call, $generation, $user_generation, $channel);
+    $self->_web_refresh_all_filters();
+    $self->_response($id, 'ok', 'command', {call => $call, messages => \@messages});
+}
+
+# Fixed WebCluster actions share the permanent channel and the same
+# completion/identity guards as generic command requests.  Preserve the
+# existing spot/ann response contract: handler text means "rejected".
+sub _web_fixed_command
+{
+    my ($self, $id, $type, $call, $cmd, $args, $extra) = @_;
+    my $channel = $self->{web_users}{$call}{channel};
+    unless ($channel && $channel->web_command_begin()) {
+        $self->_error($id, $type, 'command_busy', {call => $call});
+        return;
+    }
+    my $webcall = $self->{call};
+    my $transport_generation = $self->{web_generation};
+    my $user_generation = $self->{web_users}{$call}{generation};
+    my $respond = sub {
+        my ($done_channel) = @_;
+        my $web = DXChannel::get($webcall);
+        my $current = $web && $web->isa('Web') &&
+            $web->_web_command_session_current(
+                $call, $transport_generation, $user_generation, $done_channel);
+        my @messages = $done_channel->web_command_end();
+        return unless $current;
+        $web->_web_refresh_all_filters();
+        if (@messages) {
+            $web->_response($id, 'rejected', $type,
+                {call => $call, %$extra, messages => \@messages});
+        } else {
+            $web->_response($id, 'ok', $type,
+                {call => $call, %$extra, result => 'processed'});
+        }
+    };
+    $channel->web_command_watchdog(8, sub {
+        my ($expired) = @_;
+        my $web = DXChannel::get($webcall);
+        return unless $web && $web->isa('Web') &&
+            $web->_web_command_session_current(
+                $call, $transport_generation, $user_generation, $expired);
+        $web->_error($id, $type, 'command_timeout', {call => $call, %$extra});
+    });
+    $channel->set_async_completion($respond);
+    my (@returned, $ok);
+    $ok = eval { @returned = $channel->run_cmd("$cmd $args"); 1 };
+    unless ($ok) {
+        LogDbg('err', "Web $webcall: $cmd execution failed: $@");
+        $channel->web_command_end();
+        return unless $self->_web_command_session_current(
+            $call, $transport_generation, $user_generation, $channel);
+        $self->_error($id, $type, 'internal_error', {call => $call, %$extra});
+        return;
+    }
+    return unless $channel->{_web_command_capture};
+    $channel->{_command_returned} = [@returned];
+    return if $channel->async_pending;
+    # $respond verifies ownership before sending, including synchronous exit.
+    $respond->($channel);
+    return;
+}
+
+sub _spot_request
+{
+	my ($self, $req) = @_;
+	my $id = $req->{id};
+
+	my ($actor, $call, $err) = $self->_actor_for_call($req->{call});
+	unless ($actor) {
+		$self->_error($id, 'spot', $err, $call ? {call => $call} : undef);
+		return;
+	}
+
+	my $freq = _wc_text($req->{freq}, 0);
+	my $dxcall = _wc_text($req->{dxcall}, 0);
+	my $comment = exists $req->{comment} ? _wc_text($req->{comment}, 1) : '';
+
+	unless (defined $freq && defined $dxcall && defined $comment) {
+		$self->_error($id, 'spot', 'bad_arguments', {call => $call});
+		return;
+	}
+
+	my $args = "$freq $dxcall";
+	$args .= " $comment" if length $comment;
+
+	$self->_web_fixed_command($id, 'spot', $call, 'dx', $args, {});
+}
+
+sub _announce_request
+{
+	my ($self, $req) = @_;
+	my $id = $req->{id};
+
+	my ($actor, $call, $err) = $self->_actor_for_call($req->{call});
+	unless ($actor) {
+		$self->_error($id, 'ann', $err, $call ? {call => $call} : undef);
+		return;
+	}
+
+	my $text = _wc_text($req->{text}, 0);
+	my $scope = lc(exists $req->{scope} ? $req->{scope} : 'local');
+
+	unless (defined $text && $scope =~ /^(?:local|full|sysop)$/) {
+		$self->_error($id, 'ann', 'bad_arguments', {call => $call});
+		return;
+	}
+
+	my $args = $scope eq 'local' ? $text : uc($scope) . " $text";
+	$self->_web_fixed_command($id, 'ann', $call, 'announce', $args, {scope => $scope});
+}
+
+sub normal
+{
+	my ($self, $line) = @_;
+
+	# Before WebCluster negotiation, preserve Dirk's existing Web/CLI behaviour.
+	unless ($self->is_webcluster) {
+		my $req = $json->decode($line);
+
+		if ($req && ref $req eq 'HASH' && ($req->{type} || '') eq 'hello' &&
+			(($req->{role} || '') eq 'webcluster' || ($req->{role} || '') eq 'dxweb' || ($req->{role} || '') eq 'dxweb-admin')) {
+
+			my $version = $req->{version};
+			my $role = $req->{role};
+			my $expected_auth = ($role eq 'dxweb' || $role eq 'dxweb-admin') ? 'dxspider' : 'external';
+
+			# dxweb-admin is a local DXSpider control-plane transport.  Enforce
+			# loopback here, inside DXSpider, before the role is activated.
+			if ($role eq 'dxweb-admin' && !$self->_admin_peer_is_loopback) {
+				LogDbg('err', "Web $self->{call}: rejected non-local dxweb-admin HELLO from " . ($self->{hostname} || $self->{sockhost} || 'unknown'));
+				$self->_send_json({
+					type => 'hello', role => $role, version => $version,
+					status => 'error', error => 'admin_local_only',
+				});
+				return;
+			}
+
+			unless (defined $version && !ref $version && $version =~ /^\d+$/ &&
+				(($role eq 'webcluster' && ($version == 1 || $version == 2)) || (($role eq 'dxweb' || $role eq 'dxweb-admin') && $version == 2))) {
+				$self->_send_json({
+					type      => 'hello',
+					role      => $role,
+					status    => 'error',
+					error     => 'unsupported_version',
+					supported => ($role eq 'dxweb' || $role eq 'dxweb-admin') ? [2] : [1,2],
+				});
+				return;
+			}
+
+			$self->{web_role} = $role;
+			$self->{web_auth} = $expected_auth;
+			$self->{web_version} = $version;
+			$self->_enable_webcluster_backpressure;
+			$self->_enable_webcluster_feeds;
+
+			dbg("web: Web $self->{call} switched to $role protocol v$version auth=$expected_auth") if isdbg('web');
+
+			my $hello = {
+				type    => 'hello',
+				role    => $role,
+				version => $version,
+				status  => 'ok',
+			};
+			$hello->{auth} = $expected_auth if $role eq 'dxweb' || $role eq 'dxweb-admin' || $version >= 2;
+			$self->_send_json($hello);
+			return;
+		}
+
+		return $self->SUPER::normal($line);
+	}
+
+	my $req = $json->decode($line);
+
+	unless ($req && ref $req eq 'HASH') {
+		$self->_send_json({
+			type   => 'response',
+			status => 'error',
+			error  => 'invalid_json',
+		});
+		return;
+	}
+
+	my $id = $req->{id};
+	my $type = lc($req->{type} || '');
+
+	unless (defined $id && !ref $id && length "$id") {
+		$self->_send_json({
+			type   => 'response',
+			status => 'error',
+			error  => 'missing_id',
+		});
+		return;
+	}
+
+	if ($type eq 'auth') {
+		$self->_auth_request($req);
+		return;
+	}
+
+	if ($type eq 'auth_cancel') {
+		$self->_auth_cancel($req);
+		return;
+	}
+
+	if ($type eq 'user_add') {
+		$self->_user_add($req);
+		return;
+	}
+
+	if ($type eq 'user_del') {
+		$self->_user_del($req);
+		return;
+	}
+
+	if ($type eq 'feed') {
+		$self->_feed_request($req);
+		return;
+	}
+
+	if ($type eq 'profile') {
+		$self->_profile_request($req);
+		return;
+	}
+
+	if ($type eq 'network_chat_send') {
+		$self->_network_chat_send_request($req);
+		return;
+	}
+
+	if ($type eq 'command') {
+		$self->_command_request($req);
+		return;
+	}
+
+	if ($type eq 'spot') {
+		$self->_spot_request($req);
+		return;
+	}
+
+	if ($type eq 'ann') {
+		$self->_announce_request($req);
+		return;
+	}
+
+	if ($type eq 'supervisor') { $self->_supervisor_request($req); return; }
+	if ($type eq 'reg_request') { $self->_registration_request($req); return; }
+	if ($type eq 'reg_pending') { $self->_registration_pending($req); return; }
+	if ($type eq 'reg_history') { $self->_registration_history($req); return; }
+	if ($type eq 'reg_search') { $self->_registration_search($req); return; }
+	if ($type eq 'reg_accept') { $self->_registration_accept($req); return; }
+	if ($type eq 'reg_reject') { $self->_registration_reject($req); return; }
+	if ($type eq 'reg_delete_user') { $self->_registration_delete_user($req); return; }
+
+	$self->_error($id, $type || 'unknown', 'unknown_type');
 }
 
 sub disconnect
 {
 	my $self = shift;
 	my $call = $self->call;
-	
+
 	return if $self->{disconnecting}++;
 
-	delete $self->{senddbg};
-	
-	LogDbg('DXCommand', "Web $call disconnected");
+	if ($self->is_webcluster && $self->{web_users}) {
+		my @users = keys %{$self->{web_users}};
+		$self->_remove_user($_, 'WEB_DISCONNECT') for @users;
+	}
 
-	# this done to avoid any routing or remembering of unwanted stuff
+	$self->_restore_webcluster_feeds if $self->is_webcluster;
+
+	delete $self->{senddbg};
+
+	dbg("web: Web $call disconnected") if isdbg('web');
+
 	DXChannel::disconnect($self);
 }
+
 1;

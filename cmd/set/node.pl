@@ -39,7 +39,7 @@ foreach $call (@args) {
 			$user->homenode($call);
 			$user->lockout(0);
 			$user->priv(1) unless $user->priv;
-			$user->close();
+			$user->put();
 			push @out, $self->msg($create ? 'nodeac' : 'nodea', $call);
 		} else {
 			push @out, $self->msg('e3', "Set Node", $call);

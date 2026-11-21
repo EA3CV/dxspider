@@ -9,7 +9,7 @@ my ($self, $line) = @_;
 return (1, $self->msg('e5')) if $self->remotecmd;
 # are we permitted?
 return (1, $self->msg('e5')) if $self->priv < 6;
-$line = join(' ', map {s|[/-]\d+$||; $_} split(/\s+/, $line));
-$line = join(' ', map {s|[/-]\d+$||; $_} split(/\s+/, $line));
+$line = join(' ', map {s|[/-]\d+$||; $_} split(/[,\s]+/, $line));
+#$line = join(' ', map {s|[/-]\d+$||; $_} split(/\s+/, $line));
 return $DXProt::badspotter->unset(8, $self->msg('e6'), $self, $line);
 

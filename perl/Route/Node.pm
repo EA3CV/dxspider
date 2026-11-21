@@ -24,12 +24,16 @@ use vars qw(%list %valid @ISA $max $filterdef $obscount);
 		  K => '9,Seen on PC92K,yesno',
 		  PC92C_dxchan => '9,PC92C hops,phash',
 		  build => '0,Build',
+		  gitbranch => '0,Git Branch',
+		  gitversion => '0,Git Version',
 		  do_pc9x => '0,Uses pc9x,yesno',
 		  handle_xml => '0,Using XML,yesno',
 		  last_PC92C => '9,Last PC92C',
 		  lastid => '0,Last Route MsgID',
 		  lastmsg => '0,Last Route Msg,atime',
 		  nodes => '0,Nodes,parray',
+		  pc92_nodes => '0,PC92K Advertised Node Count',
+		  pc92_users => '0,PC92K Advertised User Count',
 		  obscount => '0,Obscount',
 		  usercount => '0,User Count',
 		  users => '0,Users,parray',
@@ -111,6 +115,7 @@ sub del
 			push @nodes, $r->del($self, $ncall, @_) if $r;
 		}
 		$self->_del_users;
+		Route::_pc92_registry('node', $ncall);
 		delete $list{$ncall};
 		push @nodes, $self;
 		dbg("CLUSTER: node $ncall deleted") if isdbg('cluster');
@@ -132,7 +137,7 @@ sub delete
 	if (@{$self->{parent}}) {
 		foreach my $call (@{$self->{parent}}) {
 			my $parent = Route::Node::get($call);
-			push @out, $parent->del($self) if $parent;
+			push @out, $self->del($parent) if $parent;
 		}
 	}
 	# get rid of my nodes
@@ -140,6 +145,7 @@ sub delete
 	# this only happens if we a orphan with no parents
 	if ($list{$ncall}) {
 		push @out, $self;
+		Route::_pc92_registry('node', $ncall);
 		delete $list{$ncall};
 	}
 	return @out;
@@ -163,6 +169,7 @@ sub _del_users
 		my $ref = Route::User::get($_);
 		$ref->del($self) if $ref;
 	}
+	Route::_pc92_touch($self);
 	$self->{users} = [];
 }
 
@@ -185,6 +192,7 @@ sub add_user
 		@out = $uref;
 	}
 	$self->_adduser($uref);
+	Route::_pc92_touch($self);
 	$self->{usercount} = scalar @{$self->{users}};
 
 	return @out;
@@ -203,6 +211,7 @@ sub del_user
 	} else {
 		confess "tried to delete non-existant $ref->{call} from $self->{call}";
 	}
+	Route::_pc92_touch($self);
 	$self->{usercount} = scalar @{$self->{users}};
 	return @out;
 }
@@ -219,6 +228,7 @@ sub usercount
 {
 	my $self = shift;
 	if (@_ && @{$self->{users}} == 0) {
+		Route::_pc92_touch($self);
 		$self->{usercount} = shift;
 	}
 	return $self->{usercount};
@@ -301,6 +311,7 @@ sub new
 	$self->{ip} = $ip if defined $ip;
 	$self->reset_obs;			# by definition
 
+	Route::_pc92_registry('node', $call);
 	$list{$call} = $self;
 
 	return $self;
@@ -318,6 +329,11 @@ sub get
 sub get_all
 {
 	return values %list;
+}
+
+sub get_all_keys
+{
+	return keys %list;
 }
 
 sub _addparent
@@ -361,6 +377,7 @@ sub _deluser
 sub dec_obs
 {
 	my $self = shift;
+	Route::_pc92_touch($self);
 	$self->{obscount}--;
 	return $self->{obscount};
 }
@@ -368,6 +385,7 @@ sub dec_obs
 sub reset_obs
 {
 	my $self = shift;
+	Route::_pc92_touch($self);
 	$self->{obscount} = $obscount;
 }
 
@@ -390,13 +408,22 @@ sub PC92C_dxchan
 	my $hops = shift;
 	if ($call && $hops) {
 		$hops =~ s/^H//;
+		Route::_pc92_touch($parent);
 		$parent->{PC92C_dxchan}->{$call} = $hops;
 		return;
 	}
 	return (%{$parent->{PC92C_dxchan}});
 }
 
-sub TO_JSON { return { %{ shift() } }; }
+sub TO_JSON
+{
+	my $self = shift;
+	my %copy = %$self;
+	# PC92K advertised counters are deliberately live-only metadata.  Do not
+	# persist them in route_node_cache; a fresh K must repopulate them.
+	delete @copy{qw(pc92_nodes pc92_users)};
+	return \%copy;
+}
 
 sub write_cache
 {
@@ -468,7 +495,7 @@ sub AUTOLOAD
 
 	# this clever line of code creates a subroutine which takes over from autoload
 	# from OO Perl - Conway
-        *$AUTOLOAD = sub {$_[0]->{$name} = $_[1] if @_ > 1; return $_[0]->{$name}};
+        *$AUTOLOAD = sub { if (@_ > 1) { Route::_pc92_touch($_[0]); $_[0]->{$name} = $_[1] } return $_[0]->{$name} };
         goto &$AUTOLOAD;
 }
 

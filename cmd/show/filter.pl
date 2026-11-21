@@ -29,9 +29,15 @@ if (@f) {
 
 my $sort;
 foreach $sort (@in) {
-	my $ref = Filter::read_in($sort, $call, 1);
+	my $nossid = $call;
+	$nossid =~ s/-\d+$//;
+	my $ref = Filter::read_in($sort, $call,  1)	||
+			Filter::read_in($sort, $nossid,  1) ||
+				Filter::read_in($sort,  'user_default' , 1);
 	push @out, $ref->print($call, $sort, "input") if $ref;
-	$ref = Filter::read_in($sort, $call, 0);
+	$ref = Filter::read_in($sort, $call,  0)	||
+			Filter::read_in($sort, $nossid,  0) ||
+				Filter::read_in($sort,  'user_default' , 0);
 	push @out, $ref->print($call, $sort, "") if $ref;
 }
 push @out, $self->msg('filter3', $call) unless @out;

@@ -32,7 +32,7 @@ foreach $call (@args) {
 		if ($dxchan) {
 			$dxchan->nopings($val);
 		} else {
-			$user->close();
+			$user->put();
 		}
 		push @out, $self->msg('obscount', $call, $val);
 	} else {

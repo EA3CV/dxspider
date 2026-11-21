@@ -1,7 +1,8 @@
 #
 # class to handle all dupes in the system
 #
-# each dupe entry goes into a tied hash file 
+# Dupe entries are deliberately transient and are held in memory only.
+# There is no persistent state to preserve across restarts.
 #
 # the only thing this class really does is provide a
 # mechanism for storing and checking dups
@@ -13,27 +14,20 @@ use DXDebug;
 use DXUtil;
 use DXVars;
 
-use vars qw{$dbm %d $default $fn};
+use vars qw{%d $default $lasttime};
 
 $default = 2*24*60*60;
 $lasttime = 0;
-localdata_mv("dupefile");
-$fn = localdata("dupefile");
 
 sub init
 {
-	unlink $fn;
-	$dbm = tie (%d, 'DB_File', $fn);
-	confess "cannot open $fn $!" unless $dbm;
+	%d = ();
 }
 
 sub finish
 {
 	dbg("DXDupe finishing");
-	undef $dbm;
-	untie %d;
-	undef %d;
-#	unlink $fn;
+	%d = ();
 }
 
 # NOTE: This checks for a duplicate and only adds a new entry if not found
@@ -132,11 +126,4 @@ sub listdups
 	return @out;
 }
 
-sub END
-{
-	if ($dbm) {
-		dbg("DXDupe ENDing");
-		finish();
-	}
-}
 1;

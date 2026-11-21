@@ -1,0 +1,302 @@
+DXSpider Registration V2                                     20-11-2026
+========================
+
+CONTENTS
+--------
+1. Installation
+2. Configuration
+3. Commands
+   3.1 request/register
+   3.2 show/register
+   3.3 accept/register
+   3.4 reject/register
+   3.5 remove/register
+4. Persistence
+5. Notifications
+6. Dependencies
+7. Notes
+   7.1 Web integration extension
+
+Native DXSpider user registration system with historical request storage,
+password management, and optional non-blocking email and Telegram
+notifications.
+
+1. Installation
+---------------
+
+For email and/or Telegram notifications, the template files must be
+present in:
+
+  /spider/local_data/reg_templates/
+
+
+2. Configuration
+----------------
+
+Add the following settings to /spider/local/DXVars.pm:
+
+# Enabling registration forces:
+#   $reqreg    = 1;
+#   $passwdreq = 0;
+#
+# When disabled, DXReg does not alter the traditional DXSpider
+# reqreg/passwdreq configuration.
+$reg_enable = 1;
+
+# Length used only for automatically generated passwords.
+# It does not impose a length policy on passwords chosen by users.
+$reg_password_length = 10;
+
+# Default template directory
+$reg_template_dir = "$local_data/reg_templates";
+
+
+Email notifications are optional. To enable them, also configure:
+
+$reg_email_enable = 1;    # 0 = disabled
+
+$reg_email_smtp   = 'smtp.example.net';
+$reg_email_port   = 465;
+$reg_email_user   = 'sysop@example.net';
+$reg_email_pass   = '...';
+$reg_email_from   = 'sysop@example.net';
+$reg_email_admin  = 'sysop@example.net';
+
+
+Administrative Telegram notifications are also optional.
+To enable them:
+
+$reg_telegram_enable = 1;    # 0 = disabled
+
+$reg_telegram_token  = '...';
+$reg_telegram_chatid = '...';
+
+
+The complete configuration example is supplied in:
+
+  /spider/perl/DXVars.pm.issue
+
+registration.json is created automatically on first use at:
+
+  /spider/local_data/registration.json
+
+DXReg does NOT generate or overwrite the template directory or its files.
+They are supplied with this package so the SYSOP can customize them
+without DXReg replacing local changes.
+
+When $reg_enable = 0, DXReg does not modify the normal DXSpider
+$reqreg / $passwdreq configuration.
+
+3. Commands
+-----------
+
+Command names:
+
+  request/register
+  show/register
+  accept/register
+  reject/register
+  remove/register
+
+The separate show/registered command continues to display registered
+DXUser accounts; it does NOT show DXReg requests.
+
+Only for the show command family, the second word must be written in full
+as register or registered.
+sh/register and sh/registered remain valid, but show/reg, sh/reg and
+show/registere are rejected. All other DXSpider command abbreviations
+retain their original behavior.
+
+DXWeb and DXWeb Admin registration actions use the Web.pm reg_* protocol
+and call DXReg APIs directly, not the five console command paths.
+The protocol message names have not changed.
+This is a source-code compatibility finding, not a substitute for an
+end-to-end test on a running node.
+
+
+3.1 request/register
+--------------------
+
+Normal user:
+
+  request/register <email> <language> [ssid-list]
+
+The callsign (CALL) is always taken from the connected session.
+
+SYSOP:
+
+  request/register <call> <email> <language> [ssid-list]
+
+
+Examples:
+
+  request/register user@example.net ES
+  request/register user@example.net EN 1,2,5
+  request/register EA3XYZ user@example.net ES 1-5
+
+Only one PENDING request per CALL is allowed.
+Previous ACCEPTED, REJECTED or REMOVED records remain in the history.
+
+Valid SSIDs are 1..99. SSID 0 and zero-padded forms such as 01..09
+are rejected.
+
+The language is stored as an uppercase two-letter code.
+The web registration form offers a language selector and defaults to EN.
+Notification template lookup first tries the selected language;
+if the corresponding template is not installed, DXReg automatically
+uses the equivalent English (.EN) template.
+
+3.2 show/register
+-----------------
+
+  show/register
+  show/register <call>
+  show/register <request-id>
+
+Without arguments, lists PENDING requests.
+
+With a CALL, displays the complete registration history for that callsign.
+With an ID, displays that request in the same readable history format.
+
+3.3 accept/register
+-------------------
+
+  accept/register <request-id|call> [note]
+
+The CALL form resolves the unique PENDING request for that callsign.
+
+Acceptance:
+
+- preserves already registered SSIDs;
+- adds newly requested SSIDs;
+- never interprets omitted SSIDs as removal;
+- reuses the base callsign password if one exists;
+- otherwise generates a new password;
+- synchronizes the same password across the base callsign and all
+  accepted/current SSIDs;
+- stores requested_ssids and accepted_ssids separately in history;
+- never stores the password in registration.json or debug logs.
+
+3.4 reject/register
+-------------------
+
+  reject/register <request-id|call> [note]
+
+Marks the PENDING request REJECTED and optionally stores an
+administrative note.
+A later request for the same CALL creates a new historical record.
+
+3.5 remove/register
+-------------------
+
+  remove/register <call> [note]
+
+Acts on the base callsign and every existing CALL-1 .. CALL-99
+DXUser record:
+
+- preserves the DXUser records;
+- sets registered=0;
+- removes the password;
+- creates a historical REMOVED record with the affected SSIDs;
+- disconnects affected connected sessions after persisting the changes,
+  so that the next login loads the new state.
+
+A disconnection failure is logged but does not roll back a registration
+removal that has already been persisted.
+
+4. Persistence
+--------------
+
+The registration request workflow history is stored in:
+
+  /spider/local_data/registration.json
+
+The effective registration and password state remains in DXUser.
+
+The JSON file stores administrative history only, including:
+
+- ID
+- CALL
+- email
+- language
+- requested SSIDs
+- accepted/affected SSIDs
+- status
+- source
+- IP
+- timestamps
+- processed_by
+- optional note
+
+Passwords are never stored in the JSON file.
+
+5. Notifications
+----------------
+
+Notifications are optional.
+
+New registration request:
+
+- optional email to the SYSOP
+- optional Telegram message to the SYSOP
+
+Acceptance/rejection:
+
+- optional email to the user
+
+Email and Telegram do not block the DXSpider main loop:
+
+- SMTP runs in Mojo::IOLoop::Subprocess
+- Telegram uses Mojo::UserAgent asynchronously
+
+Logs record notification states such as:
+
+  queued
+  sent
+  failed
+
+without logging passwords, SMTP credentials or Telegram tokens.
+
+Templates are UTF-8. Email bodies use MIME UTF-8/Base64 and
+Telegram supports HTML formatting in its templates.
+
+6. Dependencies
+---------------
+
+  - Net::SMTP
+  - Net::SMTP::SSL
+  - Authen::SASL
+  - IO::Socket::SSL
+  - Mojo::UserAgent
+  - standard CA certificates
+
+Telegram does not require curl.
+
+7. Notes
+--------
+
+show/register, accept/register, reject/register and remove/register are
+SYSOP operations.
+request/register is available to both normal users and SYSOPs.
+
+Registration operations are local to the node where they are executed.
+In V2, there is no automatic propagation between nodes.
+
+7.1 Web integration extension (DXReg 1.2, 24-Sep-2026)
+
+The registration mechanism is fully integrated into DXSpider Web Admin.
+The SYSOP can manage the registration workflow directly from the web
+interface, including viewing and searching registration requests and
+their history, as well as accepting, rejecting or removing registrations.
+
+Web registration requests may also store an optional name (maximum 80
+characters) and a requester comment (maximum 500 characters).
+The existing note field remains the SYSOP's note when processing
+the request.
+
+list_history() and search_history() provide native read APIs for
+administration. CALL and CALL-SSID searches are grouped by base callsign
+and sorted newest first. Web code must use these APIs and must not
+access registration.json directly.
+
+EOF

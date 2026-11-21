@@ -97,6 +97,7 @@ package CmdAlias;
 				 ],
 		  'r' => [	
 				  '^r$', 'read', 'read',
+				  '^regi?s?t?e?r?$', 'register', 'register',
 				  '^reje?c?t?$', 'apropos reject', 'apropos',
 				  '^rcmd/(\S+)', 'rcmd $1', 'rcmd',
 				 ],

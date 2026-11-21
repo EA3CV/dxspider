@@ -7,6 +7,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdarg.h>
 #include <errno.h>
 #include <time.h>
@@ -15,6 +16,7 @@
 #include <unistd.h>
 
 #include "debug.h"
+#include "fatal.h"
 
 #define LOGDIR "./dbg"
 
@@ -184,7 +186,7 @@ void dbgdump(unsigned long level, char *dir, unsigned char *s, int lth)
 
         for (p = buf, p2 = s; p2 < s + lth; p2 += c * 8, p = buf) {
             int i, l = c * 8;
-            sprintf(p, "%4d: ", p2 - s);
+            sprintf(p, "%4td: ", p2 - s);
             p += strlen(p);
             for (p1 = p2; p1 < s + lth && p1 < p2 + l; ++p1) {
                 sprintf(p, "%02X", *p1);

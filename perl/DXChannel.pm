@@ -30,6 +30,7 @@ use DXM;
 use DXUtil;
 use DXVars;
 use DXDebug;
+use DXHealth;
 use Filter;
 use Prefix;
 use Route;
@@ -205,6 +206,10 @@ sub alloc
 	# this will add a cnum to debugged callsigns
 	$self->check_cnum_debugging;
 
+	# Universal connection observation. Only channels with a real transport
+	# are counted; the local $main::me pseudo-channel has no connection.
+	DXHealth::connection_up($self) if $conn;
+
 	return $channels{$call} = $self;
 }
 
@@ -335,7 +340,8 @@ sub del
 	my $self = shift;
 
 	$self->{group} = undef;		# belt and braces
-	delete $channels{$self->{call}};
+	# A stale channel must never remove a newer session with the same call.
+	delete $channels{$self->{call}} if $channels{$self->{call}} && $channels{$self->{call}} == $self;
 }
 
 # is it a bbs
@@ -440,7 +446,7 @@ sub send_now
 		for (@lines) {
 			$conn->send_now("$sort$call|$_");
 			# debug log it, but not if it is a log message
-			dbg("-> $sort $self->{dcall} $_") if $sort ne 'L' && isdbg('chan');
+			dbg("-> $sort $self->{dcall} $_") if $sort ne 'L' && (($self->{call} || '') =~ /^#WEB-\d+$/ ? isdbg('web') : isdbg('chan'));
 		}
 	}
 	$self->{t} = time;
@@ -465,7 +471,7 @@ sub send_later
 		for (@lines) {
 			$conn->send_later("$sort$call|$_");
 			# debug log it, but not if it is a log message
-			dbg("-> $sort $self->{dcall} $_") if $sort ne 'L' && isdbg('chan');
+			dbg("-> $sort $self->{dcall} $_") if $sort ne 'L' && (($self->{call} || '') =~ /^#WEB-\d+$/ ? isdbg('web') : isdbg('chan'));
 		}
 	}
 	$self->{t} = time;
@@ -486,8 +492,10 @@ sub send						# this is always later and always data
 		for (ref $l ? @$l : $l) {
 			my @lines = split /\n/;
 			for (@lines) {
+				DXHealth::protocol_physical_out_line($self->{call}, $_);
+				DXHealth::pc92_physical_out_line($self->{call}, $_);
 				$conn->send_later("D$call|$_");
-				dbg("-> D $self->{dcall} $_") if isdbg('chan');
+				dbg("-> D $self->{dcall} $_") if (($self->{call} || '') =~ /^#WEB-\d+$/ ? isdbg('web') : isdbg('chan'));
 			}
 		}
 	}
@@ -552,6 +560,10 @@ sub disconnect
 {
 	my $self = shift;
 	my $user = $self->{user};
+
+	# Universal teardown observation; DXHealth makes this idempotent with
+	# the higher-level user/node disconnect hooks.
+	DXHealth::connection_down($self);
 	
 	$user->close($self->{startt}, $self->{hostname}) if defined $user;
 	$self->{conn}->disconnect if $self->{conn};
@@ -579,7 +591,7 @@ sub closeall
 #
 sub tell_login
 {
-	my ($self, $m, $call) = @_;
+	my ($self, $m, $call, $origin) = @_;
 	
 	$call ||= $self->{call};
 	
@@ -589,8 +601,14 @@ sub tell_login
 	foreach $dxchan (@dxchan) {
 		next if $dxchan == $self;
 		next if $dxchan->{call} eq $main::mycall;
-		$dxchan->send($dxchan->msg($m, $call)) if $dxchan->{logininfo};
+		if ($dxchan->{logininfo}) {
+			my $message = $dxchan->msg($m, $call);
+			$message .= " from WEB" if defined $origin && $origin eq "WEB";
+			$dxchan->send($message);
+		}
 	}
+	Web::publish_user_notice('logininfo', $m, $call, undef, $origin)
+		if Web->can('publish_user_notice');
 }
 
 #
@@ -612,6 +630,8 @@ sub tell_buddies
 		next if $dxchan->{call} eq $main::mycall;
 		$dxchan->send($dxchan->msg($m, $call, $node)) if grep $_ eq $call, @{$dxchan->{user}->{buddies}} ;
 	}
+	Web::publish_user_notice('buddy', $m, $call, $node)
+		if Web->can('publish_user_notice');
 }
 
 # various access routines
@@ -759,7 +779,9 @@ sub process_one
 		next unless defined $sort;
 
 		if ($sort ne 'D') {
-			if (isdbg('chan')) {
+			if (($self->{call} || '') =~ /^#WEB-\d+$/) {
+				dbg("<- $sort $self->{dcall} $line") if isdbg('web');
+			} elsif (isdbg('chan')) {
 				if (($self->is_rbn && isdbg('rbnchan')) || !$self->is_rbn) {
 					dbg("<- $sort $self->{dcall} $line") if isdbg('chan'); # you may think this is tautology, but it's needed get the correct label on the debug line
 				}

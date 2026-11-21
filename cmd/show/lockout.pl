@@ -15,8 +15,7 @@ sub handle
 	return (1, $self->msg('lockoutuse')) unless $line;
 	if ($self->{_nospawn} || $main::is_win == 1 || DXUser::using_database()) {
 		return (1, generate($self, $line));
-	}
-	else {
+	} else {
 		return (1, $self->spawn_cmd("show/lockout$line", sub { return (generate($self, $line)); }));
 	}
 }
@@ -30,34 +29,58 @@ sub generate
 	my @val;
 	my ($action, $count, $key, $data) = (0,0,0,0);
 
-#	$DB::single = 1;
+	#	$DB::single = 1;
+	my @ans;
 	push @val, split /\s+/, uc $line;
 	if ($val[0] eq 'ALL') {
 		shift @val;
 		if (DXUser::using_database()) {
-			my $sth = $DXUser::dbh->prepare(q{select * from users where data not like '%"lockout":"%'});
+			my $sth = $DXUser::dbh->prepare(q{select * from users where data like '%"lockout":1%'});
 			my $r;
 			$r = $sth->execute;
 			while ($r =$sth->fetch) {
 				my ($k, $d) =@$r;
-				if ($d =~ m{"lockout":(\d)}) {
-					push @val, "$k($1)";
+				if ($d =~ m/"lockout":1(?:,|\})/) {
+					my $v = 1;
+					push @ans, "$k($v)";
+					++$count;
 				}
 			}
 		}
 		else {
 			for ($action = DXUser::R_FIRST, $count=0; !$DXUser::dbm->seq($key, $data, $action); $action = DXUser::R_NEXT) {
-				if ($data =~ m{"lockout":}) {
-					push @val, $key;
+				if ($data =~ m/"lockout":1(?:,|\})/) {
+					my $v = 1;
+					push @ans, "$key($v)";
+					++$count;
 				}
 			}
 		}
 	}	else {
-		
+		foreach my $call (@val) {
+			my $mcall = $call;
+			$mcall =~ s/-0$//;
+			my $ref = DXUser::get_current($mcall);
+			if ($ref) {
+				my $v = $ref->lockout || '0';
+				push @ans, "$mcall($v)";
+				++$count;
+			}
+			unless ($call =~ /-\d{1,2}$/ ) {
+				foreach my $ssid (1..99) {
+					$ref = DXUser::get_current("$call-$ssid");
+					if ($ref) {
+						my $v = $ref->lockout || '0';
+						push @ans, "$call-$ssid($v)";
+						++$count;
+					}
+				}
+			}
+		}
 	}
 	
 	my @l;
-	foreach my $call (@val) {
+	foreach my $call (@ans) {
 		if (@l >= 5) {
 			push @out, sprintf "%-12s %-12s %-12s %-12s %-12s", @l;
 			@l = ();

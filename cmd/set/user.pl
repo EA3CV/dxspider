@@ -31,7 +31,7 @@ foreach $call (@args) {
 		return (1, $self->msg('usernf', $call)) if !$user;
 		$user->sort('U');
 		$user->priv(0);
-		$user->close();
+		$user->put();
 		push @out, $self->msg('nodeu', $call);
 	}
 }

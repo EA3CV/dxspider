@@ -102,7 +102,8 @@ sub search
 
 		if ($readback) {
 			my $fn = $fcb->fn($jdate->sub(1));
-			$fh = IO::File->new("$readback $fn |");
+###Kin			$fh = IO::File->new("$readback $fn |");
+                     $fh = -f $fn ? IO::File->new("$readback $fn |") : undef;
 		} else {
 			$fh = $fcb->openprev();      # get the next file
 		}

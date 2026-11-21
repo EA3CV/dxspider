@@ -206,8 +206,8 @@ sub start
 		my ($h) = $line =~ /host=(\d+\.\d+\.\d+\.\d+)/;
 		$line =~ s/\s*host=\d+\.\d+\.\d+\.\d+// if $h;
 		unless ($h) {
-			($h) = $line =~ /host=([\da..fA..F:]+)/;
-			$line =~ s/\s*host=[\da..fA..F:]+// if $h;
+			($h) = $line =~ /host=([\da-f:]+)/i;
+			$line =~ s/\s*host=[\da-f:]+//i;
 		}
 		if ($h) {
 			$h =~ s/^::ffff://;
@@ -538,6 +538,29 @@ sub dx_spot
 	my $dxchan = shift;
 	my $quality = shift;
 	my $cand = shift;
+	# A Web transport represents many logical users.  Run the native RBN
+	# selection/filter algorithm once per logical Web user, preserving candidate
+	# selection while applying that user's RBN filter independently of SPOTS.
+	# The recursion flag is dynamically scoped and never escapes this call.
+	if (eval { $dxchan->isa('Web') && $dxchan->is_webcluster } && !$dxchan->{_web_rbn_one}) {
+		{
+			local $dxchan->{_web_rbn_one} = 1;
+			local $dxchan->{_web_feed_targets} = [];
+			local $dxchan->{rbnfilter} = undef;
+			local $dxchan->{spotsfilter} = undef;
+			$self->dx_spot($dxchan, $quality, $cand);
+		}
+		for my $webcall ($dxchan->web_rbn_users) {
+			my $rf = $dxchan->web_rbn_filter($webcall);
+			local $dxchan->{_web_rbn_one} = 1;
+			local $dxchan->{_web_feed_targets} = [$webcall];
+			local $dxchan->{rbnfilter} = $rf;
+			local $dxchan->{spotsfilter} = undef;
+			$self->dx_spot($dxchan, $quality, $cand);
+		}
+		return;
+	}
+
 	my $call = $dxchan->{call};
 	my $strength = 100;		# because it could if we talk about FTx
 	my $saver;
@@ -604,13 +627,15 @@ sub dx_spot
 		++$self->{nospothour};
 		
 		if ($qra) {
-			my $user = DXUser::get_current($saver->[SCall]) || DXUser->new($saver->[SCall]);
-			unless ($user->qra && is_qra($user->qra)) {
-				$user->qra($qra);
-				dbg("RBN: update qra on $saver->[SCall] to $qra");
+			my $user = DXUser::get_current($saver->[SCall]); # || DXUser->new($saver->[SCall]);
+			if ($user) {
+				unless ($user->qra && is_qra($user->qra)) {
+					$user->qra($qra);
+					dbg("RBN: update qra on $saver->[SCall] to $qra");
+				}
+				# update lastseen if nothing else
+				$user->put;
 			}
-			# update lastseen if nothing else
-			$user->put;
 		}
 	}
 }

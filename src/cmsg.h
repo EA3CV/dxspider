@@ -53,6 +53,7 @@ typedef struct {
 	short size;					/* the length of the data part of the message */
 	short sort;					/* the type of message (ie text, rmip, etsi) (may have reply bit set) */
 	short state;				/* the current state of this message */
+	unsigned char hex_high;		/* first hex nibble between reads */
 	short reply;				/* the (standard) reply field */
 	time_t t;					/* the time of arrival */
 	void (*callback)();			/* the callback address if any */

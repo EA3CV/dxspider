@@ -52,6 +52,7 @@ sub new
 	$self->{parent} = [ $ncall ];
 	$self->{flags} = $flags || Route::here(1);
 	$self->{ip} = $ip if defined $ip;
+	Route::_pc92_registry('user', $call);
 	$list{$call} = $self;
 	dbg("CLUSTER: user $call added") if isdbg('cluster');
 
@@ -63,6 +64,11 @@ sub get_all
 	return values %list;
 }
 
+sub get_all_keys
+{
+	return keys %list;
+}
+
 sub del
 {
 	my $self = shift;
@@ -70,6 +76,7 @@ sub del
 	my $call = $self->{call};
 	$self->delparent($pref);
 	unless (@{$self->{parent}}) {
+		Route::_pc92_registry('user', $call);
 		delete $list{$call};
 		dbg("CLUSTER: user $call deleted") if isdbg('cluster');
 		return $self;
@@ -159,7 +166,7 @@ sub AUTOLOAD
 
 	# this clever line of code creates a subroutine which takes over from autoload
 	# from OO Perl - Conway
-	*$AUTOLOAD = sub {$_[0]->{$name} = $_[1] if @_ > 1; return $_[0]->{$name}};
+	*$AUTOLOAD = sub { if (@_ > 1) { Route::_pc92_touch($_[0]); $_[0]->{$name} = $_[1] } return $_[0]->{$name} };
 	goto &$AUTOLOAD;	
 #	*{"${pkg}::$name"} = sub {$_[0]->{$name} = $_[1] if @_ > 1; return $_[0]->{$name}};
 #	goto &{"${pkg}::$name"};	

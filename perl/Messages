@@ -118,6 +118,7 @@ package DXM;
 				e38 => q{This is not a valid regex},
 				e39 => q{Sorry $_[0] is not a valid argument},
 				e40 => q{Cmd too long or has invalid characters},
+				e41 => q{$_[0] does not exist},
 
 				echoon => q{Echoing enabled},
 				echooff => q{Echoing disabled},
@@ -233,6 +234,7 @@ package DXM;
 				namee1 => q{Please enter your name, set/name <your name>},
 				namee2 => q{Can't find user $_[0]!},
 				name => q{Your name is now '$_[0]'},
+				nextlogin => q{$_[0] nextlogin set to $_[1]},
 				nodea => q{$_[0] set as AK1A style Node},
 				nodeac => q{$_[0] created as AK1A style Node},
 				nodeb => q{$_[0] set as BBS},

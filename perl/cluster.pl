@@ -104,7 +104,9 @@ BEGIN {
 
 	$is_win = ($^O =~ /^MS/ || $^O =~ /^OS-2/) ? 1 : 0; # is it Windows?
 	$systime = time;
-	
+
+	# copy across initial data files to data in "update mode" preserving mod times
+	system('cp -up /spider/initial_data/* /spider/data') unless $is_win;
 }
 
 
@@ -127,6 +129,7 @@ use DXLog;
 use DXLogPrint;
 use DXUtil;
 use DXChannel;
+use DXHealth;
 use DXUser;
 use DXM;
 use DXCommandmode;
@@ -167,16 +170,18 @@ use DXXml;
 use DXSql;
 use IsoTime;
 use BPQMsg;
-use RBN;
+
 use DXCIDR;
 use DXDebug;
+
+use Web;
+use RBN;
 
 use Data::Dumper;
 use IO::File;
 use Sys::Hostname;
 use Fcntl ':flock';
 use POSIX ":sys_wait_h";
-use Web;
 
 use strict;
 
@@ -207,14 +212,15 @@ our $max_ssid = 15;					# highest ssid to be searched for a spare one on multipl
 # $allowmultiple connections per callsign. 
 
 $allowdxby = 0;					# 1 = allow "dx by <othercall>", 0 - don't allow it
-$maxconnect_user = 3;			# the maximum no of concurrent connections a user can have at a time
+$maxconnect_user = 12;			# the maximum no of concurrent connections a base callsign can have on the cluster at a time
+                                                    # NOTE: this IGNORES SSIDs which are stripped off. 
 $maxconnect_node = 0;			# Ditto but for nodes. In either case if a new incoming connection
 								# takes the no of references in the routing table above these numbers
 								# then the connection is refused. This only affects INCOMING connections.
 $idle_interval = 0.500;	        # the wait between invocations of the main idle loop processing.
 $log_flush_interval = 2;		# interval to wait between log flushes
 
-our $ending;					# signal that we are ending;
+our $ending = 0;					# signal that we are ending;
 our $broadcast_debug;			# allow broadcasting of debug info down "enhanced" user connections
 our $clssecs;					# the amount of cpu time the DXSpider process have consumed
 our $cldsecs;					# the amount of cpu time any child processes have consumed
@@ -230,21 +236,28 @@ our $localhost_alias_ipv6;		# for things (PC92, PC61 etc) that expose IP address
 our $save_route_cache;			# save and restore route cache on restart. Probably only useful for G1TLH testing
 our $local_ipaddr;
 our $io_disconnected;
+our $tmlinterval = 30;	        # if there are connection attempts within this interval then start the login delay process
+our $tmladd = 60;		        # Add this value to $user->nextlogin
+our $tmlgeometric = 0;	        # Rather than add  linearly, add ($user->nextlogin + $tmladd) * 2 instead
+our $tmlmaxdelay = 3600; 		# don't allow the delay to get beyond (default) 1 hour
 
+our %tmlinplay;					# this is the list of callsigns that have a $tml in play
+                                # [n, first, latest]
 
+ 
 use vars qw($version $subversion $build $gitversion $gitbranch);
 
-
-
+# send a (admin) message / snottogram to a connected callsign 
 # send a message to call on conn and disconnect
 sub already_conn
 {
 	my ($conn, $call, $mess) = @_;
 
+	dbg("already_conn nextlogin $call $mess") if isdbg('new');
 	$conn->disable_read(1);
-	dbg("-> D $call $mess\n") if isdbg('chan');
-	$conn->sleep(10);
+	dbg("-> D $call $mess disconnecting") if isdbg('chan');
 	$conn->send_now("D$call|$mess");
+	$conn->sleep(2);
 	$conn->disconnect;
 }
 
@@ -255,16 +268,78 @@ sub new_channel
 	my ($sort, $call, $line) = DXChannel::decode_input(0, $msg);
 	return unless defined $sort;
 
+	dbg("new_channel sort: $sort, call: $call, line: $line") if isdbg('new') && isdbg('chan');
+
 	my ($dxchan, $user);
+
+	# check for bad IP addresses
+	my $host = $conn->peerhost;
+	unless ($conn->isa('IntMsg')) {
+		if (DXCIDR::find($host)) {
+			eval { DXHealth::connection_badip($call); 1 };
+			LogDbg('*', "$call on $host is from a badip $host, disconnected");
+			$conn->disconnect;
+			return;
+		}
+	}
 	
+    # Console (IntMsg) duplicate admission. Unlike ExtMsg, console.pl
+    # sends an A frame directly and has no telnet password state machine.
+    # Only the already-trusted local internal connection can negotiate.
+    if ($conn->isa('IntMsg') && $conn->{session_console_pending}) {
+        my $pending = $conn->{session_console_pending};
+        if ($sort eq 'I' && $call eq $pending->{call}) {
+            # console.pl sends setup commands immediately after its A frame;
+            # they are not responses to the takeover question.
+            return if $line =~ m{^set/(?:page|nobeep)\b}i;
+            my $yes = $line =~ /^\s*(?:Y|YES)\s*$/i;
+            delete $conn->{session_console_pending};
+            Mojo::IOLoop->remove($pending->{timer}) if defined $pending->{timer};
+            if ($yes && DXChannel::get($call) &&
+                DXChannel::get($call) == $pending->{old}) {
+                $conn->{session_takeover_verified} = 1;
+                $conn->{session_takeover_target} = $pending->{old};
+                LogDbg('*', "$call console takeover confirmed");
+                return new_channel($conn, $pending->{admission});
+            }
+            already_conn($conn, $call,
+                         "Existing session preserved. Console connection cancelled.");
+            return;
+        }
+        return; # no other commands are accepted while negotiating
+    }
+
+    if ($conn->isa('IntMsg') && $sort eq 'A' && !is_webcall($call) && !$conn->{session_takeover_verified}) {
+        my $ncall = normalise_call($call);
+        my $old = DXChannel::get($ncall);
+        my $peer = $conn->peerhost || '';
+        if ($old && $old->is_user &&
+            ($peer eq '127.0.0.1' || $peer eq '::1')) {
+            $conn->{session_console_pending} = {
+                call => $ncall, old => $old, admission => $msg
+            };
+            my $pending = $conn->{session_console_pending};
+            $conn->send_now("I$ncall|Another session for $ncall is already connected. Disconnect the existing session and continue? (Y/N):");
+            $pending->{timer} = Mojo::IOLoop->timer(60 => sub {
+                return unless $conn->{session_console_pending} &&
+                              $conn->{session_console_pending} == $pending;
+                delete $conn->{session_console_pending};
+                already_conn($conn, $ncall, 'Session takeover timed out. Existing session preserved.');
+            });
+            return;
+        }
+    }
+
 	if (is_webcall($call) && $conn->isa('IntMsg')) {
 		my $newcall = find_next_webcall();
 		unless ($newcall) {
 			already_conn($conn, $call, "Maximum no of web connected connects ($Web::maxssid) exceeded");
 			return;
 		}
-		$call = base_call($newcall);
-		
+
+		#		$call = base_call($newcall);
+		$call = $newcall;
+				
 		$user = DXUser::get_current($call);
 		unless ($user) {
 			$user = DXUser->new($call);
@@ -274,10 +349,10 @@ sub new_channel
 			$user->qth('on the web');
 			$user->homenode($main::mycall);
 			$user->lat($main::mylatitude);
-			$user->long($main::mylongitude);
+ 			$user->long($main::mylongitude);
 			$user->qra($main::mylocator);
 		}
-		$user->startt($main::systime);	
+		$user->startt($systime);	
 		$conn->conns($call);
 		$dxchan = Web->new($call, $conn, $user);
 		$dxchan->enhanced(1);
@@ -287,55 +362,157 @@ sub new_channel
 	} else {
 		# "Normal" connections
 
+		# Count every normal incoming login attempt before validation/throttling.
+		eval { DXHealth::connection_attempt($call); 1 };
+
 		# normalise calls like G1TST-0/G1TST-00/G1TST-01 to G1TST and G1TST-1 respectively
 		my $ncall = normalise_call($call);
 		if ($call ne $ncall) {
-			LogDbg('err', "new_channel login invalid $call converted to $ncall");
+			LogDbg('*', "new_channel login invalid $call converted to $ncall");
 			$msg =~ s/$call/$ncall/;
 			$call = $ncall;
 		}
 		# is it a valid callsign (in format)?
-		unless (is_callsign($call)) {
-			already_conn($conn, $call, DXM::msg($lang, "illcall", $call));
+		unless ($call !~ /^Q/i && is_callsign($call)) {
+       		already_conn($conn, $call, DXM::msg($lang, "illcall", $call));
 			return;
 		}
+
+		my $basecall = $call;
+		$basecall =~ s/-\d+$//;	# remember this for later multiple user processing, it's used for other stuff than checking lockout status
 
 		# is he locked out ?
 		my $lock;
 		$conn->conns($call);
 		$user = DXUser::get_current($call);
-		my $basecall = $call;
-		$basecall =~ s/-\d+$//;	# remember this for later multiple user processing, it's used for other stuff than checking lockout status
 		if ($user) {
 			# make sure we act on any locked status that the actual incoming call has.
-			$lock = $user->lockout;
-		} elsif ($basecall ne $call) {
+			$lock = $user->lockout if exists $user->{lockout};
+		}
+		
+		if ($basecall ne $call && !defined $lock) {
 			# if there isn't a SSID on the $call, then try the base
 			my $luser = DXUser::get_current($basecall);
 			$lock = $luser->lockout if $luser;
 		}
-
+		
 		# now deal with the lock
-		my $host = $conn->peerhost;
 		if ($lock) {
-			LogDbg('', "$call on $host is locked out, disconnected");
+			LogDbg('*', "$call on $host is locked out, disconnected");
+#			already_conn($call, "$call on $host is locked out, disconnected");
 			$conn->disconnect;
 			return;
 		}
 
-		# Is he from a badip?
-		if (DXCIDR::find($host)) {
-			LogDbg('', "$call on $host is from a badip $host, disconnected");
-			$conn->disconnect;
+		# Do the same sort of thing for "badspotters"
+		# Note: we are treating "badspotters" as "badusers" as well.
+		my $buser = $user || DXUser::get_current($basecall);
+		if ($buser && $buser->is_user ) {
+			if ($DXProt::badspotter->in($call) || $DXProt::badspotter->in($basecall)) {
+				LogDbg('*', "$call on $host is in badspotter, disconnected");
+				$conn->disconnect;
+				return;
+			}
+		} elsif ($buser  && $buser->is_node) {
+			# And also badnodes....
+			if ($DXProt::badnode->in($call) || $DXProt::badnode->in($basecall)) {
+				LogDbg('*', "$call on $host is in badnode, disconnected");
+				$conn->disconnect;
+				return;
+			}
+		} else {
+			# dunno, could be anyone, but if they are in my little lists then Byyyeeeee
+				if ($DXProt::badspotter->in($call) || $DXProt::badspotter->in($basecall)) {
+					LogDbg('*', "$call on $host is in badspotter, disconnected");
+					$conn->disconnect;
+					return;
+				}
+				if ($DXProt::badnode->in($call) || $DXProt::badnode->in($basecall)) {
+					LogDbg('*', "$call on $host is in badnode, disconnected");
+					$conn->disconnect;
+					return;
+			}
+		}
+
+	   
+		# If this user has a nextlogin time, is it > now?
+		if ($tmlinterval && $user) {
+			my $nextlogin = $user->{nextlogin} || 0;
+			my $atmax = $user->{nextloginatmax} || 0;
+			my $n =  $user->{connlist} ? @{$user->{connlist}} : 0;
+			my $firstconn = 0;
+			my $lastconn = $user->{lastin} || $systime;
+			if ($n >= $DXUser::maxconnlist) {
+				$firstconn = $user->connlist->[0]->[0] || 0;
+			} 
+
+			dbg(sprintf "$call on $host nextlogin: next: %s atmax: %s no conns: $n start: %s last in: %s", htime($nextlogin), htime($atmax), htime($firstconn), htime($lastconn)) if isdbg('chan');
+				
+			
+			if ($user->{nextloginatmax} && $systime < $nextlogin) {
+				my $diff = $systime - $nextlogin;
+				dbg(sprintf "$call on $host nextlogin max $call nextlogin %s still greater than systime %s ($diff secs), disconnect and wait", htime($nextlogin), htime($systime)) if isdbg('chan');
+				$user->close;
+				$conn->disconnect;
+				return;
+			} elsif ($nextlogin > $systime) {
+				my $l = $nextlogin - $systime;
+				$l = ($tmlgeometric ? $l * 2 : $l) +$tmladd +$tmlinterval;
+				$user->{nextlogin} = $firstconn + $l + $tmlinterval;
+				if ($l > $tmlmaxdelay) {
+					$l = $tmlmaxdelay;
+					$user->{nextlogin} = $user->{nextloginatmax} = $l + $systime;
+				}
+				dbg(sprintf "$call on $host nextlogin \$nextlogin > \$systime  $call nextlogin: %s systime: %s", htime($nextlogin), htime($systime)) if isdbg('chan');
+				$tmlinplay{$call} = $user->{nextlogin};
+				$user->close;
+				eval { DXHealth::connection_rapid_throttled($call); 1 };
+				LogDbg('*', sprintf("$call on $host nextlogin \$nextlogin > \$systime $call logging in too quickly, banned for $l seconds until %s CLOSING", htime($user->{nextlogin})));
+				$user->close;
+				already_conn($conn, $call, "new_channel nextlogin $call on $host is not allowed to login for another $l secs, disconnected" );
+				$conn->disconnect;
+				return;
+			} 	else {
+
+				dbg(sprintf "$call on $host nextlogin $call lastconns: $n nextlogin: %s systime: %s", htime($nextlogin), htime($systime)) if isdbg('chan');
+
+				if ($n >= $DXUser::maxconnlist) {	# meaning it's full 
+					# the number of seconds since the start of the first conn -> end of the last conn
+					# in the list
+					my $diff = $lastconn - $firstconn; 
+					dbg(sprintf "$call on $host nextlogin check connlist $call nextlogin: %s first: %s last: %s av: $diff tmlinterval: $tmlinterval systime: %s", htime($nextlogin), htime($firstconn), htime($lastconn), htime($systime)) if isdbg('chan');
+					if ( $diff <  $tmlinterval) {
+						my $l = $diff + $tmlinterval;
+						$user->nextlogin($l + $systime);
+						LogDbg('*', sprintf("$call on $host nextlogin $call  tmlinterval: $tmlinterval secs diff: $diff secs login delayed for $l secs till %s CLOSING", htime($user->nextlogin)));
+						#						already_conn($conn, $call, "new_channel nextlogin starting to exceed 3 attempts in $tmlinterval secs at $diff secs login delayed for $l secs till " . cldatetime($user->nextlogin));
+						$user->close;
+						$tmlinplay{$call} = $user->{nextlogin};
+						$conn->disconnect;
+						return;
+					}
+				}
+			}
+		}
+		
+
+		# A locally routed user without a DXChannel is a logical web
+		# presence. DXUser is persistent identity, not online presence.
+		# Check before creating the telnet channel. Remote routes are
+		# not children of routeroot and must not be rejected here.
+		if ($main::routeroot->is_user($call) && !DXChannel::get($call)) {
+			LogDbg('*', "$call on $host already connected through local Web, disconnected");
+			already_conn($conn, $call, DXM::msg($lang, 'conother', $call, $main::mycall));
 			return;
 		}
 
 		# set up the basic channel info for "Normal" Users
 		# is there one already connected to me - locally?
-
 		$dxchan = DXChannel::get($call);
 		my $newcall = $call;
 		if ($dxchan) {
+			my $existing_host = $dxchan->conn->peerhost;
+			my $new_host = $conn->peerhost;
 			if ($user && $user->is_node) {
 				already_conn($conn, $call, DXM::msg($lang, 'conother', $call, $main::mycall));
 				return;
@@ -365,14 +542,22 @@ sub new_channel
 
 			# handle "normal" (non-multiple) connections in the existing way
 			if ($call eq $newcall) {
-				if ($bumpexisting) {
-					my $ip = $dxchan->hostname;
-					$dxchan->send_now('D', DXM::msg($lang, 'conbump', $call, $ip));
-					LogDbg('', "$call bumped off by $ip, disconnected");
-					$dxchan->sleep(5);
+				# Session admission v0.01: never evict an existing human
+				# channel from an unauthenticated incoming connection.
+				# DXCommandmode authentication happens only after new().
+				# Until a verified takeover handshake is implemented,
+				# preserve the original channel regardless of bumpexisting
+				if ($conn->{session_takeover_verified} &&
+				    $conn->{session_takeover_target} &&
+				    $conn->{session_takeover_target} == $dxchan) {
+					delete $conn->{session_takeover_verified};
+					delete $conn->{session_takeover_target};
+					LogDbg('*', "existing $call  on $existing_host authenticated session takeover from $new_host accepted");
+					$dxchan->send_now('D', "Another authenticated session on $existing_host  for $call on $new_host has replaced this connection.");
 					$dxchan->disconnect;
 				} else {
-					already_conn($conn, $call, DXM::msg($lang, 'conother', $call, $main::mycall));
+					LogDbg('*', "$call on $existing_host - duplicate login from $new_host rejected; existing channel preserved");
+					already_conn($conn, $call, "Another session on $existing_host for $call from $new_host is already connected. Existing session preserved.");
 					return;
 				}
 			}
@@ -382,25 +567,27 @@ sub new_channel
 			$msg =~ s/$call/$newcall/;
 		}
 
-
 		# (fairly) politely disconnect people that are connected to too many other places at once
-		my $r = Route::get($call);
-		if ($conn->{sort} && $conn->{sort} =~ /^I/ && $r && $user) {
-			my @n = $r->parents;
-			my $m = $r->isa('Route::Node') ? $maxconnect_node : $maxconnect_user;
-			my $c = $user->maxconnect;
-			my $v;
-			$v = defined $c ? $c : $m;
-			if ($v && @n >= $v+$allowmultiple) {
-				my $nodes = join ',', @n;
-				LogDbg('', "$call has too many connections ($v) at $nodes - disconnected");
-				already_conn($conn, $call, DXM::msg($lang, 'contomany', $call, $v, $nodes));
+		if ($conn->{sort} && $conn->{sort} =~ /^I/ ) {
+			my ($callcount, @calls) = Route::basecall_no($call);
+			my $m = $maxconnect_user;;
+			if ($user && $user->is_node  ) {
+			    $m = $maxconnect_node;
+			}
+			if ($m && $callcount > $m+$allowmultiple) {
+				LogDbg('*', "$call has too many connections ($callcount > $m) disconnected");
+				DXHealth::connection_too_many($call, eval { $conn->peerhost } || '', $m, $callcount);
+				already_conn($conn, $call, DXM::msg($lang, 'contomany', $call, $m, join(' ', @calls)));
 				return;
 			}
 		}
 		
 		if ($user) {
-			$user->{lang} = $main::lang if !$user->{lang}; # to autoupdate old systems
+			unless ($user->{lang}) {
+				$user->{lang} = $main::lang; # to autoupdate old systems
+				$user->put;
+			}
+			$user->get_current($call);       # make sure we have the latest one
 		} else {
 			$user = DXUser->new($call);
 		}
@@ -418,11 +605,14 @@ sub new_channel
 		} else {
 			die "Invalid sort of user on $call = $sort";
 		}
+		# Reaching this point means the incoming normal connection was accepted
+		# and a real DXSpider channel was constructed.
+		eval { DXHealth::connection_incoming_success($newcall); 1 };
 	}
 	
 
 	# set callbacks
-	$conn->set_error(sub {my $err = shift; LogDbg('', "Comms error '$err' received for call $dxchan->{call}"); $dxchan->disconnect(1);});
+	$conn->set_error(sub {my $err = shift; LogDbg('*', "Comms error '$err' received for call $dxchan->{call}"); $dxchan->disconnect(1);});
 	$conn->set_on_eof(sub {$dxchan->disconnect});
 	$conn->set_rproc(sub {my ($conn,$msg) = @_; $dxchan->rec($msg);});
 	if ($sort eq 'W') {
@@ -430,6 +620,27 @@ sub new_channel
 		$dxchan->sort('W');
 	}
 	$dxchan->rec($msg);
+}
+
+sub clear_tml_stuff
+{
+	# called by per_5sec() below
+	
+	# handle clearing out of tml stuff
+	foreach my $call (keys %tmlinplay) {
+		my $t = $tmlinplay{$call};
+		my $user = DXUser::get_current($call);
+		if ($t > 0 && $t < $systime) {
+			my $nextpossible = $systime + $tmlinterval + 1; 
+			LogDbg('*', sprintf("clear_tml_stuff: $call with nextlogin at %s cleared at %s next possible at %s", htime($user->nextlogin), htime($systime), htime($nextpossible)) );
+			$user->{nextlogin} = 0;
+			$user->{nextloginatmax} = 0;
+			$user->close;
+			delete $tmlinplay{$call};
+		} else {
+		#	dbg(sprintf "nextlogin call: $call time: %s atmax: %s", htime($user->{nextlogin} || 0), htime($user->{nextuseratmax} || 0)) if isdbg('chan');
+		}
+	}		
 }
 
 
@@ -654,7 +865,9 @@ sub setup_start
 	localdata_mv($motd);
 	$motd = localdata($motd);
 	localdata_mv("issue");
-	
+
+	# Install new DXReg template defaults without overwriting local customisations.
+	localdata_cp_missing("reg_templates");
 
 	# try to load XML::Simple
 	DXXml::init();
@@ -716,6 +929,11 @@ sub setup_start
 	# read any route cache there might be
 	Route::read_cache() if $save_route_cache;
 	
+	# Resolve the public address before any listener or routing announcement.
+	# A failed HTTPS lookup retains the configured public address.
+	require DXPublicIP;
+	DXPublicIP::init_startup() unless $DXProt::disable_set_external_ip;
+
 	# start listening for incoming messages/connects
 	dbg("starting listeners ...");
 	my $conn = IntMsg->new_server($clusteraddr, $clusterport, \&login);
@@ -758,6 +976,9 @@ sub setup_start
 	dbg("Start Protocol Engines ...");
 	DXProt->init();
 
+	# initialise registration subsystem
+	DXReg::init();
+
 	# read startup script
 	my $script = new Script "startup";
 	$script->run($main::me) if $script;
@@ -774,8 +995,10 @@ sub setup_start
 
 	# put in a DXCluster node for us here so we can add users and take them away
 	$routeroot = Route::Node->new($mycall, $version*100+5300, Route::here($main::me->here)|Route::conf($main::me->conf));
+	$routeroot->build($main::build);
 	$routeroot->do_pc9x(1);
 	$routeroot->via_pc92(1);
+	$routeroot->ip(DXPublicIP::normalize($clusteraddr));
 
 	# make sure that there is a routing OUTPUT node default file
 	#unless (Filter::read_in('route', 'node_default', 0)) {
@@ -837,6 +1060,14 @@ sub setup_start
 	#open(DB::OUT, "|tee /tmp/aa");
 }
 
+sub check_ipaddr_call
+{
+	my $conn = shift;
+	my $call = shift;
+
+	return 1;
+}
+
 sub idle_loop
 {
 	BPQMsg::process();
@@ -883,7 +1114,8 @@ sub per_sec
 
 	DXTimer::handler();
 	DXLog::flushall();
-
+	clear_tml_stuff();
+	
 }
 
 sub per_5_sec
@@ -957,3 +1189,4 @@ sub END
 		cease();
 	}
 }
+

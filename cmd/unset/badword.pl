@@ -1,32 +1,8 @@
-#
-# unset list of bad dx callsigns
-#
-# Copyright (c) 1998 - Dirk Koopman G1TLH
-#
-#
-#
 my ($self, $line) = @_;
-return (1, $self->msg('e5')) if $self->remotecmd;
-# are we permitted?
-return (1, $self->msg('e5')) if $self->priv < 6;
-
-my @words = split /\s+/, uc $line;
+return (1, $self->msg('e5')) if $self->remotecmd || $self->priv < 6;
 my @out;
-my $count = 0;
-foreach my $w (@words) {
-	my @in;
-	
-	unless (@in = BadWords::check($w)) {
-		push @out, "BadWord $w not defined, ignored";
-	} else {
-		@in = BadWords::del_regex($w);
-		push @out, "BadWord $w removed";
-		$count++;
-	}
-}
-if ($count) {
-	BadWords::generate_regex();
-	BadWords::put();
+for my $word (split /\s+/, uc $line) {
+    my @errors = BadWords::remove_word($word);
+    push @out, @errors ? "BadWord $word: " . join('; ', @errors) : "BadWord $word removed";
 }
 return (1, @out);
-

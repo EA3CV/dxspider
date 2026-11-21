@@ -16,6 +16,7 @@ static char rcsid[] = "$Id$";
 
 #include "chain.h"
 #include "cmsg.h"
+#include "fatal.h"
 
 long cmsg_count = 0;
 
@@ -79,6 +80,7 @@ cmsg_t *cmsg_new(int size, int sort, void *pp)
 	mp->sort = sort & CMSG_SORTMASK;
 	mp->portp = pp;
 	mp->state = mp->reply = 0;
+	mp->hex_high = 0;
 	mp->inp = mp->data;
 	mp->callback = 0;
 	++cmsg_count;

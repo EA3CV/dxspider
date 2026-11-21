@@ -1,0 +1,755 @@
+#
+# DXHealth - bounded in-memory DXSpider health/telemetry counters
+#
+# Central home for bounded RAM-only health/telemetry that DXSpider does not already expose.
+# Reuse existing DXSpider getters where they exist; do not duplicate them here.
+# No timers, no I/O, no persistence, no protocol generation. Counters reset with the process.
+#
+# Copyright (c) 2026 Dirk Koopman G1TLH
+#
+package DXHealth;
+
+use strict;
+
+our $VERSION = '0.9';
+# DXWeb Admin opt-in: no DXHealth telemetry work when collection is OFF.
+# Policy is shared by both native processes. No timer, subprocess or DB I/O.
+# At most one policy-file read per five seconds, even on busy protocol paths.
+our $METRICS_POLICY_FILE = '/spider/local_data/dxweb-metrics-policy.json';
+our $metrics_policy_next_check = 0;
+our $metrics_policy_enabled = 0;
+sub metrics_collection_enabled {
+    my $now = time();
+    return $metrics_policy_enabled if $now < $metrics_policy_next_check;
+    $metrics_policy_next_check = $now + 5;
+    $metrics_policy_enabled = 0; # Fail closed on missing/malformed policy.
+    if (open my $fh, '<', $METRICS_POLICY_FILE) {
+        local $/;
+        my $raw = <$fh>;
+        close $fh;
+        if (defined $raw && $raw =~ /\A\s*\{\s*"enabled"\s*:\s*true\s*\}\s*\z/s) {
+            $metrics_policy_enabled = 1;
+        }
+    }
+    return $metrics_policy_enabled;
+}
+
+our @SORTS = qw(A D C K);
+our %VALID = map { $_ => 1 } @SORTS;
+our %logical;
+our %physical;
+our %pc92k_advertised;
+our $MAX_PC92K_ADVERTISED = 1024;
+our %protocol;
+our %protocol_peer;
+our $local_spots_generated = 0;
+our %protocol_logical;
+our %protocol_origin;
+our %protocol_reject;
+our %protocol_reject_peer;
+
+# Operator-facing reject/filter telemetry.  These counters record only proven
+# decisions at the point where DXSpider actually drops, suppresses or marks
+# traffic local-only.  Dimensions are bounded so hostile input cannot create
+# unbounded RAM growth.
+our %operator_events;
+our $MAX_OPERATOR_DIMENSIONS = 2048;
+our $MAX_OPERATOR_SNAPSHOT_DIMENSIONS = 32;
+
+sub _bounded_inc {
+    my ($h, $key) = @_;
+    return 0 unless ref($h) eq 'HASH';
+    $key = '' unless defined $key;
+    $key = uc "$key";
+    $key =~ s/^\s+|\s+$//g;
+    return 0 unless length $key;
+    if (!exists $h->{$key} && scalar(keys %$h) >= $MAX_OPERATOR_DIMENSIONS) {
+        $key = '<OTHER>';
+    }
+    $h->{$key} = 0 + ($h->{$key} || 0) + 1;
+    return 1;
+}
+
+sub operator_event {
+    return 0 unless metrics_collection_enabled();
+    my ($family, $reason, $peer, $origin, $pc) = @_;
+    return 0 unless defined $family && $family =~ /^(?:badlist|pc61_drop)$/;
+    return 0 unless defined $reason && $reason =~ /^[a-z0-9_]+$/;
+    my $e = ($operator_events{$family}{$reason} ||= { total => 0 });
+    $e->{total}++;
+    _bounded_inc(($e->{by_peer} ||= {}), $peer);
+    _bounded_inc(($e->{by_origin} ||= {}), $origin);
+    _bounded_inc(($e->{by_pc} ||= {}), $pc) if defined $pc && length $pc;
+    return 1;
+}
+
+sub local_duplicate_spot {
+    return 0 unless metrics_collection_enabled();
+    my ($call) = @_;
+    my $e = ($operator_events{spots}{duplicate_local_user} ||= { total => 0 });
+    $e->{total}++;
+    _bounded_inc(($e->{by_call} ||= {}), $call);
+    return 1;
+}
+
+sub connection_badip {
+    return 0 unless metrics_collection_enabled();
+    my ($call) = @_;
+    my $e = ($operator_events{connections}{badip} ||= { total => 0 });
+    $e->{total}++;
+    _bounded_inc(($e->{by_call} ||= {}), $call);
+    return 1;
+}
+
+sub _snapshot_dimension {
+    my ($src) = @_;
+    return {} unless ref($src) eq 'HASH';
+    my @keys = sort {
+        (0 + ($src->{$b} || 0)) <=> (0 + ($src->{$a} || 0)) || $a cmp $b
+    } keys %$src;
+    my %out;
+    my $other = 0;
+    my $n = 0;
+    for my $key (@keys) {
+        my $v = 0 + ($src->{$key} || 0);
+        if ($n < $MAX_OPERATOR_SNAPSHOT_DIMENSIONS) {
+            $out{$key} = $v;
+            $n++;
+        } else {
+            $other += $v;
+        }
+    }
+    $out{'<OTHER>'} = 0 + ($out{'<OTHER>'} || 0) + $other if $other;
+    return \%out;
+}
+
+sub operator_snapshot {
+    my %copy;
+    for my $family (keys %operator_events) {
+        for my $reason (keys %{$operator_events{$family} || {}}) {
+            my $src = $operator_events{$family}{$reason} || {};
+            my $dst = ($copy{$family}{$reason} = { total => 0 + ($src->{total} || 0) });
+            # Canonical external terminology is neighbour.  The hot-path store
+            # remains by_peer for compatibility with existing instrumentation.
+            $dst->{by_neighbour} = _snapshot_dimension($src->{by_peer}) if ref($src->{by_peer}) eq 'HASH';
+            for my $dim (qw(by_origin by_pc by_call)) {
+                next unless ref($src->{$dim}) eq 'HASH';
+                $dst->{$dim} = _snapshot_dimension($src->{$dim});
+            }
+        }
+    }
+    return \%copy;
+}
+
+# Protocol input diagnostics. These counters are deliberately limited to
+# failures proven at the protocol boundary. Duplicates are NOT rejects here:
+# a syntactically valid duplicate remains part of physical IN and is handled
+# later by the normal DXSpider duplicate logic.
+sub protocol_reject_unknown {
+    return 0 unless metrics_collection_enabled();
+    my ($peer, $line) = @_;
+    my $bytes = defined($line) && !ref($line) ? length($line) : 0;
+    $protocol_reject{unknown_protocol}{packets}++;
+    $protocol_reject{unknown_protocol}{bytes} += $bytes;
+    if (defined $peer && length $peer) {
+        $protocol_reject_peer{$peer}{unknown_protocol}{packets}++;
+        $protocol_reject_peer{$peer}{unknown_protocol}{bytes} += $bytes;
+    }
+    return 1;
+}
+
+sub protocol_reject_malformed {
+    return 0 unless metrics_collection_enabled();
+    my ($peer, $pc, $field, $line) = @_;
+    return 0 unless defined $pc && $pc >= 10 && $pc <= 99;
+    my $bytes = defined($line) && !ref($line) ? length($line) : 0;
+    my $name = sprintf('PC%02d', $pc);
+    $protocol_reject{malformed}{packets}++;
+    $protocol_reject{malformed}{bytes} += $bytes;
+    $protocol_reject{malformed}{by_pc}{$name}{packets}++;
+    $protocol_reject{malformed}{by_pc}{$name}{bytes} += $bytes;
+    $protocol_reject{malformed}{by_pc}{$name}{fields}{$field}++ if defined $field && $field =~ /^\d+$/;
+    if (defined $peer && length $peer) {
+        $protocol_reject_peer{$peer}{malformed}{packets}++;
+        $protocol_reject_peer{$peer}{malformed}{bytes} += $bytes;
+        $protocol_reject_peer{$peer}{malformed}{by_pc}{$name}{packets}++;
+        $protocol_reject_peer{$peer}{malformed}{by_pc}{$name}{bytes} += $bytes;
+    }
+    return 1;
+}
+
+
+
+# Connection telemetry: bounded RAM-only event counters.  Live online state is
+# deliberately NOT duplicated here; DXSupervisor joins these counters with the
+# authoritative DXChannel snapshot.
+our %connections;
+our %connection_totals = (connects => 0, disconnects => 0, too_many => 0);
+our %incoming_login_totals = (attempts => 0, successful => 0, rapid_throttled => 0);
+our %incoming_login_by_call;
+our $CONNECTION_RETENTION = 48 * 3600;   # enough for the 24 h UI window
+our $MAX_CONNECTIONS_TRACKED = 4096;
+
+sub _connection_host {
+    my ($c) = @_;
+    return '' unless ref $c;
+    return $c->{hostname} if defined $c->{hostname} && length $c->{hostname};
+    my $conn = $c->{conn};
+    return ($conn->{peerhost} || '') if ref $conn;
+    return '';
+}
+
+sub _connection_direction {
+    my ($c) = @_;
+    return '' unless ref $c;
+    return $c->{outbound} ? 'out' : 'in' if defined $c->{outbound};
+    return '';
+}
+
+sub _connection_touch {
+    my ($call) = @_;
+    return unless defined $call && length $call;
+    $call = uc $call;
+    $connections{$call} ||= { call => $call };
+    return $connections{$call};
+}
+
+sub _connection_kind {
+    my ($c, $kind) = @_;
+    return $kind if defined $kind && length $kind;
+    return '' unless ref $c;
+    my $s = $c->{sort} || '';
+    return 'rbn'  if $s eq 'N';
+    return 'web'  if $s eq 'W';
+    return 'user' if $s eq 'U';
+    return 'node' if $s =~ /^[ACRSXL]$/;
+    return 'other';
+}
+
+# Logical Web presence history is separate from physical DXChannel history.
+# Keyed by CALL; bounded RAM only, no I/O on login/logout.
+our %logical_web_history;
+our $MAX_LOGICAL_WEB_HISTORY = 4096;
+sub logical_web_up {
+    return 0 unless metrics_collection_enabled();
+    my ($call, $ip, $channel) = @_;
+    return 0 unless defined $call && $call =~ /\A[A-Z0-9\/-]+\z/i;
+    $call = uc $call;
+    my $e = ($logical_web_history{$call} ||= {});
+    $e->{call} = $call;
+    $e->{ip} = $ip || '';
+    $e->{channel} = $channel || '';
+    $e->{online} = 1;
+    $e->{last_connect} = time();
+    $e->{last_event} = $e->{last_connect};
+    $e->{connect_count}++;
+    return 1;
+}
+sub logical_web_down {
+    return 0 unless metrics_collection_enabled();
+    my ($call, $channel) = @_;
+    return 0 unless defined $call && length $call;
+    $call = uc $call;
+    my $e = $logical_web_history{$call} or return 0;
+    return 0 unless $e->{online};
+    return 0 if defined $channel && length $channel && ($e->{channel} || '') ne $channel;
+    $e->{online} = 0;
+    $e->{last_disconnect} = time();
+    $e->{last_event} = $e->{last_disconnect};
+    $e->{disconnect_count}++;
+    return 1;
+}
+sub logical_web_snapshot {
+    my $cut = time() - $CONNECTION_RETENTION;
+    for my $call (keys %logical_web_history) {
+        my $e = $logical_web_history{$call};
+        delete $logical_web_history{$call} if !$e->{online} && ($e->{last_event} || 0) < $cut;
+    }
+    if (keys(%logical_web_history) > $MAX_LOGICAL_WEB_HISTORY) {
+        my @old = sort { ($logical_web_history{$a}{last_event} || 0) <=> ($logical_web_history{$b}{last_event} || 0) }
+                  grep { !$logical_web_history{$_}{online} } keys %logical_web_history;
+        while (keys(%logical_web_history) > $MAX_LOGICAL_WEB_HISTORY && @old) {
+            delete $logical_web_history{shift @old};
+        }
+    }
+    return [ map { +{%{$logical_web_history{$_}}} }
+             grep { !$logical_web_history{$_}{online} }
+             sort keys %logical_web_history ];
+}
+
+sub connection_attempt {
+    return 0 unless metrics_collection_enabled();
+    my ($call) = @_;
+    $incoming_login_totals{attempts}++;
+    _bounded_inc(\%incoming_login_by_call, $call);
+    return 1;
+}
+
+sub connection_rapid_throttled {
+    return 0 unless metrics_collection_enabled();
+    my ($call) = @_;
+    $incoming_login_totals{rapid_throttled}++;
+    return 1;
+}
+
+sub connection_incoming_success {
+    return 0 unless metrics_collection_enabled();
+    my ($call) = @_;
+    $incoming_login_totals{successful}++;
+    return 1;
+}
+
+sub connection_up {
+    return 0 unless metrics_collection_enabled();
+    my ($c, $kind) = @_;
+    return 0 unless ref $c && defined $c->{call} && length $c->{call};
+    my $e = _connection_touch($c->{call}) or return 0;
+    my $now = time();
+    my $first = !$c->{_dxhealth_connection_up};
+    if ($first) {
+        $c->{_dxhealth_connection_up} = 1;
+        $e->{connect_count} = 0 + ($e->{connect_count} || 0) + 1;
+        $e->{last_connect} = $now;
+        $e->{last_event} = $now;
+        $connection_totals{connects}++;
+    }
+    $e->{last_host} = _connection_host($c) if length _connection_host($c);
+    $e->{last_direction} = _connection_direction($c) if length _connection_direction($c);
+    $e->{last_kind} = _connection_kind($c, $kind);
+    return 1;
+}
+
+sub connection_down {
+    return 0 unless metrics_collection_enabled();
+    my ($c, $kind) = @_;
+    return 0 unless ref $c && defined $c->{call} && length $c->{call};
+    return 1 if $c->{_dxhealth_connection_down};
+    $c->{_dxhealth_connection_down} = 1;
+    my $e = _connection_touch($c->{call}) or return 0;
+    my $now = time();
+    $e->{disconnect_count} = 0 + ($e->{disconnect_count} || 0) + 1;
+    $e->{last_disconnect} = $now;
+    $e->{last_event} = $now;
+    $e->{last_host} = _connection_host($c) if length _connection_host($c);
+    $e->{last_direction} = _connection_direction($c) if length _connection_direction($c);
+    $e->{last_kind} = _connection_kind($c, $kind) || $e->{last_kind} || '';
+    $connection_totals{disconnects}++;
+    return 1;
+}
+
+sub connection_too_many {
+    return 0 unless metrics_collection_enabled();
+    my ($call, $host, $limit, $parents) = @_;
+    my $e = _connection_touch($call) or return 0;
+    my $now = time();
+    $e->{too_many_count} = 0 + ($e->{too_many_count} || 0) + 1;
+    $e->{last_too_many} = $now;
+    $e->{last_event} = $now;
+    $e->{last_host} = $host if defined $host && length $host;
+    $e->{last_too_many_limit} = 0 + $limit if defined $limit && $limit =~ /^\d+$/;
+    $e->{last_too_many_parents} = 0 + $parents if defined $parents && $parents =~ /^\d+$/;
+    $connection_totals{too_many}++;
+    return 1;
+}
+
+sub _connection_prune {
+    my ($online) = @_;
+    $online ||= {};
+    my $cut = time() - $CONNECTION_RETENTION;
+    for my $call (keys %connections) {
+        next if $online->{$call};
+        my $t = $connections{$call}{last_event} || 0;
+        delete $connections{$call} if $t && $t < $cut;
+    }
+    if (keys(%connections) > $MAX_CONNECTIONS_TRACKED) {
+        my @old = sort { ($connections{$a}{last_event}||0) <=> ($connections{$b}{last_event}||0) }
+                  grep { !$online->{$_} } keys %connections;
+        while (keys(%connections) > $MAX_CONNECTIONS_TRACKED && @old) {
+            delete $connections{shift @old};
+        }
+    }
+}
+
+sub connection_snapshot {
+    my ($online) = @_;
+    $online ||= {};
+    _connection_prune($online);
+    my %rows;
+    for my $call (keys %connections) {
+        my $e = $connections{$call};
+        $rows{$call} = {
+            call => $call,
+            connect_count => 0 + ($e->{connect_count} || 0),
+            disconnect_count => 0 + ($e->{disconnect_count} || 0),
+            last_connect => 0 + ($e->{last_connect} || 0),
+            last_disconnect => 0 + ($e->{last_disconnect} || 0),
+            last_event => 0 + ($e->{last_event} || 0),
+            last_host => $e->{last_host} || '',
+            last_direction => $e->{last_direction} || '',
+            last_kind => $e->{last_kind} || '',
+            too_many_count => 0 + ($e->{too_many_count} || 0),
+            last_too_many => 0 + ($e->{last_too_many} || 0),
+            last_too_many_limit => defined $e->{last_too_many_limit} ? 0 + $e->{last_too_many_limit} : undef,
+            last_too_many_parents => defined $e->{last_too_many_parents} ? 0 + $e->{last_too_many_parents} : undef,
+        };
+    }
+    return {
+        totals => { map { $_ => 0 + ($connection_totals{$_} || 0) } qw(connects disconnects too_many) },
+        incoming_login => { map { $_ => 0 + ($incoming_login_totals{$_} || 0) } qw(attempts successful rapid_throttled) },
+        retained => scalar(keys %rows),
+        retention_seconds => 0 + $CONNECTION_RETENTION,
+        max_entries => 0 + $MAX_CONNECTIONS_TRACKED,
+        rows => \%rows,
+    };
+}
+# Logical semantics are deliberately opt-in. Missing kinds mean unsupported,
+# not zero. Forwarded is enabled only where the routing/distribution path can
+# report that at least one real protocol egress survived filters and hop checks.
+our %PROTOCOL_LOGICAL_CAPS = (
+    11 => { accepted => 1, forwarded => 1 },
+    23 => { accepted => 1, forwarded => 1 },
+    24 => { accepted => 1, forwarded => 1 },
+    51 => { accepted => 1, forwarded => 1, reply => 1 },
+    61 => { accepted => 1, generated => 1, forwarded => 1 },
+    73 => { accepted => 1, forwarded => 1 },
+    93 => { accepted => 1, generated => 1 },
+);
+
+
+# Generic physical PCxx telemetry.  This deliberately records only facts at
+# the protocol boundary: a valid PC frame came IN from a neighbour or a PC
+# frame was queued OUT to a neighbour.  Logical generated/accepted/forwarded
+# counters are kept separate because their semantics differ by protocol.
+sub _pc_from_line {
+    my ($line) = @_;
+    return unless defined $line && !ref($line) && $line =~ /^PC(\d\d)\^/;
+    my $pc = 0 + $1;
+    return unless $pc >= 10 && $pc <= 99;
+    return $pc;
+}
+
+sub _protocol_inc {
+    my ($dir, $peer, $pc, $bytes) = @_;
+    return 0 unless $dir eq 'in' || $dir eq 'out';
+    return 0 unless defined $pc && $pc >= 10 && $pc <= 99;
+    $bytes = 0 unless defined $bytes && $bytes >= 0;
+    $protocol{$pc}{$dir}{packets}++;
+    $protocol{$pc}{$dir}{bytes} += $bytes;
+    if (defined $peer && length $peer) {
+        $protocol_peer{$peer}{$pc}{$dir}{packets}++;
+        $protocol_peer{$peer}{$pc}{$dir}{bytes} += $bytes;
+    }
+    return 1;
+}
+
+sub protocol_physical_in_line {
+    return 0 unless metrics_collection_enabled();
+    my ($peer, $line) = @_;
+    my $pc = _pc_from_line($line);
+    return 0 unless defined $pc;
+    return _protocol_inc('in', $peer, $pc, length($line));
+}
+
+sub protocol_physical_out_line {
+    return 0 unless metrics_collection_enabled();
+    my ($peer, $line) = @_;
+    my $pc = _pc_from_line($line);
+    return 0 unless defined $pc;
+    return _protocol_inc('out', $peer, $pc, length($line));
+}
+
+sub local_spot_generated {
+    return 0 unless metrics_collection_enabled();
+    $local_spots_generated++;
+    return 1;
+}
+
+sub protocol_logical_inc {
+    return 0 unless metrics_collection_enabled();
+    my ($pc, $kind, $bytes) = @_;
+    return 0 unless defined $pc && $pc >= 10 && $pc <= 99;
+    return 0 unless defined $kind && $PROTOCOL_LOGICAL_CAPS{$pc}{$kind};
+    $bytes = 0 unless defined $bytes && $bytes >= 0;
+    $protocol_logical{$pc}{$kind}{packets}++;
+    $protocol_logical{$pc}{$kind}{bytes} += $bytes;
+    return 1;
+}
+
+sub protocol_logical_line {
+    return 0 unless metrics_collection_enabled();
+    my ($kind, $line) = @_;
+    my $pc = _pc_from_line($line);
+    return 0 unless defined $pc;
+    return protocol_logical_inc($pc, $kind, length($line));
+}
+
+sub protocol_logical_origin_line {
+    return 0 unless metrics_collection_enabled();
+    my ($kind, $origin, $line) = @_;
+    my $pc = _pc_from_line($line);
+    return 0 unless defined $pc;
+    return 0 unless defined $origin && !ref($origin) && length($origin);
+    return 0 unless protocol_logical_inc($pc, $kind, length($line));
+    my $name = sprintf('PC%02d', $pc);
+    $protocol_origin{$origin}{$name}{$kind}{packets}++;
+    $protocol_origin{$origin}{$name}{$kind}{bytes} += length($line);
+    return 1;
+}
+
+sub protocol_origin_inc {
+    return 0 unless metrics_collection_enabled();
+    my ($kind, $origin, $pc, $bytes) = @_;
+    return 0 unless defined $origin && !ref($origin) && length($origin);
+    return 0 unless defined $pc && $pc >= 10 && $pc <= 99;
+    return 0 unless defined $kind && $kind =~ /^(?:accepted|forwarded|generated|reply)$/;
+    $bytes = 0 unless defined $bytes && $bytes >= 0;
+    my $name = sprintf('PC%02d', $pc);
+    $protocol_origin{$origin}{$name}{$kind}{packets}++;
+    $protocol_origin{$origin}{$name}{$kind}{bytes} += $bytes;
+    return 1;
+}
+
+sub protocol_snapshot {
+    my %out = (protocols => {}, peers => {}, logical => {}, origins => {}, origin_scope => {}, capabilities => {}, local_spots_generated => 0 + $local_spots_generated);
+    for my $pc (sort {$a <=> $b} keys %protocol) {
+        my $name = sprintf('PC%02d', $pc);
+        for my $dir (qw(in out)) {
+            $out{protocols}{$name}{$dir} = {
+                packets => 0 + ($protocol{$pc}{$dir}{packets} || 0),
+                bytes   => 0 + ($protocol{$pc}{$dir}{bytes} || 0),
+            };
+        }
+    }
+    for my $peer (sort keys %protocol_peer) {
+        for my $pc (sort {$a <=> $b} keys %{$protocol_peer{$peer}}) {
+            my $name = sprintf('PC%02d', $pc);
+            for my $dir (qw(in out)) {
+                $out{peers}{$peer}{$name}{$dir} = {
+                    packets => 0 + ($protocol_peer{$peer}{$pc}{$dir}{packets} || 0),
+                    bytes   => 0 + ($protocol_peer{$peer}{$pc}{$dir}{bytes} || 0),
+                };
+            }
+        }
+    }
+    for my $pc (sort {$a <=> $b} keys %PROTOCOL_LOGICAL_CAPS) {
+        my $name = sprintf('PC%02d', $pc);
+        for my $kind (qw(generated accepted forwarded reply)) {
+            next unless $PROTOCOL_LOGICAL_CAPS{$pc}{$kind};
+            $out{capabilities}{$name}{$kind} = 1;
+            $out{logical}{$name}{$kind} = {
+                packets => 0 + ($protocol_logical{$pc}{$kind}{packets} || 0),
+                bytes   => 0 + ($protocol_logical{$pc}{$kind}{bytes} || 0),
+            };
+        }
+    }
+    for my $origin (sort keys %protocol_origin) {
+        for my $pc (sort keys %{$protocol_origin{$origin}}) {
+            for my $kind (sort keys %{$protocol_origin{$origin}{$pc}}) {
+                $out{origins}{$origin}{$pc}{$kind} = {
+                    packets => 0 + ($protocol_origin{$origin}{$pc}{$kind}{packets} || 0),
+                    bytes   => 0 + ($protocol_origin{$origin}{$pc}{$kind}{bytes} || 0),
+                };
+            }
+        }
+    }
+    $out{origin_scope} = {
+        PC11 => { accepted=>1, forwarded=>1, source=>'field7' },
+        PC61 => { accepted=>1, forwarded=>1, source=>'field7' },
+        PC92 => { accepted=>1, sorts=>[qw(A C D K)], source=>'pcall_field1' },
+        PC93 => { accepted=>1, generated=>1, source=>'validated_onode' },
+        complete_physical_coverage => 0,
+    };
+    $out{input_diagnostics} = {
+        malformed => {
+            packets => 0 + ($protocol_reject{malformed}{packets} || 0),
+            bytes => 0 + ($protocol_reject{malformed}{bytes} || 0),
+            by_pc => $protocol_reject{malformed}{by_pc} || {},
+        },
+        unknown_protocol => {
+            packets => 0 + ($protocol_reject{unknown_protocol}{packets} || 0),
+            bytes => 0 + ($protocol_reject{unknown_protocol}{bytes} || 0),
+        },
+        peers => \%protocol_reject_peer,
+    };
+    return \%out;
+}
+
+sub _sort {
+    my ($s) = @_;
+    return undef unless defined $s;
+    $s = uc $s;
+    return $VALID{$s} ? $s : undef;
+}
+
+sub _line_sort {
+    my ($line) = @_;
+    return unless defined $line && !ref($line) && $line =~ /^PC92\^[^^]*\^[^^]*\^([ADCK])\^/;
+    return $1;
+}
+
+sub _inc {
+    my ($slot, $sort, $bytes) = @_;
+    $$slot ||= {};
+    $$slot->{$sort}{packets}++;
+    $$slot->{$sort}{bytes} += ($bytes || 0);
+}
+
+sub pc92_generated {
+    return 0 unless metrics_collection_enabled();
+    my ($sort, $bytes) = @_;
+    $sort = _sort($sort) or return 0;
+    _inc(\$logical{generated}, $sort, $bytes);
+    return 1;
+}
+
+sub pc92_generated_line {
+    return 0 unless metrics_collection_enabled();
+    my ($line) = @_;
+    my $sort = _line_sort($line) or return 0;
+    return pc92_generated($sort, length($line));
+}
+
+sub pc92_received {
+    return 0 unless metrics_collection_enabled();
+    my ($sort, $bytes) = @_;
+    $sort = _sort($sort) or return 0;
+    _inc(\$logical{received}, $sort, $bytes);
+    return 1;
+}
+
+sub pc92_forwarded {
+    return 0 unless metrics_collection_enabled();
+    my ($sort, $bytes) = @_;
+    $sort = _sort($sort) or return 0;
+    _inc(\$logical{forwarded}, $sort, $bytes);
+    return 1;
+}
+
+sub pc92_physical_in {
+    return 0 unless metrics_collection_enabled();
+    my ($neighbour, $sort, $bytes) = @_;
+    $sort = _sort($sort) or return 0;
+    return 0 unless defined $neighbour && length $neighbour;
+    _inc(\$physical{in}{$neighbour}, $sort, $bytes);
+    return 1;
+}
+
+sub pc92_physical_out {
+    return 0 unless metrics_collection_enabled();
+    my ($neighbour, $sort, $bytes) = @_;
+    $sort = _sort($sort) or return 0;
+    return 0 unless defined $neighbour && length $neighbour;
+    _inc(\$physical{out}{$neighbour}, $sort, $bytes);
+    return 1;
+}
+
+sub pc92_physical_out_line {
+    return 0 unless metrics_collection_enabled();
+    my ($neighbour, $line) = @_;
+    my $sort = _line_sort($line) or return 0;
+    return pc92_physical_out($neighbour, $sort, length($line));
+}
+
+sub _copy_bucket {
+    my ($src) = @_;
+    my %out;
+    for my $s (@SORTS) {
+        $out{$s} = {
+            packets => 0 + ($src->{$s}{packets} || 0),
+            bytes   => 0 + ($src->{$s}{bytes} || 0),
+        };
+    }
+    return \%out;
+}
+
+
+sub pc92k_advertised {
+    return 0 unless metrics_collection_enabled();
+    my ($call, $nodes, $users) = @_;
+    return 0 unless defined $call && length $call;
+    return 0 unless defined $nodes && $nodes =~ /^\d+$/;
+    return 0 unless defined $users && $users =~ /^\d+$/;
+
+    $pc92k_advertised{$call} = {
+        nodes => 0 + $nodes,
+        users => 0 + $users,
+        seen  => time(),
+    };
+
+    # Bounded RAM-only telemetry: if churn ever takes us over the cap, discard
+    # the oldest K observations.  This never touches Route::Node or routing.
+    if (keys(%pc92k_advertised) > $MAX_PC92K_ADVERTISED) {
+        my @oldest = sort {
+            ($pc92k_advertised{$a}{seen} || 0) <=> ($pc92k_advertised{$b}{seen} || 0)
+        } keys %pc92k_advertised;
+        my $drop = keys(%pc92k_advertised) - $MAX_PC92K_ADVERTISED;
+        delete @pc92k_advertised{@oldest[0 .. $drop-1]} if $drop > 0;
+    }
+    return 1;
+}
+
+sub pc92k_advertised_get {
+    my ($call) = @_;
+    return unless defined $call && exists $pc92k_advertised{$call};
+    my $v = $pc92k_advertised{$call};
+    return {
+        nodes => 0 + $v->{nodes},
+        users => 0 + $v->{users},
+        seen  => 0 + $v->{seen},
+    };
+}
+
+sub pc92_snapshot {
+    my %out = (logical => {}, physical => {in => {}, out => {}}, totals => {in => {}, out => {}});
+    for my $kind (qw(generated received forwarded)) {
+        $out{logical}{$kind} = _copy_bucket($logical{$kind} || {});
+    }
+    for my $dir (qw(in out)) {
+        for my $n (sort keys %{$physical{$dir} || {}}) {
+            $out{physical}{$dir}{$n} = _copy_bucket($physical{$dir}{$n});
+        }
+        $out{totals}{$dir} = _copy_bucket({});
+        for my $n (keys %{$physical{$dir} || {}}) {
+            for my $s (@SORTS) {
+                $out{totals}{$dir}{$s}{packets} += $physical{$dir}{$n}{$s}{packets} || 0;
+                $out{totals}{$dir}{$s}{bytes}   += $physical{$dir}{$n}{$s}{bytes} || 0;
+            }
+        }
+    }
+    return \%out;
+}
+
+sub pc92_reset {
+    %logical = ();
+    %physical = ();
+    %pc92k_advertised = ();
+    return 1;
+}
+
+# v0.39 additive accepted-spot ranking telemetry. Bounded, RAM-only and drained by
+# the technical sampler. This block intentionally adds to the installed DXHealth
+# instead of replacing the site's working module.
+our $MAX_SPOT_RANK_DIMENSIONS = 4096;
+our %spot_rank_interval;
+our $spot_rank_overflow = 0;
+sub _spot_rank_inc {
+    my ($dim,$key)=@_; return 0 unless defined $dim && defined $key;
+    $key=uc($key); $key=~s/^\s+|\s+$//g; return 0 unless length $key;
+    my $h=($spot_rank_interval{$dim} ||= {});
+    if(!exists $h->{$key} && scalar(keys %$h) >= $MAX_SPOT_RANK_DIMENSIONS){$spot_rank_overflow++;return 0}
+    $h->{$key}++; return 1;
+}
+sub accepted_spot_rank {
+    return 0 unless metrics_collection_enabled();
+    my ($dx,$spotter,$origin)=@_;
+    $spot_rank_interval{total}=0+($spot_rank_interval{total}||0)+1;
+    _spot_rank_inc('dx',$dx); _spot_rank_inc('spotter',$spotter); _spot_rank_inc('origin_node',$origin);
+    return 1;
+}
+sub spot_rank_take_snapshot {
+    my %o=(total=>0+($spot_rank_interval{total}||0),overflow=>0+$spot_rank_overflow,max_dimensions=>0+$MAX_SPOT_RANK_DIMENSIONS);
+    for my $d(qw(dx spotter origin_node)){my %x=%{$spot_rank_interval{$d}||{}};$o{"by_$d"}=\%x}
+    %spot_rank_interval=(); $spot_rank_overflow=0; return \%o;
+}
+
+1;

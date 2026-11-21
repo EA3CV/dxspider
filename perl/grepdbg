@@ -17,7 +17,7 @@
 # a <regexp> preceeded by a '!' is treated as NOT <regexp>. Each
 # <regexp> is implcitly ANDed together. 
 #
-# If you specify something that likes a filename and that filename
+# If you specify something that looks like a filename and that filename
 # has a .pm on the end of it and it exists then rather than doing
 # the regex match it executes the "main::handle()" function passing
 # it one line at a time.

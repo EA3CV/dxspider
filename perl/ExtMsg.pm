@@ -17,6 +17,7 @@ package ExtMsg;
 use strict;
 use Msg;
 use DXVars;
+use DXChannel;
 use DXUtil;
 use DXDebug;
 use DXTimer;
@@ -24,11 +25,68 @@ use DXTimer;
 use IO::File;
 use IO::Socket;
 use IPC::Open3;
+use Socket qw(AF_INET AF_INET6 inet_pton);
 
 use vars qw(@ISA $deftimeout);
 
 @ISA = qw(Msg);
 $deftimeout = 60;
+
+# The TCP socket peer is immutable. Only a peer explicitly configured in
+# @main::trusted_proxy_ips may assert a PROXY v1 client address.
+sub _normal_ip {
+    my ($ip) = @_;
+    return '' unless defined $ip;
+    $ip =~ s/^::ffff://i;
+    return lc $ip;
+}
+
+sub _valid_ip {
+    my ($ip, $family) = @_;
+    return 0 unless defined $ip && defined $family;
+    return defined inet_pton($family eq 'TCP4' ? AF_INET : AF_INET6, $ip);
+}
+
+sub _loopback {
+    my ($ip) = @_;
+    $ip = _normal_ip($ip);
+    return 1 if $ip eq '::1';
+    return _valid_ip($ip, 'TCP4') && $ip =~ /^127\./ ? 1 : 0;
+}
+
+sub _trusted_proxy_peer {
+    my ($conn) = @_;
+    my $peer = _normal_ip($conn->{transport_peerhost});
+    return 0 unless length $peer;
+    for my $allowed (@main::trusted_proxy_ips) {
+        return 1 if length(_normal_ip($allowed)) && $peer eq _normal_ip($allowed);
+    }
+    return 0;
+}
+
+sub _direct_local {
+    my ($conn) = @_;
+    return 0 unless $conn && ref($conn);
+    # console.pl uses IntMsg on the internal TCP listener, not ExtMsg.
+    # Its actual socket peer must be loopback; never trust host= metadata.
+    return _loopback($conn->peerhost) if $conn->isa('IntMsg');
+    return 0 unless $conn->isa('ExtMsg');
+    return !_trusted_proxy_peer($conn) && !$conn->{proxy_seen}
+        && _loopback($conn->{transport_peerhost});
+}
+
+sub _proxy_header_client {
+    my ($conn, $line) = @_;
+    return undef unless _trusted_proxy_peer($conn) && !$conn->{proxy_seen};
+    my ($family, $src, $dst, $sport, $dport) =
+        $line =~ /^PROXY (TCP[46]) (\S+) (\S+) (\d{1,5}) (\d{1,5})$/;
+    return undef unless defined $family
+        && _valid_ip($src, $family) && _valid_ip($dst, $family)
+        && $sport >= 1 && $sport <= 65535
+        && $dport >= 1 && $dport <= 65535;
+    return _normal_ip($src);
+}
+
 
 sub login
 {
@@ -121,23 +179,29 @@ sub dequeue
 				&{$conn->{rproc}}($conn, "I$conn->{call}|$msg");
 			} elsif ($conn->{state} eq 'WL' ) {
 				$msg = uc $msg;
-				if ($conn->{sort} =~ /^I/ && (my ($ip, $from) = $msg =~ /^PROXY TCP[46] ([\da-fA-F:\.]+) ([\da-fA-F:\.]+)/) ) {
-					# SOMEONE appears to have affixed an HA Proxy to my connection
-					$ip =~ s|^::ffff:||; # chop off leading pseudo IPV6 stuff on dual stack listeners
-					$from =~ s|^::ffff:||;
-					if ($from eq $conn->{peerhost}) {
-						dbg("ExtMsg: connect - PROXY IP change from '$conn->{peerhost}' -> '$ip'");
-						$conn->{peerhost} = $ip;
-					} else {
-						dbg("ExtMsg: connect - PROXY someone ($from) is trying to spoof '$ip'");
-						$conn->send_now("Sorry $msg is an invalid callsign");
-						$conn->disconnect;
-					}
-				} elsif (is_callsign($msg)) {
+				if ($conn->{sort} =~ /^I/ && $msg =~ /^PROXY(?:\s|$)/) {
+                    my $client_ip = _proxy_header_client($conn, $msg);
+                    if (defined $client_ip) {
+                        $conn->{peerhost} = $client_ip;
+                        $conn->{proxy_seen} = 1;
+                        dbg("ExtMsg: accepted trusted PROXY client '$client_ip'") if isdbg('connect');
+                    } else {
+                        dbg('ExtMsg: rejected invalid or untrusted PROXY header') if isdbg('connect');
+                        $conn->send_now('Sorry invalid login');
+                        $conn->disconnect;
+                        last;
+                    }
+                } elsif (_trusted_proxy_peer($conn) && !$conn->{proxy_seen}) {
+                    # A configured proxy must supply PROXY before the callsign.
+                    # Otherwise the proxy's own loopback IP could mask the client.
+                    $conn->send_now('Sorry missing PROXY header');
+                    $conn->disconnect;
+                    last;
+                } elsif (is_callsign($msg)) {
 					my $call = normalise_call($msg);
 					if ($main::allowslashcall || $msg !~ m|/|) {
 						my $sort = $conn->{csort};
-						$sort = 'local' if $conn->{peerhost} =~ /127\.\d+\.\d+\.\d+$/ || $conn->{peerhost} eq '::1';
+						$sort = 'local' if _direct_local($conn);
 						my $uref;
 						if ($main::passwdreq || ($uref = DXUser::get_current($call)) && $uref->passwd ) {
 							$conn->conns($call);
@@ -146,7 +210,7 @@ sub dequeue
 							$conn->{echo} = 0;
 							$conn->send_raw('password: ');
 						} else {
-							$conn->to_connected($msg, 'A', $sort);
+							$conn->_session_admission($msg, $sort);
 						}
 					} else {
 						$conn->send_now("Sorry $msg is an invalid callsign");
@@ -163,11 +227,25 @@ sub dequeue
 					my $sort = $conn->{csort};
 					$conn->{echo} = $conn->{decho};
 					delete $conn->{decho};
-					$sort = 'local' if $conn->{peerhost} =~ /127\.\d+\.\d+\.\d+$/ || $conn->{peerhost} eq '::1';
+					$sort = 'local' if _direct_local($conn);
 					$conn->{usedpasswd} = 1;
-					$conn->to_connected($conn->{call}, 'A', $sort);
+					$conn->_session_admission($conn->{call}, $sort);
 				} else {
 					$conn->send_now("Sorry");
+					$conn->disconnect;
+				}
+			} elsif ($conn->{state} eq 'WD') {
+				$msg =~ s/^\s+|\s+$//g;
+				my $old = delete $conn->{session_pending_target};
+				my $call = delete $conn->{session_pending_call};
+				my $sort = delete $conn->{session_pending_sort};
+				if (defined $call && $msg =~ /^(?:Y|YES)$/i && $old &&
+				    DXChannel::get($call) && DXChannel::get($call) == $old) {
+					$conn->{session_takeover_verified} = 1;
+					$conn->{session_takeover_target} = $old;
+					$conn->to_connected($call, 'A', $sort);
+				} else {
+					$conn->send_now('Existing session preserved. Connection cancelled.');
 					$conn->disconnect;
 				}
 			} elsif ($conn->{state} eq 'WC') {
@@ -180,6 +258,29 @@ sub dequeue
 			}
 		}
 	}
+}
+
+# Negotiate duplicate interactive logins before constructing a DXChannel.
+# Only verified passwords (or the existing trusted local-console path)
+# can reach this point. The transport remains in a pre-channel state.
+sub _session_admission
+{
+    my ($conn, $call, $sort) = @_;
+    # The incoming callsign has already passed the normal login/password
+    # path. Preserve the actual identity supplied by the remote endpoint.
+    $conn->{observed_peer_login} = $call unless $conn->{outgoing};
+    my $old = DXChannel::get($call);
+    if ($old && $old->is_user &&
+        ($conn->{usedpasswd} || _direct_local($conn))) {
+        $conn->{state} = 'WD';
+        $conn->{session_pending_target} = $old;
+        $conn->{session_pending_call} = $call;
+        $conn->{session_pending_sort} = $sort;
+        $conn->send_raw("Another session for $call is already connected.\r\nDisconnect the existing session and continue? (Y/N): ");
+        $conn->_dotimeout(60);
+        return;
+    }
+    $conn->to_connected($call, 'A', $sort);
 }
 
 sub to_connected
@@ -202,6 +303,7 @@ sub new_client {
 	my $conn = $server_conn->SUPER::new_client($client);
 	# send login prompt
 	$conn->{state} = 'WL';
+    $conn->{transport_peerhost} = $conn->{peerhost};
 	$conn->_send_file(localdata("issue"));
 	$conn->send_raw("login: ");
 	$conn->_dotimeout(60);
@@ -338,6 +440,12 @@ sub _dochat
 			if ($line =~ /\Q$expect/i) {
 				if (length $send) {
 					dbg("connect $conn->{cnum}: got: \"$expect\" sending: \"$send\"") if isdbg('connect');
+                    # Record the exact identity transmitted by the outbound
+                    # connect script, only at the moment it is actually sent.
+                    # This is not the remote node name and is never inferred.
+                    if ($expect =~ /\blogin\s*:/i && $send =~ /^([A-Z0-9]+(?:-[0-9]{1,2})?)$/i) {
+                        $conn->{observed_peer_login} = uc($1);
+                    }
 					$conn->send_later("D$conn->{call}|$send");
 				}
 				delete $conn->{msg}; # get rid any input if a match

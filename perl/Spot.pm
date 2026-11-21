@@ -461,6 +461,24 @@ sub search
 	return ("Spot search error", $@) if $@;
 
 	@out = sort {$b->[2] <=> $a->[2]} @out if @out;
+
+	# Web actors need Unicode before either direct formatting or DXSubprocess
+	# serialisation. Decode exactly once, on copies: cached rows remain bytes.
+	if ($dxchan && $dxchan->isa('Web::Actor')) {
+		require Encode;
+		@out = map {
+			my $row = $_;
+			if (ref($row) eq 'ARRAY' && defined($row->[3]) && !utf8::is_utf8($row->[3])) {
+				my $text = eval { Encode::decode('UTF-8', $row->[3], Encode::FB_CROAK() | Encode::LEAVE_SRC()) };
+				if (!$@) {
+					my @copy = @$row;
+					$copy[3] = $text;
+					$row = \@copy;
+				}
+			}
+			$row;
+		} @out;
+	}
 	return @out;
 }
 

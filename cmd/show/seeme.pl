@@ -19,7 +19,7 @@ sub handle
 
 	if ($line) {
 		$line =~ s/[^\w\-\/]+//g;
-		$line = "\U\Q$line";
+		$line = uc "\Q$line";
 	}
 
 	if ($self->{_nospawn} || $main::is_win == 1 || DXUser::using_database()) {

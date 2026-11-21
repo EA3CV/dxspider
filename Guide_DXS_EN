@@ -1,0 +1,1025 @@
+DXSPIDER - UNIFIED INSTALLATION AND UPGRADE GUIDE (MOJO)             18 Nov 2026
+================================================================================
+
+CONTENTS
+--------------------------------------------------------------------------------
+
+PART I. NEW INSTALLATION
+
+ 1. SYSTEM REQUIREMENTS AND PREPARATION
+    1.1 NEW INSTALLATION
+       1.1.1 As a USER WITH SUDO PRIVILEGES
+
+ 2. CLONING THE REPOSITORY AND CREATING THE /SPIDER LINK
+    2.1 As SYSOP
+    2.2 Exit the SYSOP session with 'exit'
+
+ 3. PERL DEPENDENCIES
+    3.1 REQUIREMENTS AND DIFFERENCES
+    3.2 OPTION A - APT (DEBIAN/UBUNTU/RASPBERRY PI OS)
+       3.2.1 System tools and build packages:
+       3.2.2 Mojo modules and common utilities:
+          DB_File is checked as a Perl module and does not require a separate
+   libdb-file-perl package when it is already provided by Perl.
+   Verify.pm uses Digest::SHA (sha1_base64), not Digest::SHA1.
+
+3.2.3 Some auxiliary packages may not be available in every release.
+       3.2.4 LWP::Parallel::UserAgent dependency
+    3.3 OPTION B - CPANM (PERL MODULES)
+       3.3.1 Install Perl, cpanminus, a compiler and OS libraries first.
+       3.3.2 Install modules required by both code trees:
+    3.4 REQUIRED VERIFICATION
+    3.5 NOTES
+
+ 4. PREPARING DIRECTORIES AND TEMPLATES
+
+ 5. INITIAL NODE CONFIGURATION
+
+ 6. TCP LISTENER CONFIGURATION
+
+ 7. INITIAL SYSOP CREATION
+
+ 8. FIRST START AND CHECKS
+    8.1 BASIC OPERATIONAL TESTS
+
+ 9. SYSTEMD SERVICE
+
+10. CONNECTIONS AND FINAL CHECKS
+    10.1 RECOMMENDED CRONTAB EXAMPLES
+    10.2 ENABLING REGISTRATION FOR USERS AND NODES
+    10.3 ENABLING DXWEB AND/OR DXWEB-ADMIN
+
+11. NEW COMMANDS IN EA3CV COMPARED WITH MOJO
+    11.1 DXREG REGISTRATION (requires reg_enable and DXReg to be ready)
+    11.2 PC92 FILTERS
+    11.3 ACCESS CONTROL
+    11.4 MONITORING
+    11.5 OPERATIONAL NODE CHECKLIST
+    11.6 SECURITY NOTES
+
+PART II. UPGRADING AN EXISTING NODE
+
+ 12. RULES AND PRE-UPGRADE CHECKS
+     12.1 IDENTIFYING THE INSTALLATION AND SERVICE
+
+ 13. BACKUP AND SHUTDOWN
+     13.1 STOPPING THE NODE AND COMPLETING THE BACKUP
+
+ 14. UPDATING THE MOJO BRANCH WITH GIT
+     14.1 Stop DXSpider using the usual system procedure.
+     14.2 As SYSOP (from a sudo-enabled user):
+     14.3 As SYSOP, and only with a clean working tree:
+     14.4 As SYSOP, verify:
+
+ 15. VERSION REQUIREMENTS AND STARTUP
+     15.1 MIGRATING DXVars.pm DURING UPGRADES
+        15.1.1 Back up the current local file as DXVars.pm.old:
+        15.1.2 Copy the current version template to local/DXVars.pm:
+        15.1.3 Restore the previous configuration
+        15.1.4 Before starting, compare and review the configuration:
+     15.2 VERIFYING REQUIREMENTS
+     15.3 STARTING AND VERIFYING
+
+ 16. TROUBLESHOOTING AND FINAL CHECKS
+     16.1 FINAL CHECKLIST
+
+
+GENERAL GUIDELINES
+--------------------------------------------------------------------------------
+
+All commands are Linux shell commands unless explicitly identified as DXSpider
+commands.
+This guide covers a native installation using the
+sysop account and the mojo branch. Use sudo where indicated, or su
+- to become root. If working as root, omit sudo from administrative
+command blocks. Commands intended for sysop must be run as that
+account. If a step fails, stop and investigate the cause before continuing.
+
+
+
+PART I. NEW INSTALLATION
+================================================================================
+
+
+1. SYSTEM REQUIREMENTS AND PREPARATION
+--------------------------------------------------------------------------------
+
+1.1 NEW INSTALLATION
+
+1.1.1 As a USER WITH SUDO PRIVILEGES (terminal Linux):
+
+Default values used in this guide:
+
+Linux user: sysop
+Linux group: spider
+HOME: /home/sysop
+Repository: /home/sysop/spider
+Operational link: /spider
+Git branch: mojo
+Service: dxspider.service
+
+These are values proposed by this guide, not mandatory software
+defaults. Minimum software requirements:
+Perl >= 5.16.1
+Mojolicious >= 7.26, Git
+gzip, process utilities and dependencies from section 3
+systemd if using the service described here.
+
+Indicative minimum hardware:
+at least 1 CPU
+1 GiB RAM
+20 GB disk
+
+History, databases and traffic may require considerably more disk space and
+memory.
+On Debian/Ubuntu/Raspberry Pi OS, install the tools BEFORE cloning:
+
+   sudo apt-get update
+   sudo apt-get install -y git iproute2 perl gzip procps
+   command -v git && command -v ss && command -v perl
+
+The spider group must exist before enabling the service; section 9 checks and
+creates it.
+
+   sudo -v
+   command -v git
+   id sysop || sudo useradd -m -s /bin/sh sysop
+   getent passwd sysop
+   test -d /home/sysop
+   test ! -e /home/sysop/spider
+   test ! -L /home/sysop/spider
+
+Install Git during system preparation; do not continue without verifying it.
+Keeping
+  Git up to date is recommended.
+  If /home/sysop/spider already exists, DO NOT use this section.
+  Verify that the sysop HOME directory is /home/sysop before continuing.
+
+
+
+2. CLONING THE REPOSITORY AND CREATING THE /SPIDER LINK
+--------------------------------------------------------------------------------
+
+2.1 As SYSOP (log in with sudo -iu sysop or su - sysop):
+
+   sudo -iu sysop
+   id -un
+   cd /home/sysop
+   git clone --branch mojo --single-branch \
+     git://scm.dxcluster.org/spider spider
+   cd /home/sysop/spider
+   test "$(git branch --show-current)" = mojo
+   git remote -v
+   git log -1 --oneline
+
+  The 'id -un' command must display sysop.
+  If you logged in using 'su - sysop', run the same commands
+  starting with 'id -un' (without 'sudo -iu sysop').
+
+2.2 Exit the SYSOP session with 'exit'. As a USER WITH SUDO PRIVILEGES:
+
+   exit
+   sudo -v
+   if [ -e /spider ] || [ -L /spider ]; then
+     echo '/spider already exists: no changes made.'
+   else
+     sudo ln -s /home/sysop/spider /spider
+   fi
+   ls -ld /spider
+   readlink -f /home/sysop/spider
+
+  If /spider already existed, verify its target before
+  using it. Never automatically delete or replace /spider.
+
+
+3. PERL DEPENDENCIES
+--------------------------------------------------------------------------------
+
+3.1 REQUIREMENTS AND DIFFERENCES
+
+- Perl >= 5.16.1 and Mojolicious >= 7.26
+- Mojo core: EV, Mojolicious, JSON, JSON::XS,
+  Data::Structure::Util, Math::Round, Net::CIDR::Lite, DBI,
+ DBD::SQLite (the correct CPAN module name is NOT DBD::SQLite3).
+- Utilities: Date::Parse, HTML::Parser,
+  IO::Socket::INET6, Archive::Zip, Curses, Mail::Internet,
+  Digest::SHA, LWP::UserAgent, LWP::Parallel::UserAgent, DB_File.
+  IO::Pty (dxweb-admin),
+ Authen::SASL and Net::SMTP::SSL (DXReg).
+  Email::Sender
+- Common core Perl modules such as JSON::PP, Digest::SHA,
+ HTTP::Tiny, IO::Compress::Gzip, Time::HiRes, etc. are checked
+ using Perl; some distributions package them separately.
+- Gtk/Gtk2 and Win32::API are for graphical applications or Windows:
+ do NOT install them on a headless Linux node.
+- A non-SQLite SQL backend may require another DBD driver.
+
+3.2 OPTION A - APT (DEBIAN/UBUNTU/RASPBERRY PI OS)
+
+USER: sysop, with sudo enabled. Linux terminal. Do
+not enter these commands in the DXSpider console.
+
+3.2.1 System tools and build packages:
+
+   sudo apt-get update
+   sudo apt-get install -y perl git iproute2 gzip procps build-essential \
+     cpanminus libssl-dev zlib1g-dev
+
+3.2.2 Mojo modules and common utilities:
+
+   sudo apt-get install -y \
+     libev-perl libmojolicious-perl libjson-perl \
+     libjson-xs-perl libdata-structure-util-perl \
+     libmath-round-perl libnet-cidr-lite-perl \
+     libdbi-perl libdbd-sqlite3-perl \
+     libtimedate-perl libhtml-parser-perl \
+     libio-socket-inet6-perl libarchive-zip-perl \
+     libcurses-perl libmailtools-perl \
+     libwww-perl libio-pty-perl libauthen-sasl-perl \
+     libnet-smtp-ssl-perl libemail-sender-perl
+
+
+   DB_File is checked as a Perl module and does not require a separate
+   libdb-file-perl package when it is already provided by Perl.
+   Verify.pm uses Digest::SHA (sha1_base64), not Digest::SHA1.
+
+3.2.3 Some auxiliary packages may not exist in every distribution release.
+
+  If apt fails, STOP: do not assume everything was installed.
+  Check the available package name with:
+
+   apt-cache policy PACKAGE_NAME
+
+3.2.4 LWP::Parallel::UserAgent dependency
+
+  LWP::Parallel::UserAgent is used by perl/callbot.pl. If it is missing,
+  install the module using the CPAN alternative below.
+
+3.3 OPTION B - CPANM (PERL MODULES)
+
+  USER: sysop, with sudo enabled. Linux terminal.
+  This option replaces section 3.2.2, NOT section 3.2.1.
+
+3.3.1 Install Perl, cpanminus, a compiler and OS libraries first.
+
+  On Debian/Ubuntu/Raspberry Pi OS, follow section 3.2.1. On
+  other distributions, install the equivalent native packages.
+
+3.3.2 Install the modules required by both code trees:
+
+   sudo cpanm \
+     EV Mojolicious JSON JSON::XS Data::Structure::Util \
+     Math::Round Net::CIDR::Lite DBI DBD::SQLite \
+     Date::Parse HTML::Parser IO::Socket::INET6 \
+     Archive::Zip Curses Mail::Internet Digest::SHA \
+     LWP::UserAgent LWP::Parallel::UserAgent DB_File \
+     IO::Pty Authen::SASL Net::SMTP::SSL Email::Sender
+
+  CPANM runs distribution tests before installing. If a build
+  fails, stop and review OS dependencies. Do not combine
+  sections 3.2.2 and 3.3.2 unnecessarily: mixing apt and system-wide
+  CPAN packages can complicate later upgrades and troubleshooting.
+
+3.4 REQUIRED VERIFICATION
+
+  USER: sysop. Linux terminal. sudo is not required.
+
+   perl -e 'die "Perl >= 5.16.1 required\n" if $] < 5.016001'
+   perl -MMojolicious=7.26 -e 'print "Mojolicious OK\n"'
+   perl -MEV -MJSON -MJSON::XS -MData::Structure::Util -e 1
+   perl -MMath::Round -MNet::CIDR::Lite -MDBI -MDBD::SQLite -e 1
+   perl -MDate::Parse -MHTML::Parser -MIO::Socket::INET6 -e 1
+   perl -MArchive::Zip -MCurses -MMail::Internet -e 1
+   perl -MDigest::SHA -MLWP::UserAgent -MDB_File -e 1
+   perl -MIO::Pty -MAuthen::SASL -MNet::SMTP::SSL -e 1
+   perl -MEmail::Sender -e 1
+   perl -MLWP::Parallel::UserAgent -e 1
+
+   command -v git
+   command -v gzip
+
+  If any command fails, stop and investigate the missing module. These
+  checks verify that modules load, not that all features work.
+
+3.5 NOTES
+
+  - Package installation uses sudo; DXSpider runs as sysop.
+  - No branch, directory or Git repository change is required.
+  - APT packages have not been validated on every Linux release.
+  - Graphical GTK modules and Windows dependencies are excluded.
+  - No node code or configuration is changed.
+
+
+4. PREPARING DIRECTORIES AND TEMPLATES
+--------------------------------------------------------------------------------
+
+For a new installation, the local directory may NOT exist
+after cloning Git. Do not assume it already exists.
+
+As sysop, from /spider, create it before copying files:
+
+   mkdir -p local local_cmd local_data
+   test ! -e local/DXVars.pm && \
+     cp perl/DXVars.pm.issue local/DXVars.pm
+   test ! -e local/Listeners.pm && \
+     cp perl/Listeners.pm local/Listeners.pm
+
+If any of these files already exists, DO NOT overwrite it.
+
+Check ownership:
+
+   ls -ld /spider /spider/local /spider/local_data
+   ls -l local/DXVars.pm local/Listeners.pm
+
+
+5. INITIAL NODE CONFIGURATION
+--------------------------------------------------------------------------------
+
+As sysop, edit the file copied in the previous step:
+
+   nano /spider/local/DXVars.pm
+
+Configure the variables shown in the template:
+- Exact node callsign ($mycall), including SSID where applicable.
+- SYSOP callsign ($myalias), distinct from the node callsign.
+- Name, QTH, locator, email and other relevant information.
+
+Save the file. Do not edit perl/DXVars.pm.issue: it is the template.
+Do not copy callsigns, addresses or credentials from the examples.
+
+
+6. TCP LISTENER CONFIGURATION
+--------------------------------------------------------------------------------
+
+As sysop, edit the file copied in the previous step:
+
+   nano /spider/local/Listeners.pm
+
+Listener lines in the template may be commented out. Enable
+the appropriate IPv4 or IPv6 line by removing its initial
+#. Check the address and port in the file. Do
+not enable both without checking for conflicts on the
+system. Example port: 7300/TCP (use the port actually configured).
+
+Check whether the port is already in use from a Linux terminal:
+
+   ss -ltn
+
+Do not expose the port to the Internet without reviewing firewall rules.
+
+
+7. INITIAL SYSOP CREATION
+--------------------------------------------------------------------------------
+
+WARNING: perl/create_sysop.pl initializes DXUser records but does NOT
+create or modify local/DXVars.pm or local/Listeners.pm. Configure both
+files before running it.
+
+DANGER: this script may destroy an existing user database. This
+guide is ONLY for a new installation. Do not
+confirm data deletion if an unexpected prompt appears.
+
+As sysop, from /spider:
+
+   cd /spider
+   test -f local/DXVars.pm || exit 1
+   test -f local/Listeners.pm || exit 1
+   test ! -e local_data/dxusers.db || {
+     echo "Existing DXUser database: STOP"; exit 1;
+   }
+   perl perl/create_sysop.pl
+
+Follow the script messages. If it fails, stop and investigate;
+do not rerun it blindly. Checking dxusers.db is
+an initial precaution, not an exhaustive check for previous databases.
+
+
+8. FIRST START AND CHECKS
+--------------------------------------------------------------------------------
+
+As sysop, with the DXSpider service stopped and no other cluster.pl running:
+
+   cd /spider
+   perl perl/cluster.pl
+
+Keep this terminal open and inspect startup. If an error occurs,
+do NOT create a service that restarts it in a
+loop. Review paths, dependencies, DXVars.pm and Listeners.pm.
+
+In another Linux terminal, check the port actually configured:
+
+   ss -ltnp
+
+Connect to the listening port using an appropriate client.
+For example, use a local telnet client (if installed):
+
+   telnet 127.0.0.1 7300
+
+Port 7300 is ONLY an example: use the configured port. Verify
+that the node responds and allows authentication as the expected SYSOP. Do
+not assume the C client in src/ is required for TCP:
+in mojo, the Perl process itself can handle Telnet connections.
+
+8.1 BASIC OPERATIONAL TESTS
+
+From the DXSpider SYSOP console, not from Linux:
+
+   sh/version
+   sh/cluster
+   sh/connect
+
+Verify that your own callsign is displayed and that
+startup is error-free. Peers will not appear as connected until
+configured. Check that debug output is being created under
+/spider/local_data/debug.
+
+To stop the interactive instance, enter this in the SYSOP console:
+
+   shutdown
+
+Verify that the process has stopped before enabling systemd.
+In a Linux terminal, check that no cluster.pl process remains:
+
+   pgrep -af '[p]erl.*cluster[.]pl' || true
+
+If a process is listed, identify how it was started and stop it using the
+corresponding procedure; do not enable systemd while it is
+still running. Also check that the configured port is no longer listening:
+
+   ss -ltnp
+
+The port check is conclusive only if it uses the actual port configured in
+Listeners.pm.
+
+
+9. SYSTEMD SERVICE
+--------------------------------------------------------------------------------
+
+On a Linux system with systemd, use a service that runs
+DXSpider as sysop. First verify that no DXSpider service already exists:
+
+   sudo systemctl status dxspider.service
+
+If a service exists, do not overwrite it: review its configuration and
+operation. If none exists, create the file as a sudo-enabled user:
+
+   sudo nano /etc/systemd/system/dxspider.service
+
+Suggested contents for a new installation:
+
+   [Unit]
+   Description=DXSpider DX Cluster (mojo)
+   Wants=network-online.target
+   After=network-online.target
+
+   [Service]
+   Type=simple
+   User=sysop
+   Group=spider
+   WorkingDirectory=/spider
+   ExecStart=/usr/bin/perl -w /spider/perl/cluster.pl
+   Restart=on-failure
+   RestartSec=10
+   StandardOutput=journal
+   StandardError=journal
+
+   [Install]
+   WantedBy=multi-user.target
+
+Before creating the service, check the group used by
+the reference installer and the user group membership:
+
+   getent group spider
+   id -nG sysop
+
+
+If the spider group does not exist, create it using sudo:
+
+   sudo groupadd spider
+
+If sysop is not a member, add it:
+
+   sudo usermod -aG spider sysop
+
+Do not run the service until both conditions have been
+checked. Also verify that /usr/bin/perl is the correct path:
+
+   command -v perl
+
+If the path differs, adjust ExecStart to the
+verified path. Check that no interactive cluster.pl remains running.
+
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now dxspider.service
+   sudo systemctl --no-pager --full status dxspider.service
+   sudo journalctl -u dxspider.service -n 80 --no-pager
+
+The service must not run as root.
+
+
+
+10. CONNECTIONS AND FINAL CHECKS
+--------------------------------------------------------------------------------
+
+To connect to peers, configure the scripts under /spider/connect,
+node authorizations and connection schedules using the commands provided
+by the installed mojo version. Do not copy another
+node configuration: callsign, destination, port and privileges are
+site-specific.
+First test a manual connection and check routing status.
+
+10.1 RECOMMENDED CRONTAB EXAMPLES
+--------------------------------------------------------------------------------
+
+These lines belong to the INTERNAL DXSpider crontab,
+not Linux crontab. Check paths, permissions, available commands
+and schedules first; these are examples, not active
+tasks. Configure /spider/local_cmd/crontab according to the node and its
+version. Do not duplicate existing tasks. Times follow
+the schedule interpreted by DXSpider.
+
+# Automatic compression debug and log files
+10 0 * * * spawn("$main::root/perl/compression.pl")
+
+# AutoUpdate BadIP
+33 * * * * run_cmd('download http://dxspider.dxcluster.net/download/badip.torexit')
+34 * * * * run_cmd('download http://dxspider.dxcluster.net/download/badip.torrelay')
+35 * * * * run_cmd('download http://dxspider.dxcluster.net/download/badip.global')
+36 * * * * run_cmd('download http://dxspider.dxcluster.net/download/badip.curated')
+40 * * * * run_cmd('load/badip')
+
+# AutoUpdate USDB
+0 1 * * * run_cmd('download https://ftp.w1nr.net/usdbraw.gz')
+2 1 * * * spawn('/spider/perl/create_usdb.pl /spider/local_data/usdbraw.gz')
+6 1 * * * run_cmd('load/usdb')
+9 1 * * * spawn('rm -f /spider/local_data/usdbraw.gz')
+
+# AutoUpdate Keps
+0 2 * * * run_cmd('download http://www.amsat.org/amsat/ftp/keps/current/nasabare.txt')
+2 2 * * * spawn('/spider/perl/convkeps.pl -p /spider/local_data/nasabare.txt')
+6 2 * * * run_cmd('load/keps')
+9 2 * * * spawn('rm -f /spider/local_data/nasabare.txt')
+
+# AutoUpdate CTY.DAT
+0 3 * * * run_cmd('download http://www.country-files.com/cty/cty.dat')
+2 3 * * * run_cmd('download http://www.country-files.com/cty/wpxloc.raw')
+6 3 * * * spawn("/spider/perl/create_prefix.pl")
+9 3 * * * run_cmd("load/prefix")
+
+
+
+10.2 ENABLING REGISTRATION FOR USERS AND NODES
+--------------------------------------------------------------------------------
+
+Read README_DXReg to enable registration and understand its requirements
+and options. Do not enable registration before reviewing it.
+
+
+
+10.3 ENABLING DXWEB AND/OR DXWEB-ADMIN
+--------------------------------------------------------------------------------
+
+Read README_DXWeb and INSTALL_DXWEB for the relevant installation and
+configuration instructions. These features are optional.
+
+
+11. NEW COMMANDS
+--------------------------------------------------------------------------------
+
+This section describes the implementation; it does not imply live testing.
+Enter the following commands in the DXSpider console, NOT a Linux
+terminal. The privileges shown are the minimum required by the code.
+
+11.1 DXREG REGISTRATION (requires reg_enable and DXReg to be ready)
+
+ request/register <CALL> <email> <EN|ES> [ssid-list]
+     SYSOP (priv >= 9): requests registration for the specified CALL.
+     ssid-list accepts 1, 1,2,5, 1-5 or 1,3-5,10.
+     Example: request/register user@example.org ES 1,2-4
+  show/register [CALL|ID]
+     SYSOP (priv >= 9): no argument lists pending requests;
+     CALL shows history; ID shows the request details.
+ accept/register <ID|CALL> [note]
+     SYSOP (priv >= 9): accepts a pending request and displays
+     the resulting password, which must be kept confidential.
+ reject/register <ID|CALL> [note]
+     SYSOP (priv >= 9): rejects a pending request.
+ remove/register <CALL> [note]
+     SYSOP (priv >= 9): revokes the base callsign registration and
+     existing SSIDs 1..99; preserves DXUser records, removes passwords,
+     sets registered=0 and disconnects affected sessions.
+
+ Administrative DXReg operations cannot be run remotely
+ or from scripts. See README_DXReg for details.
+
+11.2 BLOCKLISTS
+
+  load/badnode
+  load/badspotter
+     Priv >= 9, not remote. These commands read the corresponding native
+     DXHash list files, validate their entries and replace the in-memory state
+     after a successful read. On failure, they preserve the previous
+     in-memory state. Do not assume these commands write to SQLite.
+
+ testbadip [suffix] <IP> [IP ...]
+     Priv >= 6, not remote; requires active DXCIDR. Checks for
+     a match in BadIP; returns (1) if matched or (0) otherwise.
+     The optional suffix defaults to local. Example: testbadip local 192.0.2.1
+
+ unset/badip [suffix] <IP-or-range> [others ...]
+     Priv >= 6, not remote; requires active DXCIDR.
+     Removes entries from the badip.<suffix> set (default: local)
+     and reloads DXCIDR. Example: unset/badip
+     local 192.0.2.0/24. Check the specifications accepted by
+     DXCIDR::valid_spec.
+
+11.3 ACCESS CONTROL
+
+ set/nextlogin <seconds> <CALL> [CALL ...]
+     SYSOP (priv >= 9), neither remote nor script. Sets the
+     next permitted login time for existing DXUser records. A base
+     CALL also affects existing SSIDs 1..99; CALL-SSID affects only
+     that record. A value of 0 removes the
+     restriction. Example: set/nextlogin 3600 EA3CV-2.
+     Do not confuse this with immediately disconnecting active sessions.
+
+11.4 MONITORING
+
+ show/health [subcommand]
+     SYSOP (priv >= 9). With no argument, equivalent to
+     status. Options: status, connections, traffic, filtering, diagnostics,
+     origins,
+     bursts, pc92, peers [CALL], queues, web, rbn, topology,
+     self_health and all.
+     Examples:
+        show/health
+        show/health diagnostics
+        show/health peers EA3CV-2
+        show/health all
+     Queries DXSupervisor/DXHealth telemetry. Availability and metric
+     details depend on the active instrumentation.
+
+11.5 OPERATIONAL NODE CHECKLIST
+
+[ ] Mojo branch and repository verified.
+[ ] Dependencies verified.
+[ ] /spider points to /home/sysop/spider.
+[ ] local/DXVars.pm and local/Listeners.pm configured.
+[ ] create_sysop.pl completed without errors on a new installation.
+[ ] cluster.pl starts without errors.
+[ ] Configured TCP port is listening.
+[ ] SYSOP access tested.
+[ ] sh/version and sh/cluster respond.
+[ ] Debug output is being written correctly.
+[ ] systemd service active (if configured).
+[ ] Peer connections verified (if required).
+[ ] New ea3cv commands reviewed (section 11).
+
+11.6 SECURITY NOTES
+
+Do not use this guide to reinitialize a node containing
+existing data. Do not publish passwords or private configuration files.
+Do not change permissions recursively without verifying the need.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+PART II. UPGRADING AN EXISTING NODE
+================================================================================
+
+12. RULES AND PRE-UPGRADE CHECKS
+--------------------------------------------------------------------------------
+
+- Do not run create_sysop.pl: it is NOT an upgrade step.
+- Do not overwrite Listeners.pm or DXVars.pm without backup and review.
+- DXVars.pm requires the controlled migration in section 15.
+- Do not delete local/, local_data/, local_cmd/ or connect/.
+- Do not use git reset --hard, git clean or git push.
+- Do not modify or replace an existing service without reviewing it.
+- If there are errors or unidentified local changes, STOP.
+
+12.1 IDENTIFYING THE INSTALLATION AND SERVICE
+
+As sysop, in a Linux terminal:
+
+   sudo -iu sysop
+   id -un
+   cd /spider
+   pwd -P
+   git rev-parse --show-toplevel
+   git branch --show-current
+   git status --short
+   git log -1 --oneline
+   ls -l local/DXVars.pm local/Listeners.pm
+
+Verify that the real directory and branch are as expected.
+This guide uses the mojo branch. If there are local changes,
+do not proceed until their purpose is understood.
+
+In another terminal, as administrator, check the service:
+
+   sudo systemctl status dxspider.service
+   sudo systemctl cat dxspider.service
+
+If systemd is unavailable or the service has a different name,
+identify the actual startup method. Do NOT create another service in
+parallel. Record the service name and how to stop it.
+
+
+13. BACKUP AND SHUTDOWN
+--------------------------------------------------------------------------------
+
+The backup must include configuration, persistent data, connection scripts,
+local commands and the current code revision. Do not
+keep the only backup inside the tree being upgraded.
+
+As sysop, from /spider, record the previous commit:
+
+   cd /spider
+   git rev-parse HEAD
+   git status --short
+
+Save that hash to identify the previous version.
+
+As administrator, prepare a backup location outside the tree:
+
+   sudo mkdir -p /var/backups/dxspider
+
+IMPORTANT: a consistent data backup must be taken with
+DXSpider stopped, especially when SQLite is in use.
+
+13.1 STOPPING THE NODE AND COMPLETING THE BACKUP
+
+If dxspider.service is used, as administrator:
+
+   sudo systemctl stop dxspider.service
+   sudo systemctl is-active dxspider.service
+
+The expected result is 'inactive'. If it is still active, stop.
+If the node was started manually, stop it using the usual
+procedure and check that no other cluster.pl is running.
+
+With the node stopped, as administrator:
+
+   BACKUP="/var/backups/dxspider/dxspider-$(date +%Y%m%d-%H%M%S).tgz"
+   test ! -e "$BACKUP" || exit 1
+   sudo tar -C /home/sysop -czf "$BACKUP" spider
+   sudo tar -tzf "$BACKUP" >/dev/null
+   echo "$BACKUP"
+
+Record the displayed path and keep it for a possible restore.
+
+The backup contains private information. Protect it and check free
+space before creating it. If the backup fails, do NOT
+upgrade. The path /home/sysop/spider is valid only if verified in section 12.1.
+If the installation is elsewhere, adjust -C and the tree name.
+
+
+14. UPDATING THE MOJO BRANCH WITH GIT
+--------------------------------------------------------------------------------
+
+14.1 Stop DXSpider using the usual system procedure.
+
+  Back up the installation and its data.
+
+14.2 As SYSOP (from a user with sudo privileges)
+
+   sudo -iu sysop
+   id -un
+   cd /ACTUAL/PATH/TO/SPIDER
+   pwd -P
+   git rev-parse --show-toplevel
+   git status --short
+
+  Replace /RUTA/REAL/DE/SPIDER with the actual existing path. Usually
+  this is /home/sysop/spider. The operating owner
+  in this guide is always sysop. If there are
+  local changes, STOP and review them before proceeding.
+  Do not run git reset --hard or git clean.
+
+14.3 As SYSOP, and only with a clean working tree:
+
+   git fetch git://scm.dxcluster.org/spider \
+     +refs/heads/mojo:refs/remotes/dirk/mojo
+   git show-ref --verify refs/remotes/dirk/mojo
+   if git show-ref --verify --quiet refs/heads/mojo; then
+     git switch mojo
+   else
+     git switch --create mojo --no-track refs/remotes/dirk/mojo
+   fi
+   git merge --ff-only refs/remotes/dirk/mojo
+
+  If Git rejects the switch or update, STOP.
+  Do not force merges or discard changes.
+
+14.4 As SYSOP, verify:
+
+   test "$(git branch --show-current)" = mojo
+   test "$(git rev-parse HEAD)" = \
+     "$(git rev-parse refs/remotes/dirk/mojo)"
+   git status --short
+   git log -1 --oneline
+
+  Both hashes must match and the working tree must be clean.
+  Exit using exit and restart DXSpider using the usual method.
+
+
+15. VERSION REQUIREMENTS AND STARTUP
+--------------------------------------------------------------------------------
+
+15.1 MIGRATING DXVars.pm DURING UPGRADES
+
+The current version may require entries missing from an
+old DXVars.pm. With DXSpider stopped and after backing up as
+described in section 13, refresh the template and restore
+the node-specific configuration. Do not copy another SYSOP configuration.
+
+As sysop, from /spider, first check the files:
+
+   cd /spider
+   test -f local/DXVars.pm || exit 1
+   test -f perl/DXVars.pm.issue || exit 1
+   test ! -e local/DXVars.pm.old || {
+     echo 'DXVars.pm.old already exists: STOP'; exit 1;
+   }
+
+
+15.1.1 Back up the current local file as DXVars.pm.old:
+
+   cp -p local/DXVars.pm local/DXVars.pm.old
+
+15.1.2 Copy the current version template to local/DXVars.pm:
+
+   cp perl/DXVars.pm.issue local/DXVars.pm
+
+15.1.3 Restore the previous configuration
+
+  Edit the new local/DXVars.pm and transfer the
+  node-specific values field by field from local/DXVars.pm.old:
+
+   nano local/DXVars.pm
+
+  View the old file in another terminal or with:
+
+   less local/DXVars.pm.old
+
+  Keep new variables and their default values where appropriate.
+  Restore callsigns, QTH, locator, email, paths, options and any
+  necessary custom settings from the old file. Do not replace
+  the entire new file with the old copy.
+
+15.1.4 Before starting, compare and review the configuration:
+
+   diff -u local/DXVars.pm.old local/DXVars.pm
+
+  Review new and customized variables especially carefully. If anything
+  is unclear or incorrect, do NOT start until resolved. Keep
+  DXVars.pm.old as a backup. Perform the migration once per
+  upgrade that requires new entries; if already completed, do not
+  repeat it or overwrite the backup.
+
+15.2 VERIFYING REQUIREMENTS
+
+Before startup, read the changes and instructions included
+with the installed revision, especially UPGRADE.mojo, README_DXReg and
+README_DXWeb.
+Do not
+assume that a code upgrade never changes requirements.
+
+For upgrades, Git and iproute2 (which provides the ss command) must also
+be available. Check before following the instructions:
+
+   command -v git && command -v ss
+
+If they are missing on Debian/Ubuntu/Raspberry Pi OS, as administrator:
+
+   sudo apt-get update && sudo apt-get install -y git iproute2
+
+On other distributions, review the appropriate package manager before installing
+packages.
+
+As sysop:
+
+   cd /spider
+   test -f UPGRADE.mojo && less UPGRADE.mojo
+   test -f local/DXVars.pm || exit 1
+   test -f local/Listeners.pm || exit 1
+
+Review section 3 and check the required
+modules. Install only missing dependencies using the appropriate package
+manager. Controlled replacement of DXVars.pm is explained
+above; preserve Listeners.pm and other local files. If
+the new version requires a migration, follow its
+specific instructions before starting. Do not improvise data conversions.
+
+15.3 STARTING AND VERIFYING
+
+If the node is managed by dxspider.service, as administrator:
+
+   sudo systemctl start dxspider.service
+   sudo systemctl --no-pager --full status dxspider.service
+   sudo journalctl -u dxspider.service -n 80 --no-pager
+
+If another startup method is used, continue using it.
+Do not run perl/cluster.pl manually while the service is active.
+
+From Linux, check that the configured port is listening:
+
+   ss -ltn
+
+Log in to the node as SYSOP and run these commands in the DXSpider console:
+
+   sh/version
+   sh/cluster
+   sh/connect
+
+Verify identity, version, SYSOP access, debug output and expected
+connections. An 'active' process status alone does NOT prove that
+the node is working correctly.
+
+
+16. TROUBLESHOOTING AND FINAL CHECKS
+--------------------------------------------------------------------------------
+
+Do not run create_sysop.pl, delete databases or repeat commands without
+identifying the cause. Keep the logs and the previous Git hash.
+
+As administrator, stop the affected service:
+
+   sudo systemctl stop dxspider.service
+
+Plan restoration according to the changes made, data
+compatibility and the verified backup from section 13. Do
+not blindly roll back Git: data migrations may have occurred.
+If restoration is necessary, stop the service first
+and verify the backup file contents and path.
+
+16.1 FINAL CHECKLIST
+
+[ ] Actual path, mojo branch and service identified.
+[ ] Local changes reviewed before upgrading.
+[ ] Previous commit recorded.
+[ ] Node stopped and external backup verified.
+[ ] Git updated as described in section 14.
+[ ] Version instructions and dependencies reviewed.
+[ ] DXVars.pm migrated and reviewed; .old retained.
+[ ] Local Listeners.pm preserved.
+[ ] Service started without errors.
+[ ] SYSOP access, version, listener and debug output verified.
+[ ] Network connections verified where applicable.
+
+EOF

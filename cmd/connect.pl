@@ -16,7 +16,19 @@ return (1, $self->msg('lockout', $call)) if $user && $user->lockout;
 
 my @out;
 push @out, $self->msg('constart', $call);
-ExtMsg::start_connect($call, "$main::root/connect/$lccall");
+# During scripts/startup the event loop is not running yet. Starting an
+# asynchronous TCP connection here consumes its timeout before the loop starts.
+# Defer only the outbound connection; leave all earlier startup commands intact.
+my $connect_script = "$main::root/connect/$lccall";
+if (ref($self) && ref($main::me) && $self == $main::me && !Mojo::IOLoop->is_running) {
+    dbg("startup connect $call queued until event loop starts");
+    Mojo::IOLoop->next_tick(sub {
+        dbg("startup connect $call starting on event loop");
+        ExtMsg::start_connect($call, $connect_script);
+    });
+} else {
+    ExtMsg::start_connect($call, $connect_script);
+}
 return (1, @out);
 
 

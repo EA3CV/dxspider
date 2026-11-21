@@ -1,0 +1,1025 @@
+/*
+ * DXSpider Web
+ *
+ * Styles for the DXSpider web user interface.
+ *
+ * Copyright (c) 2026 Dirk Koopman G1TLH
+ */
+/* DXSpider Web 2.8.3 - 2026-09-16 */
+
+:root{font-family:Arial,Helvetica,sans-serif;color:#172033;background:#eef3f8}
+*{box-sizing:border-box}html,body{height:100%;overflow:hidden}body{margin:0;background:#eef3f8;color:#172033;display:flex;flex-direction:column}
+button,input,select{font:inherit}.topbar{height:72px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 20px;background:#fff;border-bottom:1px solid #cbd6e2}
+.brand,.nodeCall{font-size:28px;font-weight:700;color:#155aa8}.nodeCall{text-align:center}.topActions{justify-self:end;display:flex;gap:12px;align-items:center}
+button{border:1px solid #9eb3c9;background:#fff;color:#174f8a;border-radius:6px;padding:7px 12px;cursor:pointer}button:hover{background:#edf5fd}
+.tabs{display:flex;gap:5px;padding:10px 14px;background:#dfeaf5;border-bottom:1px solid #c3d1df;flex-wrap:wrap}.tabs button.active{background:#155aa8;color:#fff;border-color:#155aa8}
+.workspace{flex:1;min-height:0;padding:12px;overflow:hidden}.panel{display:none;height:100%;background:#fff;border:1px solid #cbd6e2;border-radius:8px;padding:12px;overflow:hidden}.panel.active{display:flex;flex-direction:column}
+.panelHead{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px}.panelHead h2{margin:0;color:#155aa8}.panelHead>div{display:flex;align-items:center;gap:7px}.counter{min-width:32px;text-align:right;color:#617386}
+.toolbar{display:flex;gap:16px;margin-bottom:8px}.resultArea{flex:1;min-height:0;overflow-y:auto;overflow-x:auto;background:#f8fbfe;border:1px solid #d5e0ea;border-radius:6px;padding:8px;color:#172033}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid #e0e7ee;white-space:nowrap}th{position:sticky;top:0;background:#eaf2fa;color:#174f8a}
+pre{margin:0;font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap}.bottomAction{display:flex;justify-content:flex-end;padding-top:8px}
+.commandBar{display:flex;gap:8px;padding-top:8px}.commandBar input{flex:1}
+input,select{border:1px solid #aebfd0;background:#fff;color:#172033;border-radius:5px;padding:7px 8px}
+dialog{border:0;border-radius:10px;padding:0;box-shadow:0 18px 60px #0005}dialog::backdrop{background:#27415f66}.dialogCard{min-width:330px;max-width:620px;background:#fff;color:#172033;padding:20px}.dialogCard.wide{width:min(620px,90vw)}.dialogCard h2{margin-top:0;color:#155aa8}.dialogCard label{display:block;margin:10px 0;font-weight:600}.dialogCard label input,.dialogCard label select{display:block;margin-top:5px;width:100%;font-weight:400}.compactFields{display:flex;gap:14px}.compactFields label{flex:0 0 auto}.compactFields input{width:150px!important}.dialogActions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.error{color:#a40000;min-height:1.2em}.result{min-height:1.2em;white-space:pre-wrap;margin-top:8px}
+footer{flex:0 0 auto;min-height:30px;padding:7px 14px;color:#647587;background:#fff;border-top:1px solid #cbd6e2;display:flex;justify-content:space-between;align-items:center}
+@media(max-width:700px){.brand,.nodeCall{font-size:21px}.topbar{padding:0 10px}.compactFields{flex-direction:column}.compactFields input{width:100%!important}}
+
+.bottomCommand{display:flex;gap:8px;align-items:end;padding-top:8px;flex:0 0 auto}.bottomCommand label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600}.bottomCommand .grow{flex:1}.bottomCommand .grow input{width:100%}.inlineResult{align-self:center;max-width:35%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#617386}footer .copyright{font-size:12px;color:#647587}
+
+.brandCopyright{font-size:12px;font-weight:400;color:#647587;vertical-align:middle;margin-left:6px;white-space:nowrap}
+.noticeText{line-height:1.45;max-width:460px}
+
+.brand{font-size:30px;font-weight:800;line-height:1}
+.brandCopyright{font-size:9px;font-weight:400;color:#647587;vertical-align:middle;margin-left:5px;white-space:nowrap}
+.consoleOutput{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.consoleCommandLine{font-weight:700;white-space:pre-wrap;margin:0 0 2px 0}
+.consoleResponse{font-weight:400;white-space:pre-wrap;margin:0 0 4px 0}
+
+.brand{font-size:34px;font-weight:800;line-height:1;display:flex;align-items:flex-end;gap:7px}
+.brandCopyright{font-size:11px;font-weight:400;line-height:1.05;color:#647587;margin:0 0 2px 0;white-space:nowrap}
+
+/* v2.3.8 final header sizing/alignment */
+.brand{font-size:36px;font-weight:800;line-height:1;display:flex;align-items:flex-end;gap:8px}
+.brandCopyright{font-size:12px;font-weight:400;line-height:1;color:#647587;margin:0 0 2px 0;white-space:nowrap}
+
+/* v2.4.3: Console is untouched. Other response panes use its typography/size. */
+.feedlog,.commandOutput,#spotRows{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:inherit;
+  line-height:normal;
+}
+#spotRows td{font:inherit}
+
+/* Spots: stable column geometry for C, R, or combined view. */
+.spotTable{table-layout:fixed;min-width:1080px}
+.spotTable .spotColSource{width:3.2%}
+.spotTable .spotColUtc{width:4.8%}
+.spotTable .spotColFreq{width:7%}
+.spotTable .spotColDx{width:8%}
+.spotTable .spotColSpotter{width:9%}
+.spotTable .spotColComment{width:38%}
+.spotTable .spotColLocDx,.spotTable .spotColLocSpott{width:4.6%}
+.spotTable .spotColCqDx,.spotTable .spotColCqSpott{width:3%}
+.spotTable .spotColItuDx,.spotTable .spotColItuSpott{width:3%}
+.spotTable th,.spotTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.spotTable thead .spotHeadGroup th{text-align:center;vertical-align:middle}
+.spotTable thead .spotHeadGroup th[rowspan]{text-align:left}
+.spotTable thead .spotHeadSub th{text-align:center;font-size:12px;padding-top:3px;padding-bottom:4px;top:27px}
+.spotTable thead .spotHeadGroup th{top:0}
+/* Numeric frequency aligns right; paired DX/Spotter metadata stays compact and centered. */
+.spotTable th:nth-child(3),.spotTable td:nth-child(3){text-align:right}
+.spotTable thead .spotHeadGroup th:nth-child(3){text-align:right}
+.spotTable td:nth-child(n+7):nth-child(-n+12){text-align:center;padding-left:4px;padding-right:4px}
+.spotTable thead .spotHeadSub th{padding-left:4px;padding-right:4px}
+.spotTable thead .spotHeadGroup th[colspan="2"]{padding-left:4px;padding-right:4px}
+
+/* Registration is intentionally compact; the spot dialog keeps the normal wide card. */
+.dialogCard.registerCard{width:min(360px,90vw);min-width:0;max-width:360px}
+
+/* Restricted actions: keep the hint beside the action and inside the visible panel. */
+.restrictedControl{display:inline-block;position:relative}
+.restrictedControl.restricted button,.restrictedArea.restricted form{opacity:.38;filter:grayscale(.75)}
+.restrictedControl.restricted,.restrictedArea.restricted{cursor:not-allowed;position:relative}
+.restrictedControl.restricted::after,.restrictedArea.restricted::after{
+  content:attr(data-restricted-tip);position:absolute;z-index:1000;width:300px;max-width:min(300px,70vw);
+  padding:7px 9px;border-radius:5px;background:#26384b;color:#fff;font-size:12px;line-height:1.3;
+  white-space:normal;opacity:0;pointer-events:none;transition:opacity .12s;box-shadow:0 4px 14px #0003
+}
+/* Send Spot lives in the panel header: show the hint below/right so panel clipping cannot hide it. */
+.restrictedControl.restricted::after{right:0;top:calc(100% + 6px)}
+/* Send Ann lives at the bottom: show the hint immediately above the Send end of the form. */
+.restrictedArea.restricted::after{right:0;bottom:44px}
+.restrictedControl.restricted:hover::after,.restrictedArea.restricted:hover::after{opacity:1}
+.restrictedArea.restricted form{pointer-events:none}
+#registerComment{display:block;margin-top:5px;width:100%;resize:vertical;font:inherit;border:1px solid #aebfd0;border-radius:5px;padding:7px 8px;color:#172033;background:#fff}
+
+
+/* 2.6.0 UI fix12: keep the real table geometry from fix9.
+   Move only the Freq content left by twice the current Freq/DX visual gap,
+   using cell padding (not transform/relative positioning). */
+.spotTable th:nth-child(3),
+.spotTable td:nth-child(3){padding-right:32px}
+
+
+/* 2.6.0 UI fix13: Register help and clean sticky spot-header edge. */
+.registerHelp{display:inline-block;position:relative}
+.registerHelp::after{
+  content:attr(data-register-tip);position:absolute;z-index:1200;right:0;top:calc(100% + 6px);
+  width:320px;max-width:min(320px,75vw);padding:7px 9px;border-radius:5px;
+  background:#26384b;color:#fff;font-size:12px;line-height:1.3;white-space:normal;
+  opacity:0;pointer-events:none;transition:opacity .12s;box-shadow:0 4px 14px #0003
+}
+.registerHelp:hover::after{opacity:1}
+/* The generic resultArea top padding left a scrollable strip above the sticky
+   two-row spot header. Remove only that top inset; other result panes are untouched. */
+.spotResultArea{padding-top:0}
+
+/* 2.6.0 UI final alignment: C/R source and feed selectors beside Spots. */
+.spotTitleLine{display:flex;align-items:center;gap:22px;min-width:0}
+.spotTitleLine h2{margin:0}
+.spotFeedChecks{display:flex;align-items:center;gap:14px;font-weight:600;font-size:14px}
+.spotFeedChecks label{display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap}
+.spotTable thead .spotHeadGroup th:first-child,
+.spotTable tbody td:first-child{text-align:center;padding-left:0;padding-right:0}
+
+/* 2.7.0 authenticated-session indicator */
+body.authenticated #loginButton{background:#dff2e3;border-color:#6fa77b;color:#195b2b;font-weight:700}
+
+
+/* 2.8.0 anonymous access: C/R reception only until Login. */
+.fieldHint{font-size:12px;font-weight:400;color:#647587}
+.loginRestricted{position:relative;opacity:.38;filter:grayscale(.75) blur(.25px);cursor:not-allowed}
+.loginRestricted::after{content:attr(data-login-tip);position:absolute;z-index:1400;width:300px;max-width:min(300px,72vw);padding:7px 9px;border-radius:5px;background:#26384b;color:#fff;font-size:12px;font-weight:400;line-height:1.3;white-space:normal;opacity:0;pointer-events:none;transition:opacity .12s;box-shadow:0 4px 14px #0003}
+.tabs .loginRestricted::after{left:0;top:calc(100% + 6px)}
+.registerHelp.loginRestricted::after,.restrictedControl.loginRestricted::after{right:0;top:calc(100% + 6px)}
+.loginRestricted:hover::after{opacity:1}
+.registerHelp.loginRestricted button,.restrictedControl.loginRestricted button{opacity:.38;filter:grayscale(.75);pointer-events:none}
+
+
+/* 2.8.1 anonymous RX-only mode */
+.anonymousBadge{
+  color:#b00020;font-weight:800;font-size:14px;letter-spacing:.2px;
+  padding:4px 8px;border:1px solid #e0a5ae;border-radius:5px;background:#fff3f5
+}
+.loginOnlyControl{display:inline-block;position:relative}
+.loginOnlyControl.loginRestricted button{
+  opacity:.38;filter:grayscale(.75) blur(.25px);cursor:not-allowed
+}
+.loginOnlyControl.loginRestricted button{pointer-events:none}
+.loginOnlyControl.loginRestricted::after{
+  content:attr(data-login-tip);position:absolute;z-index:1400;width:300px;
+  max-width:min(300px,72vw);padding:7px 9px;border-radius:5px;
+  background:#26384b;color:#fff;font-size:12px;font-weight:400;line-height:1.3;
+  white-space:normal;opacity:0;pointer-events:none;transition:opacity .12s;
+  box-shadow:0 4px 14px #0003
+}
+.loginOnlyControl.loginRestricted::after{right:0;top:calc(100% + 6px)}
+.loginOnlyControl.loginRestricted:hover::after{opacity:1}
+
+/* ANN send form: anonymous gets Login tooltip; logged-in unregistered keeps Registration tooltip. */
+.restrictedArea.loginRestricted{cursor:not-allowed;position:relative}
+.restrictedArea.loginRestricted form{opacity:.38;filter:grayscale(.75) blur(.25px);pointer-events:none}
+.restrictedArea.loginRestricted::after{content:attr(data-login-tip)}
+.restrictedArea.loginRestricted:hover::after{opacity:1}
+
+
+/* 2.8.3: Send Spot hint must overlay the sticky spot table header. */
+#spots .panelHead{position:relative;z-index:50;overflow:visible}
+#spots .resultArea{position:relative;z-index:1}
+#spots .spotTable th{z-index:2}
+#spotRestricted{z-index:60}
+#spotRestricted::after{z-index:5000}
+
+/* Register is intentionally available to Anonymous users. */
+.registerHelp.loginRestricted button{opacity:1;filter:none;pointer-events:auto}
+
+
+/* 2.8.5 - unified help popup appearance.
+   Use the same solid treatment as the Register hint for every hover hint. */
+[data-login-tip]::after,
+[data-register-tip]::after,
+[data-restricted-tip]::after,
+.loginRestricted::after,
+.restricted::after,
+.loginOnlyControl.loginRestricted::after,
+.restrictedArea.loginRestricted::after {
+  background:#26384b !important;
+  color:#fff !important;
+  opacity:0;
+  filter:none !important;
+  backdrop-filter:none !important;
+  text-shadow:none !important;
+  border:0 !important;
+  box-shadow:0 4px 14px rgba(0,0,0,.22) !important;
+}
+[data-login-tip]:hover::after,
+[data-register-tip]:hover::after,
+[data-restricted-tip]:hover::after,
+.loginRestricted:hover::after,
+.restricted:hover::after,
+.loginOnlyControl.loginRestricted:hover::after,
+.restrictedArea.loginRestricted:hover::after {
+  opacity:1;
+}
+
+
+/* 2.8.6 - tooltip opacity fix.
+   Never dim/filter the element that owns ::after: CSS opacity/filter also
+   composites its tooltip. Dim only the control/content underneath it. */
+.loginRestricted{
+  opacity:1 !important;
+  filter:none !important;
+}
+
+/* Disabled top tabs: pale/soft control, but its popup remains fully opaque. */
+.tabs button.loginRestricted{
+  background:#eef1f4 !important;
+  border-color:#d6dce2 !important;
+  color:#a8b0b8 !important;
+  text-shadow:0 0 1px rgba(120,128,136,.55);
+}
+
+/* Inline Login-only controls: dim the button, not its tooltip-owning wrapper. */
+.loginOnlyControl.loginRestricted button,
+.restrictedControl.loginRestricted button{
+  opacity:.38 !important;
+  filter:grayscale(.75) blur(.25px) !important;
+  pointer-events:none;
+}
+
+/* Login-only areas: dim only their functional content. */
+.restrictedArea.loginRestricted form{
+  opacity:.38 !important;
+  filter:grayscale(.75) blur(.25px) !important;
+  pointer-events:none;
+}
+
+/* Every informational popup uses the same solid Register treatment. */
+.registerHelp::after,
+.loginRestricted::after,
+.restrictedControl.restricted::after,
+.restrictedArea.restricted::after,
+.loginOnlyControl.loginRestricted::after,
+.restrictedArea.loginRestricted::after{
+  background:#26384b !important;
+  color:#fff !important;
+  opacity:0;
+  filter:none !important;
+  backdrop-filter:none !important;
+  border:0 !important;
+  text-shadow:none !important;
+  box-shadow:0 4px 14px rgba(0,0,0,.22) !important;
+}
+.registerHelp:hover::after,
+.loginRestricted:hover::after,
+.restrictedControl.restricted:hover::after,
+.restrictedArea.restricted:hover::after,
+.loginOnlyControl.loginRestricted:hover::after,
+.restrictedArea.loginRestricted:hover::after{
+  opacity:1 !important;
+}
+
+
+/* 2.8.7 - ANN Send informational popup above the Send control. */
+#annRestricted::after{
+  top:auto !important;
+  bottom:calc(100% + 8px) !important;
+  left:auto !important;
+  right:0 !important;
+  transform:none !important;
+  z-index:5000 !important;
+}
+#annRestricted{
+  position:relative !important;
+  overflow:visible !important;
+  z-index:70 !important;
+}
+#ann .panelHead,
+#ann .panel,
+#ann form{
+  overflow:visible !important;
+}
+
+.commandSeparator{min-height:1em}
+
+/* Spot columns v2.8.11 — responsive optional groups and resizable Comment. */
+.spotOptionalControls{display:flex;align-items:center;gap:12px;min-width:0;margin-right:12px}
+.spotOptionGroup{display:flex;align-items:center;gap:5px;white-space:nowrap;font-size:11px;line-height:1.05}
+.spotOptionGroup>span{font-weight:600}
+.spotOptionChecks{display:flex;flex-direction:column;gap:2px}
+.spotOptionChecks label{display:flex;align-items:center;gap:3px;cursor:pointer;margin:0;white-space:nowrap}
+.spotOptionChecks input{margin:0;padding:0!important;width:12px;height:12px;flex:0 0 12px;box-sizing:border-box}
+.spotTable{table-layout:fixed!important;min-width:0!important}
+.spotTable col{width:auto}
+.spotTable th,.spotTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.spotTable th:nth-child(3),.spotTable td:nth-child(3){text-align:right}
+.spotTable th.commentHeader{position:sticky;overflow:visible}
+.commentHeader{position:relative}
+.commentResizeHandle{position:absolute;right:0;top:0;bottom:0;width:9px;cursor:col-resize;touch-action:none;z-index:5}
+.commentResizeHandle:hover{background:rgba(55,115,190,.25)}
+.spotResultArea{min-width:0;overflow-x:auto}
+@media(max-width:1050px){.spotOptionalControls{gap:6px;margin-right:6px}.spotOptionGroup{font-size:10px;gap:3px}}
+
+/* Keep the controls in the existing toolbar height; scroll horizontally if needed. */
+.panelHead:has(.spotOptionalControls){flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden}
+.panelHead:has(.spotOptionalControls)>div{flex-wrap:nowrap;flex-shrink:0}
+
+/* Spot core cells must never be ellipsized. Comment alone may clip. */
+.spotTable tbody td:nth-child(-n+5){text-overflow:clip!important}
+.spotOptionGroup input[data-spot-group]{margin:0 3px 0 0;padding:0!important;width:12px;height:12px;flex:0 0 12px}
+
+/* Spot layout 2.8.11: same-size filter labels and no unnecessary horizontal overflow. */
+.spotOptionalControls .spotOptionGroup{font-size:14px!important;line-height:normal;font-weight:600;gap:4px}
+.spotOptionalControls input[data-spot-group]{width:14px;height:14px;flex-basis:14px}
+.spotTable th:nth-child(3),.spotTable td:nth-child(3){padding-right:8px!important}
+.spotTable{box-sizing:border-box!important;max-width:none}
+
+/* Optional operator locator; no additional Operation bar height. */
+.geoLocatorControl{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:14px;font-weight:600;margin-right:10px}
+.geoLocatorControl input{width:84px;min-width:84px;box-sizing:border-box;font:inherit;font-size:13px;padding:3px 5px}
+.geoLocatorControl input:invalid{outline:2px solid #c55}
+
+/* Stable Comment header alignment regardless of optional header rows. */
+.spotTable thead .spotHeadGroup th.commentHeader{ text-align:left!important; padding-left:8px!important; }
+/* Compact Spots heading only; preserve the other panel headings. */
+.spotTitleLine h2{font-size:17px!important;}
+
+/* Geographic values: right-aligned, including the unit and column heading. */
+.spotTable th.spotGeoNumeric,.spotTable td.spotGeoNumeric{text-align:right!important;font-variant-numeric:tabular-nums;}
+
+/* Spot presentation: per-session text size, alternating rows and new-feed emphasis. */
+#spots .spotResultArea .spotTable{font-size:calc(1em * var(--spot-font-scale,1))!important}
+#spots .spotResultArea .spotTable tbody td{font-size:inherit!important}
+#spots .spotTable tbody tr:nth-child(even){background:rgba(85,126,162,.075)}
+#spots .spotTable tbody tr:nth-child(odd){background:transparent}
+#spots .spotTable tbody tr.spotFresh{background:rgba(57,174,119,.26)!important;animation:spotNewFade 3s ease-out both}
+@keyframes spotNewFade{0%,45%{background-color:rgba(57,174,119,.32)}100%{background-color:transparent}}
+.spotFontControl{display:inline-flex;align-items:center;gap:2px;white-space:nowrap;margin-left:12px}
+.spotFontControl button{min-width:27px;padding:3px 6px;font:inherit;cursor:pointer}
+.spotFontControl #spotFontReset{min-width:57px;font-variant-numeric:tabular-nums}
+@media(max-width:850px){
+ #spots .panelHead:has(.spotOptionalControls){flex-wrap:wrap!important;overflow:visible!important;align-items:flex-start}
+ #spots .panelHead:has(.spotOptionalControls)>div{flex-wrap:wrap!important;flex-shrink:1!important;min-width:0}
+ #spots .spotTitleLine{flex-wrap:wrap;gap:8px 12px}
+ #spots .spotOptionalControls{flex-wrap:wrap;gap:6px 10px}
+ #spots .geoLocatorControl{margin-right:4px}
+}
+@media(max-width:480px){.spotFontControl{margin-left:0}#spots .spotTitleLine{width:100%}}
+@media(prefers-reduced-motion:reduce){#spots .spotTable tbody tr.spotFresh{animation:none;background:rgba(57,174,119,.19)!important}}
+
+/* DXWeb 2.8.16: non-invasive native filter composer. */
+.filterBuilder{flex:0 0 auto;border:1px solid #d5e0ea;border-radius:6px;padding:10px;margin-bottom:8px;background:#f8fbfe}
+.filterBuilderRow{display:flex;flex-wrap:wrap;align-items:end;gap:8px;margin-bottom:7px}
+.filterBuilderRow label{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:600}
+.filterBuilderRow select,.filterBuilderRow input{min-width:90px}
+.filterBuilderRow .filterValue{flex:1;min-width:130px}
+.filterBuilderRow .filterNative{flex:1;min-width:220px}
+.filterBuilderRow .filterNative input,.filterBuilderRow .filterValue input{width:100%}
+.filterPreviewText{padding:6px;background:#fff;border:1px solid #d5e0ea;min-height:27px;overflow-wrap:anywhere}
+.filterBuilderHelp{font-size:12px;color:#617386;margin-top:5px}
+@media(max-width:700px){.filterBuilder{max-height:43vh;overflow:auto}.filterBuilderRow label{flex:1 1 110px}}
+
+/* DXWeb 2.8.19 compact mouse-first condition selectors */
+.filterVisual{border:1px solid #d5e0ea;border-radius:5px;padding:6px;margin:5px 0;background:#fff}
+.filterVisualPick{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0}
+.filterVisualPick[hidden],#filterVisualSubLabel[hidden]{display:none!important}
+.filterVisualPick details{position:relative;min-width:200px;max-width:100%}
+.filterVisualPick summary{cursor:pointer;border:1px solid #b9cad9;padding:5px 8px;border-radius:4px;font-size:12px;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.filterVisualOptions{display:grid;grid-template-columns:repeat(4,minmax(64px,1fr));gap:3px 8px;max-height:170px;overflow:auto;padding:8px;border:1px solid #cddae6;background:white}
+.filterVisualOptions label{font-size:12px;white-space:nowrap;cursor:pointer}
+.filterVisualOptions input{min-width:0}
+.filterVisualPick small{font-size:11px;color:#617386}
+@media(max-width:600px){.filterVisualOptions{grid-template-columns:repeat(3,minmax(65px,1fr))}}
+
+/* Compact visual filter editor v2.8.20 */
+.vf-toolbar{display:flex;align-items:end;gap:6px;flex-wrap:wrap;margin-bottom:6px}.vf-toolbar label{display:flex;flex-direction:column;gap:2px;font-size:11px}.vf-toolbar select{min-width:0;max-width:110px}.vf-rules{display:grid;gap:3px;max-height:155px;overflow:auto;margin:6px 0}.vf-rule{display:flex;gap:4px;align-items:center}.vf-rule button:first-child{flex:1;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}.vf-rule button:last-child,.vf-cond>button{min-width:28px;padding:3px}.vf-cond{display:flex;gap:5px;align-items:center;margin:4px 0;flex-wrap:wrap}.vf-cond select{max-width:130px;min-width:65px}.vf-cond .vf-value{flex:0 1 auto}.vf-cond input{width:auto;min-width:5ch;max-width:22ch}.vf-cond details{position:relative}.vf-cond summary{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;border:1px solid #b9cad9;padding:5px;border-radius:4px}.vf-bandchoices{display:grid;grid-template-columns:repeat(4,minmax(65px,1fr));gap:3px;max-height:150px;overflow:auto;padding:5px;border:1px solid #cddae6;background:#fff}.vf-bandchoices label{white-space:nowrap;font-size:12px}.vf-bandchoices input{min-width:0}.vf-toolbar button{white-space:nowrap}#vfEditor{border-top:1px solid #d5e0ea;padding-top:7px}#vfEditor[hidden],#vfAdvancedArea[hidden]{display:none}#vfAdvancedArea input{width:100%;max-width:100%}
+
+/* v2.8.21: narrow Field selector, leave space for value and row actions */
+.vf-cond select{max-width:185px;min-width:110px}.vf-cond .vf-value input{max-width:20ch}
+
+/* v2.8.22: editable nested condition groups */
+.vf-node{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:4px 0}.vf-node.vf-group{display:block;border-left:2px solid #8ea8c1;padding:3px 0 3px 9px;margin:6px 0}.vf-grouphead{display:flex;gap:5px;align-items:center;margin-bottom:4px}.vf-node button{padding:3px 7px;min-width:24px}.vf-node .vf-value input{width:auto;max-width:20ch}.vf-node .vf-value select{max-width:9ch}.vf-node>select{max-width:185px}
+
+/* v2.8.23: outer-level logical combination */
+#vfWrapAnd{font-weight:600}
+
+/* v2.8.26: visual nesting, distinct group rails and bounded vertical scrolling */
+#vfConditions{max-height:min(52vh,510px);overflow-y:auto;overflow-x:auto;scrollbar-gutter:stable;padding:6px 10px 12px 3px;overscroll-behavior:contain}
+#vfConditions .vf-group{--vf-rail: #3485b8;border-left:3px solid var(--vf-rail);border-bottom:2px solid var(--vf-rail);border-radius:0 0 0 7px;padding:5px 0 8px 10px;margin:8px 0 10px 2px;position:relative;background:color-mix(in srgb,var(--vf-rail) 4%,transparent)}
+#vfConditions .vf-group[style*="--vf-depth: 1"]{--vf-rail:#b077bd}
+#vfConditions .vf-group[style*="--vf-depth: 2"]{--vf-rail:#c18b38}
+#vfConditions .vf-group[style*="--vf-depth: 3"]{--vf-rail:#3e9d84}
+#vfConditions .vf-grouphead{position:sticky;left:0;z-index:1}
+#vfConditions .vf-grouphead:before{content:attr(data-label);font-size:10px;color:var(--vf-rail);font-weight:700}
+#vfConditions .vf-group:hover{background:color-mix(in srgb,var(--vf-rail) 9%,transparent)}
+#vfRestoreVisual[hidden]{display:none}
+
+/* v2.8.26: character-accurate parenthesis spans; alternating upper/lower lanes */
+.vf-preview-visual{overflow-x:auto;overflow-y:hidden;background:#fff;border:1px solid #d5e0ea;padding:8px 10px;margin:5px 0;max-width:100%}
+.vf-preview-line{position:relative;display:table;width:max-content;white-space:pre;font:12px/20px ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;tab-size:4;color:#20334a}
+.vf-preview-bar{position:absolute;display:block;height:3px;border-radius:2px;pointer-events:auto;opacity:.92}
+.vf-preview-bar:hover{height:5px;filter:brightness(.85)}
+#filterPreviewText[hidden]{display:none}
+
+/* v2.8.27: independent outer panel and inner condition scrollbars */
+#filters.panel.active{overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;overscroll-behavior:contain}
+#filters .filterBuilder{flex:0 0 auto;min-width:0;max-height:none;overflow:visible}
+#filters #vfConditions{height:auto;max-height:min(48vh,480px);min-height:60px;overflow-y:scroll;overflow-x:auto;scrollbar-gutter:stable;overscroll-behavior:contain}
+#filters .resultArea{flex:0 0 auto;min-height:110px;max-height:260px;overflow-y:auto}
+#filters .vf-toolbar{align-items:center}
+#filters .vf-toolbar .vf-inline-label{display:inline-flex;flex-direction:row;align-items:center;gap:6px;font-size:14px;line-height:1.4}
+#filters .vf-toolbar .vf-inline-label select{font-size:14px;line-height:1.3;height:32px;padding:4px 7px}
+#filters .vf-toolbar #vfTitle{font-size:14px;line-height:32px}
+#filters .vf-toolbar #vfDiscard{font-size:14px;height:32px}
+#vfAdvancedDiscard[hidden]{display:none}
+@media(max-width:700px){#filters .filterBuilder{max-height:none;overflow:visible}}
+
+/* v2.8.28: two-pane Filters, independent scrolling and compact aligned controls */
+#filters.panel.active{overflow:hidden;min-height:0}
+#filters .vf-split{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:10px;flex:1;min-height:0;min-width:0;overflow:hidden}
+#filters .vf-left,#filters .vf-right{min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+#filters .vf-left{overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;overscroll-behavior:contain}
+#filters .vf-left .filterBuilder{margin:0;min-width:0;flex:0 0 auto}
+#filters .vf-right{border:1px solid #d5e0ea;border-radius:6px;padding:10px;background:#f8fbfe}
+#filters .vf-response-title{font-weight:700;font-size:14px;color:#155aa8;margin-bottom:8px}
+#filters .vf-right .resultArea{flex:1 1 auto;min-height:0;max-height:none;overflow:auto;background:#fff;white-space:pre-wrap}
+#filters .vf-right .commandBar{flex:0 0 auto;min-width:0}
+#filters .vf-right .commandBar input{min-width:0}
+#filters #vfTitle{font-size:17px!important;line-height:32px;font-weight:700}
+#filters #vfJoin{font-size:14px;height:32px;line-height:1.3;width:70px;max-width:70px;min-width:0;padding:4px 6px}
+#filters .vf-toolbar{align-items:center}
+@media(max-width:850px){#filters.panel.active{overflow-y:auto}#filters .vf-split{display:flex;flex-direction:column;overflow:visible;min-height:auto}#filters .vf-left{overflow:visible;flex:0 0 auto}#filters .vf-right{min-height:260px;flex:0 0 300px}#filters .vf-right .resultArea{min-height:150px}}
+
+/* v2.8.29: compact monospace text only in Filters command responses. */
+#filters .vf-right [data-output="filters"]{font-size:calc(12px * var(--panel-zoom,1))!important;line-height:1.35!important;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace!important;}
+
+/* v2.8.31: Console anchored to the far edge of the entire navigation row. */
+.tabs{flex-wrap:nowrap;min-width:0}
+.tabs .tab-console{margin-left:auto;flex-shrink:0}
+@media(max-width:620px){.tabs{overflow-x:auto}.tabs button{flex-shrink:0}}
+#filters #filterFamily{height:32px;font-size:14px;line-height:1.3;padding:4px 7px;max-width:110px}
+
+/* Console font controls, independent from spot sizing. */
+.consoleFontControl{display:inline-flex;gap:3px;align-items:center;margin-left:auto;margin-right:8px}
+.consoleFontControl button{padding:3px 7px;min-width:26px}
+#consoleOutput{font-size:13px}
+
+/* v2.8.33: responsive topbar/footer and profile controls */
+#profileButton{font-size:22px;line-height:1;padding:5px 9px}
+.profileCard{width:min(420px,calc(100vw - 24px));min-width:0;max-height:calc(100dvh - 24px);overflow-y:auto}
+.profileCard .fieldHint{font-size:12px;color:#5c7088}
+@media(max-width:700px){
+ html,body{min-width:0;width:100%;height:100dvh}
+ .topbar{height:auto;min-height:66px;grid-template-columns:minmax(0,1fr) auto;gap:5px 8px;padding:8px 10px}
+ .brand{font-size:23px;min-width:0;flex-wrap:wrap}
+ .brandCopyright{font-size:9px}
+ .nodeCall{grid-column:2;grid-row:1;font-size:17px;min-width:0;overflow-wrap:anywhere}
+ .topActions{grid-column:1/-1;grid-row:2;justify-self:stretch;justify-content:flex-end;flex-wrap:wrap;gap:5px}
+ .topActions button{padding:6px 8px}
+ .tabs{flex:0 0 auto;max-height:100px;overflow-y:auto;padding:6px}
+ .workspace{min-height:0;padding:5px}
+ .panel{padding:7px}
+ footer{min-height:0;gap:5px;padding:5px 8px;flex-wrap:wrap;font-size:11px}
+ footer .copyright{font-size:10px}
+ dialog{max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}
+ .dialogCard{min-width:0;max-width:100%;max-height:calc(100dvh - 16px);overflow-y:auto}
+}
+
+/* v0.13: mobile header/footer safe-area and wrapping */
+@media(max-width:700px){
+ .topbar{grid-template-columns:minmax(0,1fr);height:auto;min-height:0;align-items:start;padding:8px max(10px,env(safe-area-inset-right)) 8px max(10px,env(safe-area-inset-left))}
+ .brand{grid-column:1;grid-row:1;overflow-wrap:anywhere}
+ .nodeCall{grid-column:1;grid-row:2;justify-self:start;text-align:left;font-size:16px}
+ .topActions{grid-column:1;grid-row:3;justify-content:flex-start;justify-self:stretch;min-width:0}
+ .topActions>*{flex-shrink:0}
+ footer{box-sizing:border-box;width:100%;padding:6px max(10px,env(safe-area-inset-right)) max(6px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));justify-content:center;text-align:center;overflow-wrap:anywhere}
+ .workspace{min-width:0}
+}
+
+/* v2.8.34: explicit Light / Dark / Auto selector. Existing light palette is unchanged. */
+.themeControl{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#53657b;white-space:nowrap}
+.themeControl select{font-size:12px;padding:5px 6px;max-width:88px}
+html[data-theme="dark"]{color-scheme:dark;background:#101923;color:#e1e9f3}
+html[data-theme="dark"] body{background:#101923;color:#e1e9f3}
+html[data-theme="dark"] .topbar,html[data-theme="dark"] footer,html[data-theme="dark"] .panel,html[data-theme="dark"] .dialogCard{background:#1a2635;color:#e1e9f3;border-color:#35465b}
+html[data-theme="dark"] .tabs{background:#1b2c40;border-color:#35465b}
+html[data-theme="dark"] .tabs button.active{background:#3266a8;color:#fff}
+html[data-theme="dark"] .resultArea,html[data-theme="dark"] .filterBuilder,html[data-theme="dark"] .vf-left,html[data-theme="dark"] .vf-right,html[data-theme="dark"] .commandOutput{background:#142131;color:#e1e9f3;border-color:#35465b}
+html[data-theme="dark"] button,html[data-theme="dark"] input,html[data-theme="dark"] select,html[data-theme="dark"] textarea{background:#23344a;color:#e1e9f3;border-color:#536982}
+html[data-theme="dark"] button:hover{background:#324965}
+html[data-theme="dark"] th,html[data-theme="dark"] .spotTable th{background:#293d56;color:#e6efff;border-color:#415771}
+html[data-theme="dark"] td{border-color:#35465b}
+html[data-theme="dark"] .brand,html[data-theme="dark"] .nodeCall,html[data-theme="dark"] .panelHead h2,html[data-theme="dark"] .dialogCard h2{color:#8dbfff}
+html[data-theme="dark"] .themeControl,html[data-theme="dark"] footer,html[data-theme="dark"] footer .copyright,html[data-theme="dark"] .brandCopyright,html[data-theme="dark"] .counter,html[data-theme="dark"] .fieldHint{color:#b7c7d9}
+html[data-theme="dark"] dialog{background:#1a2635;color:#e1e9f3}
+html[data-theme="dark"] .tabs button:not(.active){background:#253951;color:#e1e9f3}
+@media(max-width:700px){.themeControl{max-width:100%}.topActions{row-gap:6px}.themeControl select{max-width:90px}}
+
+/* v2.8.35: visible one-button theme control, matching DXWeb Admin. */
+.topActions .themeToggle{display:inline-flex;align-items:center;justify-content:center;min-width:78px;min-height:32px;border-radius:8px;border:1px solid #8193a9;background:#edf2f8;color:#22354d;cursor:pointer;white-space:nowrap;font-size:12px;font-weight:600;padding:5px 9px}
+.topActions .themeToggle:hover{border-color:#527cb0;background:#e0ebf8}
+html[data-theme="dark"] .topActions .themeToggle{background:#253951;color:#e1e9f3;border-color:#536982}
+@media(max-width:560px){.topActions .themeToggle{min-width:36px;padding:5px 7px;font-size:11px}}
+
+/* v0.16: mobile viewport and dialog scrolling refinements. */
+@media(max-width:700px){
+ html,body{min-height:0;max-width:100%;overflow-x:hidden}
+ .topbar,.topActions,footer{min-width:0;box-sizing:border-box}
+ .topActions{max-width:100%;align-content:start}
+ .topActions>*{max-width:100%}
+ .profileCard,.dialogCard{box-sizing:border-box;max-height:calc(100dvh - 16px);overflow-y:auto;overscroll-behavior:contain}
+ dialog{box-sizing:border-box;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}
+}
+
+/* v0.17: compact mobile layout; desktop remains unchanged. */
+@media(max-width:700px){
+ .topbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:5px max(8px,env(safe-area-inset-right)) 5px max(8px,env(safe-area-inset-left));align-items:center}
+ .topbar .brand{grid-column:1;grid-row:1;font-size:20px;flex-wrap:nowrap;white-space:nowrap}
+ .topbar .brandCopyright{display:none}
+ .topbar .nodeCall{grid-column:2;grid-row:1;font-size:14px;text-align:right;justify-self:end}
+ .topbar .topActions{grid-column:1/-1;grid-row:2;justify-content:flex-start;gap:4px;flex-wrap:wrap}
+ .topbar .topActions button{padding:3px 6px;font-size:12px}
+ .tabs{flex-wrap:nowrap;max-height:none;overflow-x:auto;overflow-y:hidden;padding:4px 6px;gap:4px;scrollbar-width:thin}
+ .tabs button{flex:0 0 auto;padding:5px 9px;font-size:13px}
+ .workspace{padding:4px}
+ .panel{padding:5px}
+ #spots .panelHead:has(.spotOptionalControls){gap:4px;margin-bottom:5px}
+ #spots .spotTitleLine{gap:5px 9px}
+ #spots .spotTitleLine h2{font-size:15px!important}
+ #spots .spotFeedChecks{gap:8px;font-size:12px}
+ #spots .spotFontControl{margin-left:0}
+ #spots .spotFontControl button{padding:2px 5px;font-size:12px}
+ #spots .panelHead:has(.spotOptionalControls)>div{gap:4px 7px}
+ #spots .spotOptionalControls{gap:4px 8px;margin-right:0}
+ #spots .spotOptionalControls .spotOptionGroup{font-size:12px!important}
+ #spots .geoLocatorControl{font-size:12px;margin-right:0}
+ #spots .geoLocatorControl input{width:75px;min-width:75px;padding:2px 4px}
+ #spots .panelHead button{padding:4px 7px;font-size:12px}
+ #spots .resultArea{padding:4px}
+ footer{display:flex;flex-wrap:nowrap;justify-content:space-between;gap:8px;padding:3px max(7px,env(safe-area-inset-right)) max(3px,env(safe-area-inset-bottom)) max(7px,env(safe-area-inset-left));font-size:10px;line-height:1.15;text-align:left}
+ footer>span{min-width:0;white-space:nowrap}
+ footer .copyright{font-size:10px}
+}
+@media(max-width:380px){footer{font-size:9px}footer .copyright{font-size:9px}}
+
+/* 0.19: anonymous receive-only tabs remain accessible. */
+body.anonymous .tabs button[data-tab="ann"],body.anonymous .tabs button[data-tab="wwv"],body.anonymous .tabs button[data-tab="wcy"],body.anonymous .tabs button[data-tab="wx"]{opacity:1;filter:none;cursor:pointer}
+
+/* Responsive pass 2026-10-13: deliberately scoped; legacy desktop styles preserved. */
+@media(max-width:767px){
+ html,body{max-width:100%;overflow-x:hidden}
+ .tabs{display:flex;flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+ .tabs button{flex:0 0 auto;white-space:nowrap}
+ .topbar{min-width:0}
+ #spots .panelHead{flex-wrap:wrap!important;overflow:visible!important}
+ #spots .panelHead>div{flex-wrap:wrap!important;min-width:0!important;max-width:100%}
+ #spots .spotResultArea{min-width:0;max-width:100%;overflow-x:auto!important;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+ #spots .spotTable{max-width:none!important}
+}
+
+/* v2.8.39: consolidated mobile rules; desktop behavior unchanged. */
+.statusCluster,.actionButtons{display:contents}
+@media(max-width:767px){
+ .topbar{grid-template-columns:auto minmax(0,1fr) auto!important;align-items:center!important;gap:4px 6px!important}
+ .topbar .brand{grid-column:1!important;grid-row:1!important;font-size:clamp(15px,4.2vw,20px)!important}
+ .topbar .nodeCall{grid-column:3!important;grid-row:1!important;font-size:clamp(11px,3.1vw,14px)!important}
+ .topbar .topActions{display:contents!important}
+ .topbar .statusCluster{display:flex;grid-column:2!important;grid-row:1!important;justify-self:center;align-items:center;justify-content:center;gap:3px;min-width:0;white-space:nowrap;font-size:10px}
+ .topbar .statusCluster .anonymousBadge{font-size:10px;padding:2px 4px;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+ .topbar .statusCluster #status{font-size:10px;min-width:0}
+ .topbar .actionButtons{display:flex;grid-column:1/-1!important;grid-row:2!important;gap:5px;flex-wrap:nowrap;align-items:stretch;justify-content:flex-start;min-width:0}
+ .topbar .actionButtons>*{min-width:0}
+ .topbar .actionButtons button{box-sizing:border-box;height:32px!important;min-height:32px!important;max-height:32px!important;padding:3px 6px!important;line-height:1.1!important;display:inline-flex;align-items:center;justify-content:center}
+ #spots .spotTitleLine{display:flex;flex-wrap:nowrap!important;align-items:center;gap:3px!important;min-width:0;width:100%}
+ #spots .spotTitleLine h2{display:none!important}
+ #spots .spotFeedChecks{gap:3px!important;flex:0 0 auto;font-size:11px!important}
+ #spots .spotFeedChecks label{gap:2px!important}
+ #spots .spotOrderToggle{flex:0 0 auto;min-width:0!important;font-size:10px!important;padding:3px 3px!important;white-space:nowrap}
+ #spots .spotFontControl{margin:0!important;gap:1px!important;flex:0 0 auto}
+ #spots .spotFontControl button{min-width:22px!important;padding:2px 3px!important;font-size:11px!important}
+ #spots .spotFontControl #spotFontReset{min-width:37px!important;width:37px!important;padding:2px 1px!important;font-size:10px!important}
+ #spots .geoLocatorControl,#spots .spotOptionalControls{display:none!important}
+}
+@media(max-width:350px){
+ .topbar .statusCluster{font-size:9px;gap:2px}
+ .topbar .statusCluster .anonymousBadge,.topbar .statusCluster #status{font-size:9px}
+ #spots .spotTitleLine{gap:2px!important}
+ #spots .spotFeedChecks{gap:2px!important}
+ #spots .spotFontControl #spotFontReset{min-width:34px!important;width:34px!important}
+}
+
+/* Tablet-width header: keep account controls inside the viewport.
+   The mobile two-row header remains governed by <=767px rules. */
+@media (min-width:768px) and (max-width:900px){
+ .topbar{height:auto;min-height:72px;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:4px 10px;padding:6px 12px}
+ .topbar .brand{grid-column:1;grid-row:1;min-width:0}
+ .topbar .nodeCall{grid-column:2;grid-row:1;min-width:0}
+ .topbar .topActions{grid-column:1/-1;grid-row:2;justify-self:end;max-width:100%;min-width:0;flex-wrap:wrap;justify-content:flex-end;gap:6px}
+}
+
+/* v2.8.42: compact mobile header and single-row spot controls. */
+@media (max-width:767px){
+ .topbar .statusCluster{display:none!important}
+ #spots .panelHead{display:flex!important;flex-wrap:nowrap!important;align-items:center!important;gap:5px!important;min-width:0;overflow-x:auto!important;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+ #spots .panelHead>div,#spots .spotTitleLine{display:contents!important}
+ #spots .panelHead .counter[data-count="spots"]{display:none!important}
+ #spots .panelHead .spotFeedChecks,#spots .panelHead .spotFontControl{flex:0 0 auto;align-items:center}
+ #spots .panelHead button,#spots .panelHead .spotFontControl button{box-sizing:border-box;height:30px!important;min-height:30px!important;max-height:30px!important;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
+ #spots .panelHead .spotOrderToggle{flex:0 0 auto}
+ #spots .panelHead #spotRestricted{flex:0 0 auto}
+ #spots .panelHead .clearBtn{flex:0 0 auto}
+}
+
+/* v2.8.45: three strictly single-row mobile control strips. Tablets retain layout. */
+@media(max-width:767px){
+ .topbar{display:grid!important;grid-template-columns:auto minmax(0,1fr) auto!important;grid-template-rows:36px!important;column-gap:4px!important;padding:3px max(4px,env(safe-area-inset-right)) 3px max(4px,env(safe-area-inset-left))!important;min-height:42px!important;height:42px!important;overflow:hidden}
+ .topbar .brand,.topbar .nodeCall{font-size:clamp(10px,3.15vw,15px)!important;line-height:1.1!important;white-space:nowrap!important;overflow:hidden;text-overflow:ellipsis}
+ .topbar .brand{grid-column:1!important;grid-row:1!important}
+ .topbar .nodeCall{grid-column:3!important;grid-row:1!important;justify-self:end!important;max-width:22vw}
+ .topbar .topActions{display:contents!important}
+ .topbar .statusCluster{display:none!important}
+ .topbar .actionButtons{grid-column:2!important;grid-row:1!important;display:flex!important;justify-content:center!important;align-items:center!important;gap:2px!important;flex-wrap:nowrap!important;min-width:0!important;overflow:hidden}
+ .topbar .actionButtons>*{flex:0 1 auto;min-width:0!important}
+ .topbar .actionButtons button{height:30px!important;min-height:30px!important;max-height:30px!important;padding:2px 4px!important;font-size:clamp(9px,2.65vw,12px)!important;line-height:1!important;white-space:nowrap!important}
+ .topbar .actionButtons [hidden],.topbar .actionButtons [hidden] button{display:none!important}
+ .topbar #profileButton{font-size:17px!important;padding:2px 5px!important}
+ .topbar #loginButton{font-size:0!important}
+ .topbar #loginButton::after{content:attr(data-mobile-label);font-size:clamp(9px,2.65vw,12px);font-weight:inherit}
+ .tabs{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:4px!important;padding:4px 6px!important;overflow:visible!important;max-height:none!important}
+ .tabs button{display:none!important;height:32px!important;min-height:32px!important;padding:4px!important;font-size:12px!important;line-height:1.1!important}
+ .tabs button[data-tab="spots"],.tabs button[data-tab="filters"],.tabs button[data-tab="console"]{display:block!important;width:100%!important}
+ #spots .panelHead{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;justify-content:space-between!important;gap:2px!important;width:100%!important;overflow:visible!important;margin-bottom:5px!important}
+ #spots .panelHead>div,#spots .panelHead .spotTitleLine{display:contents!important}
+ #spots .panelHead .spotFeedChecks{display:flex!important;gap:3px!important;flex:0 0 auto!important;font-size:11px!important;white-space:nowrap}
+ #spots .panelHead .spotFeedChecks label{gap:1px!important}
+ #spots .panelHead .spotFeedChecks input{margin:0 1px 0 0!important;width:13px!important;height:13px!important}
+ #spots .panelHead .spotOrderToggle{font-size:10px!important;flex:0 1 auto!important;min-width:28px!important;padding:0 2px!important}
+ #spots .panelHead .spotFontControl{display:flex!important;flex:0 0 auto!important;gap:1px!important}
+ #spots .panelHead button,#spots .panelHead .spotFontControl button{height:30px!important;min-height:30px!important;max-height:30px!important;border-radius:5px!important;font-size:10px!important;line-height:1!important;padding:1px 3px!important}
+ #spots .panelHead #spotFontDown,#spots .panelHead #spotFontUp{min-width:19px!important}
+ #spots .panelHead #spotFontReset{width:43px!important;min-width:43px!important;font-size:10px!important}
+ #spots .panelHead #spotRestricted{flex:0 1 auto!important;min-width:0!important}
+ #spots .panelHead #spotOpen{padding:1px 3px!important;white-space:nowrap!important;font-size:10px!important}
+ #spots .panelHead .clearBtn{flex:0 0 auto!important;padding:1px 3px!important}
+ #spots .panelHead .counter[data-count="spots"]{display:none!important}
+ .anonymousBadge,#status{display:none!important}
+}
+@media(min-width:768px){.anonymousBadge,#status{display:none!important}}
+
+/* Responsive spot columns: field classes avoid positional drift when C/R is hidden. */
+#spots .spotTable th.spotField-freq,#spots .spotTable td.spotField-freq{text-align:right!important;padding-right:8px!important}
+#spots .spotTable th.spotField-dx,#spots .spotTable td.spotField-dx,#spots .spotTable th.spotField-spotter,#spots .spotTable td.spotField-spotter{text-align:left!important;padding-left:8px!important}
+@media(max-width:767px){.topbar .brand,.topbar .nodeCall{font-size:clamp(13px,3.8vw,17px)!important}.topbar .nodeCall{max-width:27vw}}
+
+/* Independent panel zoom; affects output, not toolbars or command forms. */
+.panelZoomControl{display:inline-flex;align-items:center;gap:3px;margin-left:10px;white-space:nowrap}
+.panelZoomControl button{font:inherit;font-size:12px;min-width:26px;padding:3px 5px;cursor:pointer}
+.panelZoomControl [data-zoom-reset]{min-width:52px;font-variant-numeric:tabular-nums}
+#filters .commandOutput,#ann .feedlog,#wwv .feedlog,#wcy .feedlog,#contest .commandOutput{font-size:calc(13px * var(--panel-zoom,1))!important}
+@media(max-width:760px){.panelZoomControl{margin-left:4px;gap:2px}.panelZoomControl button{padding:2px 4px;min-width:23px}}
+
+/* Cross-app visual baseline v1: ordinary action controls only.
+ * Do not affect panel zoom, terminal/xterm, table typography or sidebar. */
+.commandBar button,.dialogActions button{
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:16px!important;
+  line-height:1.25;
+  border-radius:6px;
+  padding:7px 12px;
+}
+button:focus-visible,input:focus-visible,select:focus-visible{
+  outline:2px solid #2563eb;
+  outline-offset:2px;
+}
+.commandBar,.dialogActions{min-width:0}
+.commandBar input,.dialogActions button{min-width:0}
+@media(max-width:700px){
+  .commandBar,.dialogActions{flex-wrap:wrap;gap:8px}
+  .commandBar input{flex:1 1 140px;max-width:100%}
+}
+
+/* Cross-app visual normalization v2: shared geometry for ordinary controls.
+ * Panel zoom, spot zoom, terminal, sidebar and icon-only buttons are excluded. */
+:root{--dxui-control-height:26px;--dxui-control-radius:6px;--dxui-control-font:14px}
+.commandBar button,.dialogActions button,.bottomCommand button,
+.tabs button{
+  box-sizing:border-box;
+  height:var(--dxui-control-height);
+  min-height:var(--dxui-control-height);
+  max-height:var(--dxui-control-height);
+  border-radius:var(--dxui-control-radius);
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:var(--dxui-control-font)!important;
+  line-height:1.2!important;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  vertical-align:middle;
+}
+@media(max-width:700px){
+  :root{--dxui-control-height:26px;--dxui-control-font:12px}
+}
+
+/* Cross-app visual geometry v3: matched spots and ordinary form controls.
+ * Preserve per-panel zoom, icon-only actions and specialist layouts. */
+:root{
+  --dxui-spot-row-padding-y:5px;
+  --dxui-spot-row-line-height:normal;
+  --dxui-spot-row-font:16px;
+  --dxui-input-height:26px;
+}
+#spots .spotResultArea .spotTable{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;
+  font-size:calc(var(--dxui-spot-row-font) * var(--spot-font-scale,1))!important;
+  line-height:var(--dxui-spot-row-line-height)!important;
+}
+#spots .spotResultArea .spotTable tbody td{
+  font-family:inherit!important;
+  font-size:inherit!important;
+  font-weight:400!important;
+  line-height:inherit!important;
+  padding-top:var(--dxui-spot-row-padding-y)!important;
+  padding-bottom:var(--dxui-spot-row-padding-y)!important;
+  vertical-align:middle;
+}
+#spots .spotResultArea .spotTable thead th{
+  line-height:1.2!important;
+  vertical-align:middle;
+}
+.commandBar input:not([type="checkbox"]),
+.dialogActions input:not([type="checkbox"]){
+  box-sizing:border-box;
+  height:var(--dxui-input-height);
+  min-height:var(--dxui-input-height);
+  border-radius:5px;
+}
+@media(max-width:700px){
+  :root{--dxui-input-height:26px}
+}
+
+
+/* Cross-app visual normalization v4: shared toolbar and navigation geometry.
+ * Explicitly scoped to equivalent UI controls; never affect spot/console zoom,
+ * terminal emulator, filter-builder micro-actions or data-table cells. */
+:root{
+  --dxui-toolbar-gap:6px;
+  --dxui-toolbar-pad-x:10px;
+  --dxui-control-line:1.2;
+}
+.panelHead button.runBtn,.panelHead button.clearBtn,
+.panelHead #spotOpen,.panelHead #spotOrderToggle{
+  box-sizing:border-box;
+  height:var(--dxui-control-height);
+  min-height:var(--dxui-control-height);
+  max-height:var(--dxui-control-height);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:var(--dxui-control-radius);
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:var(--dxui-control-font)!important;
+  line-height:var(--dxui-control-line)!important;
+  vertical-align:middle;
+}
+.panelHead .panelZoomControl{align-items:center}
+.commandBar,.dialogActions{gap:var(--dxui-toolbar-gap)}
+.commandBar button,.dialogActions button,.bottomCommand button{
+  padding-inline:var(--dxui-toolbar-pad-x);
+}
+@media(min-width:768px){
+  .tabs button{line-height:var(--dxui-control-line)!important}
+}
+@media(max-width:700px){
+  :root{--dxui-toolbar-gap:5px;--dxui-toolbar-pad-x:7px}
+  .dialogActions{justify-content:flex-end}
+  .dialogActions button{max-width:100%}
+}
+
+
+/* Cross-app visual normalization v5: equal-sized spot toolbar controls.
+ * Scope intentionally excludes spot rows and the zoomed content itself. */
+#spots .panelHead .spotTitleLine,
+#spots .panelHead > div,
+#spots .panelHead .spotFeedChecks,
+#spots .panelHead .spotFontControl,
+#spots .panelHead .spotOptionalControls { align-items:center; }
+#spots .panelHead #spotOrderToggle,
+#spots .panelHead #spotOpen,
+#spots .panelHead button.clearBtn,
+#spots .panelHead .spotFontControl button {
+  box-sizing:border-box!important;
+  height:26px!important;
+  min-height:26px!important;
+  max-height:26px!important;
+  padding:0 7px!important;
+  border-radius:5px!important;
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:13px!important;
+  font-weight:400!important;
+  line-height:1.2!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  vertical-align:middle!important;
+  white-space:nowrap;
+}
+#spots .panelHead .spotFontControl button:not([data-zoom-reset]) {padding-inline:7px!important;min-width:27px!important;}
+#spots .panelHead .spotFontControl button#spotFontReset {padding-inline:7px!important;}
+#spots .panelHead .geoLocatorControl input {
+  box-sizing:border-box!important;
+  height:26px!important;
+  min-height:26px!important;
+  max-height:26px!important;
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:13px!important;
+  line-height:1.2!important;
+}
+#spots .panelHead .spotFeedChecks label,
+#spots .panelHead .spotOptionalControls label,
+#spots .panelHead .geoLocatorControl {
+  font-family:Arial,Helvetica,sans-serif!important;
+  font-size:13px!important;
+  line-height:1.2!important;
+}
+@media(max-width:700px){
+  #spots .panelHead #spotOrderToggle,
+  #spots .panelHead #spotOpen,
+  #spots .panelHead button.clearBtn,
+  #spots .panelHead .spotFontControl button {
+    height:26px!important;min-height:26px!important;max-height:26px!important;
+    font-size:13px!important;
+    padding-inline:7px!important;
+  }
+}
+
+/* v0.06: compact common toolbar height; match locator boxes (26px). */
+#spots .panelHead button.runBtn,
+#spots .panelHead button.clearBtn,
+#spots .panelHead #spotOpen,
+#spots .panelHead #spotOrderToggle,
+#spots .panelHead .spotFontControl button,
+#spots .panelHead .geoLocatorControl input {
+  box-sizing:border-box!important;
+  height:26px!important;min-height:26px!important;max-height:26px!important;
+  line-height:1.2!important;vertical-align:middle!important;
+}
+
+/* Console zoom must apply to nested output without minimum font overrides. */
+#consoleOutput.consoleOutput,
+#consoleOutput .consoleCommandLine,
+#consoleOutput .consoleResponse {font-size:inherit!important;}
+#consoleOutput.consoleOutput {font-size:var(--console-font-size,13px)!important;}
+/* One authoritative size for Filters command output at every zoom step. */
+#filters .vf-right [data-output="filters"] {font-size:calc(13px * var(--panel-zoom,1))!important;}
+
+/* Spots pause: same selected-state palette as the navigation tabs. */
+#spots .panelHead #spotPause{box-sizing:border-box!important;height:26px!important;min-height:26px!important;max-height:26px!important;padding:0 7px!important;border-radius:5px!important}
+#spots .panelHead #spotPause.active{background:#155aa8!important;color:#fff!important;border-color:#155aa8!important}
+html[data-theme="dark"] #spots .panelHead #spotPause.active{background:#3266a8!important;color:#fff!important;border-color:#3266a8!important}
+
+/* DXWeb logo: copyright remains in the existing page footer. */
+.topbar .brand{min-width:0;display:flex;align-items:center}
+.topbar .brand .dxBrandLogo{display:block;width:clamp(165px,22vw,300px);max-width:100%;height:auto;object-fit:contain;flex:0 1 auto}
+@media(max-width:767px){.topbar .brand .dxBrandLogo{width:clamp(82px,17vw,140px);max-height:36px}}
+@media(max-width:420px){.topbar .brand .dxBrandLogo{width:clamp(70px,19vw,90px)}}
+
+
+/* Unified DXSpider night palette v0.01 — presentation only, no layout/behaviour changes.
+   Contrast-oriented navy/slate surfaces; shared tokens across both frontends. */
+html[data-theme="dark"] {
+ --dx-night-bg:#172331;--dx-night-panel:#243447;--dx-night-raised:#2d4156;
+ --dx-night-input:#1c2b3c;--dx-night-border:#60768d;
+ --dx-night-text:#f0f5fa;--dx-night-muted:#c2d0de;
+ --dx-night-accent:#92c9ff;--dx-night-active:#285f9d;
+ --dx-night-hover:#38536e;--dx-night-focus:#ffd178;
+ color-scheme:dark;background:var(--dx-night-bg);color:var(--dx-night-text);
+ --ui-bg:var(--dx-night-bg);--ui-surface:var(--dx-night-panel);
+ --ui-surface-2:var(--dx-night-raised);--ui-surface-3:var(--dx-night-raised);
+ --ui-border:var(--dx-night-border);--ui-text:var(--dx-night-text);
+ --ui-muted:var(--dx-night-muted);--ui-accent:var(--dx-night-accent);
+ --ui-accent-soft:rgba(146,201,255,.18);
+ --v2-bg:var(--dx-night-bg);--v2-surface:var(--dx-night-panel);
+ --v2-border:var(--dx-night-border);--v2-muted:var(--dx-night-muted);
+ --v2-text:var(--dx-night-text);--v2-accent:var(--dx-night-accent);
+ --v2-accent-soft:rgba(146,201,255,.18);
+ --v2-chart-surface:var(--dx-night-panel);--v2-chart-grid:rgba(194,208,222,.23);
+}
+html[data-theme="dark"] body,
+html[data-theme="dark"] body.v2-shell,
+html[data-theme="dark"] body.v2-shell .workspace,
+html[data-theme="dark"] .workspace,
+html[data-theme="dark"] body.v2-shell #supervision .superPanel,
+html[data-theme="dark"] body.v2-shell #metrics.section.active {background:var(--dx-night-bg)!important;color:var(--dx-night-text)!important}
+html[data-theme="dark"] :is(.topbar,.v2Topbar,.v2ContextBar,footer,.panel,.superCard,.kpiCard,.metricChartCard,.chartCard,.metricsPanel,.timelinePanel,.dialogCard,.tabs,.subtabs,.tableWrap,.regTableWrap,.supervisionTableWrap,.supervisionBanner,.resultArea,.filterBuilder,.vf-left,.vf-right,.commandOutput,.feedlog,.logFloat,.logFloatHead,.logFloatBar) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] body.v2-shell :is(.v2Topbar,.v2ContextBar,.metricChartCard,.panel,.superCard,.kpiCard,.tableWrap,.supervisionTableWrap),
+html[data-theme="dark"] body.v2-shell #supervision :is(.superCard,.kpiCard,.tableWrap,.supervisionTableWrap) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(.tabs,.mainTabs,.subtabs,#operationTabs,#registrationTabs,#supervisionTabs) {background:var(--dx-night-panel)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(button,input,select,textarea,.themeToggle),
+html[data-theme="dark"] body.v2-shell #supervision :is(input:not([type="checkbox"]),select,button:not(.active)),
+html[data-theme="dark"] body.v2-shell dialog .dialogCard :is(input,textarea,select,button:not(.dangerButton)) {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(input,textarea)::placeholder {color:var(--dx-night-muted)!important;opacity:1}
+html[data-theme="dark"] :is(button,.themeToggle):hover:not(:disabled) {background:var(--dx-night-hover)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="dark"] :is(.tabs,.subtabs,.mainTabs,.segmented) button.active,
+html[data-theme="dark"] body.v2-shell .segmented button.active,
+html[data-theme="dark"] body.v2-shell #supervision button.active,
+html[data-theme="dark"] #spots .panelHead #spotPause.active {background:var(--dx-night-active)!important;color:#fff!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="dark"] :is(.panelHead h2,.panelHead h3,.dialogCard h2,.nodeCall,.brand,.cardTitle h3) {color:var(--dx-night-accent)!important}
+html[data-theme="dark"] :is(.counter,.fieldHint,.themeControl,.panelSub,.cardHint,.superNote,.metricsMeta,.kpiLabel,.kpiCard small,.chartHead span,.miniHead span,footer,footer .copyright,.brandCopyright) {color:var(--dx-night-muted)!important;opacity:1!important}
+html[data-theme="dark"] :is(th,.spotTable th,.superTable thead th,.regTable thead th),
+html[data-theme="dark"] body.v2-shell #supervision th {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(td,.spotTable td,.superTable td,.regTable td),
+html[data-theme="dark"] body.v2-shell #supervision td {border-color:var(--dx-night-border)!important;color:var(--dx-night-text)!important}
+html[data-theme="dark"] body.v2-shell #supervision td {background:var(--dx-night-panel)!important}
+html[data-theme="dark"] :is(.spotTable,.superTable,.regTable) tbody tr:hover {background:var(--dx-night-hover)!important}
+html[data-theme="dark"] :is(.commandOutput,.feedlog,.consoleOutput,.resultArea) {background:var(--dx-night-input)!important;color:var(--dx-night-text)!important}
+html[data-theme="dark"] :is(.metricRow,.metricRow dt,.metricRow dd,.metricsV2,.metricList dd,.kpiCard strong) {color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="dark"] :is(.metricRow dt,.metricList dt) {color:var(--dx-night-muted)!important}
+html[data-theme="dark"] :is(button,input,select,textarea,a,[tabindex]):focus-visible {outline:2px solid var(--dx-night-focus)!important;outline-offset:2px!important}
+html[data-theme="dark"] :is(button,input,select,textarea):disabled {opacity:.58;cursor:not-allowed}
+
+
+@media (prefers-color-scheme:dark) {
+
+/* Unified DXSpider night palette v0.01 — presentation only, no layout/behaviour changes.
+   Contrast-oriented navy/slate surfaces; shared tokens across both frontends. */
+html[data-theme="auto"] {
+ --dx-night-bg:#172331;--dx-night-panel:#243447;--dx-night-raised:#2d4156;
+ --dx-night-input:#1c2b3c;--dx-night-border:#60768d;
+ --dx-night-text:#f0f5fa;--dx-night-muted:#c2d0de;
+ --dx-night-accent:#92c9ff;--dx-night-active:#285f9d;
+ --dx-night-hover:#38536e;--dx-night-focus:#ffd178;
+ color-scheme:dark;background:var(--dx-night-bg);color:var(--dx-night-text);
+ --ui-bg:var(--dx-night-bg);--ui-surface:var(--dx-night-panel);
+ --ui-surface-2:var(--dx-night-raised);--ui-surface-3:var(--dx-night-raised);
+ --ui-border:var(--dx-night-border);--ui-text:var(--dx-night-text);
+ --ui-muted:var(--dx-night-muted);--ui-accent:var(--dx-night-accent);
+ --ui-accent-soft:rgba(146,201,255,.18);
+ --v2-bg:var(--dx-night-bg);--v2-surface:var(--dx-night-panel);
+ --v2-border:var(--dx-night-border);--v2-muted:var(--dx-night-muted);
+ --v2-text:var(--dx-night-text);--v2-accent:var(--dx-night-accent);
+ --v2-accent-soft:rgba(146,201,255,.18);
+ --v2-chart-surface:var(--dx-night-panel);--v2-chart-grid:rgba(194,208,222,.23);
+}
+html[data-theme="auto"] body,
+html[data-theme="auto"] body.v2-shell,
+html[data-theme="auto"] body.v2-shell .workspace,
+html[data-theme="auto"] .workspace,
+html[data-theme="auto"] body.v2-shell #supervision .superPanel,
+html[data-theme="auto"] body.v2-shell #metrics.section.active {background:var(--dx-night-bg)!important;color:var(--dx-night-text)!important}
+html[data-theme="auto"] :is(.topbar,.v2Topbar,.v2ContextBar,footer,.panel,.superCard,.kpiCard,.metricChartCard,.chartCard,.metricsPanel,.timelinePanel,.dialogCard,.tabs,.subtabs,.tableWrap,.regTableWrap,.supervisionTableWrap,.supervisionBanner,.resultArea,.filterBuilder,.vf-left,.vf-right,.commandOutput,.feedlog,.logFloat,.logFloatHead,.logFloatBar) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] body.v2-shell :is(.v2Topbar,.v2ContextBar,.metricChartCard,.panel,.superCard,.kpiCard,.tableWrap,.supervisionTableWrap),
+html[data-theme="auto"] body.v2-shell #supervision :is(.superCard,.kpiCard,.tableWrap,.supervisionTableWrap) {background:var(--dx-night-panel)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(.tabs,.mainTabs,.subtabs,#operationTabs,#registrationTabs,#supervisionTabs) {background:var(--dx-night-panel)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(button,input,select,textarea,.themeToggle),
+html[data-theme="auto"] body.v2-shell #supervision :is(input:not([type="checkbox"]),select,button:not(.active)),
+html[data-theme="auto"] body.v2-shell dialog .dialogCard :is(input,textarea,select,button:not(.dangerButton)) {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(input,textarea)::placeholder {color:var(--dx-night-muted)!important;opacity:1}
+html[data-theme="auto"] :is(button,.themeToggle):hover:not(:disabled) {background:var(--dx-night-hover)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="auto"] :is(.tabs,.subtabs,.mainTabs,.segmented) button.active,
+html[data-theme="auto"] body.v2-shell .segmented button.active,
+html[data-theme="auto"] body.v2-shell #supervision button.active,
+html[data-theme="auto"] #spots .panelHead #spotPause.active {background:var(--dx-night-active)!important;color:#fff!important;border-color:var(--dx-night-accent)!important}
+html[data-theme="auto"] :is(.panelHead h2,.panelHead h3,.dialogCard h2,.nodeCall,.brand,.cardTitle h3) {color:var(--dx-night-accent)!important}
+html[data-theme="auto"] :is(.counter,.fieldHint,.themeControl,.panelSub,.cardHint,.superNote,.metricsMeta,.kpiLabel,.kpiCard small,.chartHead span,.miniHead span,footer,footer .copyright,.brandCopyright) {color:var(--dx-night-muted)!important;opacity:1!important}
+html[data-theme="auto"] :is(th,.spotTable th,.superTable thead th,.regTable thead th),
+html[data-theme="auto"] body.v2-shell #supervision th {background:var(--dx-night-raised)!important;color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(td,.spotTable td,.superTable td,.regTable td),
+html[data-theme="auto"] body.v2-shell #supervision td {border-color:var(--dx-night-border)!important;color:var(--dx-night-text)!important}
+html[data-theme="auto"] body.v2-shell #supervision td {background:var(--dx-night-panel)!important}
+html[data-theme="auto"] :is(.spotTable,.superTable,.regTable) tbody tr:hover {background:var(--dx-night-hover)!important}
+html[data-theme="auto"] :is(.commandOutput,.feedlog,.consoleOutput,.resultArea) {background:var(--dx-night-input)!important;color:var(--dx-night-text)!important}
+html[data-theme="auto"] :is(.metricRow,.metricRow dt,.metricRow dd,.metricsV2,.metricList dd,.kpiCard strong) {color:var(--dx-night-text)!important;border-color:var(--dx-night-border)!important}
+html[data-theme="auto"] :is(.metricRow dt,.metricList dt) {color:var(--dx-night-muted)!important}
+html[data-theme="auto"] :is(button,input,select,textarea,a,[tabindex]):focus-visible {outline:2px solid var(--dx-night-focus)!important;outline-offset:2px!important}
+html[data-theme="auto"] :is(button,input,select,textarea):disabled {opacity:.58;cursor:not-allowed}
+
+}
+
+/* Logo layout v2.8.79: full wordmark visible, no clipping in compact topbar. */
+.topbar .brand .dxBrandLogo{width:clamp(160px,22vw,260px)!important;height:auto!important;max-height:66px!important;object-fit:contain!important;display:block!important}
+@media(min-width:768px){.topbar{height:78px!important;min-height:78px!important;grid-template-rows:auto!important;overflow:visible!important}.topbar .brand{overflow:visible!important}}
+@media(max-width:767px){.topbar .brand .dxBrandLogo{width:clamp(105px,27vw,170px)!important;max-height:48px!important}.topbar .brand{overflow:visible!important}}
+
+/* v2.8.80: align the DXWeb wordmark closer to the left content edge.
+   Desktop-only offset; keep the compact mobile header unchanged. */
+@media (min-width:768px) {
+  .topbar .brand { position:relative; left:-30px; }
+}
+
+/* Login access explanation: available by click/touch and keyboard */
+.loginAccessHelp{margin:0 0 12px;font-size:13px;line-height:1.4}
+.loginAccessHelp summary{cursor:pointer;font-weight:600;color:#155aa8}
+.loginAccessHelp p{margin:7px 0 0}
+html[data-theme="dark"] .loginAccessHelp summary{color:#8dbfff}
+
+/* Semantic user notices: shared DXWeb / DXWeb Admin palette. */
+:root,html[data-theme="light"] {
+ --dx-notice-buddy:#006f92;--dx-notice-user:#8d3970;
+ --dx-notice-node:#946000;--dx-notice-system:#526174;
+}
+html[data-theme="dark"] {
+ --dx-notice-buddy:#49d9f2;--dx-notice-user:#f0a1ca;
+ --dx-notice-node:#f2c36b;--dx-notice-system:#aab7c8;
+}
+@media (prefers-color-scheme:dark) {
+ html[data-theme="auto"] {
+  --dx-notice-buddy:#49d9f2;--dx-notice-user:#f0a1ca;
+  --dx-notice-node:#f2c36b;--dx-notice-system:#aab7c8;
+ }
+}
+#spots .spotTable tbody td.spotUserNotice {
+ text-align:left!important;font-weight:600;
+ color:var(--dx-notice-system)!important;
+}
+#spots .spotTable tbody td.spotNotice-buddy {color:var(--dx-notice-buddy)!important}
+#spots .spotTable tbody td.spotNotice-user {color:var(--dx-notice-user)!important}
+#spots .spotTable tbody td.spotNotice-node {color:var(--dx-notice-node)!important}
+
+@media(min-width:701px){.topbar .nodeIdentity{grid-column:2;grid-row:1}.topbar .nodeIdentity .nodeCall{grid-column:auto;grid-row:auto}}
+@media(min-width:481px) and (max-width:700px){.topbar .nodeIdentity{grid-column:1;grid-row:2;justify-self:start}.topbar .nodeIdentity .nodeCall{grid-column:auto;grid-row:auto}}
+
+/* Temporary BETA indicator: decoration only; does not affect topbar layout. */
+.topbar{position:relative}
+.topbar::before{content:"BETA";position:absolute;left:clamp(170px,25vw,305px);top:50%;transform:translateY(-50%);font-family:Arial,Helvetica,sans-serif;font-size:28px;font-weight:800;line-height:1;color:#d97706;pointer-events:none;z-index:1}
+@media(max-width:767px){.topbar::before{left:clamp(110px,29vw,190px);font-size:clamp(13px,3.8vw,21px)}}
+@media(max-width:480px){.topbar::before{left:clamp(85px,23vw,118px);font-size:clamp(10px,3vw,14px);top:16px}}

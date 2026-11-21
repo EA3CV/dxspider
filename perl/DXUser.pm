@@ -23,6 +23,7 @@ use IO::File;
 use DXChannel;
 use DXJSON;
 use DBI;
+use Encode ();
 
 use strict;
 
@@ -35,9 +36,9 @@ $lastoperinterval = 60*24*60*60;
 $lasttime = 0;
 $lrusize = 5000;
 my $day = 86400;
-$ephold = $day * 35;			    # bare callsigns with no extra info that come in via protocol
+$ephold = $day * 90;		    # bare callsigns with no extra info that come in via protocol
 $tooold = $day * 365 * 2;		# this marks an old user who hasn't given enough info to be useful
-$veryold = $tooold * 3;	        # Ancient default 6 years
+$veryold = $tooold * 3;	        # Ancient default 9 years
 $v3 = 0;
 our $maxconnlist = 3;			# remember this many connection time (duration) [start, end] pairs
 our $sync_interval = 5;	    # no of secs between commit / begin_work syncs
@@ -81,6 +82,8 @@ our $dbh;
 		  long => '0,Longitude,slong',
 		  maxconnect => '1,Max Connections',
 		  name => '0,Name',
+		  nextlogin => '9,Next poss.login,htime',
+		  nexloginatmax => '9, At max login,htime',
 		  node => '0,Last Node',
 		  nopings => '9,Ping Obs Count',
 		  nothere => '0,Not Here Text',
@@ -132,10 +135,10 @@ sub AUTOLOAD
 {
 	no strict;
 	my $name = $AUTOLOAD;
-  
+
 	return if $name =~ /::DESTROY$/;
 	$name =~ s/^.*:://o;
-  
+
 	confess "Non-existant field '$AUTOLOAD'" if !$valid{$name};
 	# this clever line of code creates a subroutine which takes over from autoload
 	# from OO Perl - Conway
@@ -153,9 +156,9 @@ my $readonly;
 sub init
 {
 	my $mode = shift;
-  
+
 	$json = DXJSON->new->canonical(1);
-	
+
 	my $fn = "users";
 
     my ($user, $pass);
@@ -163,13 +166,13 @@ sub init
 	# initialise the cache
 	$lru = LRU->newbase("DXUser", $lrusize);
 
-	if (defined $main::userdsn && $main::userdsn) { 
+	if (defined $main::userdsn && $main::userdsn) {
 		if ($main::userdsn =~ /:sqlite:/i) {
 
 			my ($db_path) = $main::userdsn =~ /dbname=([^;]+)/;
 			my $db_missing = !-e $db_path;
 
-			
+
 			$dbh = DBI->connect($main::userdsn, $main::dbuser, $main::dbpass, {
 													 RaiseError     => 1,
 													 AutoCommit     => 1,
@@ -179,36 +182,27 @@ sub init
 			my $table_exists = _table_exists();
 
 			unless ($table_exists) {
-				print "[DXUser_SQL] Creating SQLite table and importing from users.v3j...\n";
+				print "[DXUser] Creating SQLite table and importing from users.v3j...\n";
 				_create_table();
-				_import_from_v3j();
+				_import_from_v3j() unless $mode == 3;
 			}
 
-		} elsif ($main::userdsn) {
-			my $dbh_tmp = open_database($main::userdsn, $main::dbuser, $main::dbpass) or die "cannot open $main::userdsn" ;
-			
-			my $db_exists = $dbh_tmp->selectrow_array("SHOW DATABASES LIKE ?", undef, $main::userdsn);
-			
-			unless ($db_exists) {
-				print "[DXUser_SQL] Creating MySQL database $main::userdsn...\n";
-				$dbh_tmp->do("CREATE DATABASE `$main::userdsn` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-			}
-			
-			$dbh_tmp->disconnect;
-
+		} elsif ($main::userdsn =~ /:mysql:/i) {
 			$dbh = open_database($main::userdsn, $main::dbuser, $main::dbpass) or die qw("cannot open $main::userdsn" );
-			
-			my $table_exists = $dbh->selectrow_array("SHOW TABLES LIKE 'users'");
+
+			my $table_exists = _table_exists('users');
 			unless ($table_exists) {
-				print "[DXUser_SQL] Creating MySQL table and importing from users.v3j...\n";
+				print "[DXUser] Creating MySQL table and importing from users.v3j...\n";
 				_create_table();
-				_import_from_v3j();
+				_import_from_v3j() unless $mode == 3;
 			}
+		} else {
+			die "Unsupported DXUser SQL DSN '$main::userdsn'";
 		}
-		
+
 	} else {
 		# 'original system'
-	
+
 		$filename = localdata("$fn.v3j");
 
 		unless (-e $filename || $mode == 2 ) {
@@ -228,7 +222,7 @@ sub init
 			}
 		}
 		$readonly = !$mode;
-	
+
 		die "Cannot open $filename ($!)\n" unless $dbm || $mode == 2;
 	}
 
@@ -247,7 +241,7 @@ sub open_database
 	my $dsn = shift  || $main::userdsn;
 	my $user = shift || $main::dbuser;
 	my $pass = shift || $main::dbpass;
-	
+
 	if ($main::userdsn) {
 		$tmp = DBI->connect($dsn, $user, $pass, {
 														   RaiseError => 1,
@@ -263,7 +257,9 @@ sub open_database
 # create a call/data table called users in a QSL database, if required
 sub _create_table {
 	LogDbg("dxuser", "Creating new 'users' table in SQL DSN $main::userdsn");
-    my $sql = "CREATE TABLE users ( call TEXT PRIMARY KEY, data TEXT )";
+    my $sql = $main::userdsn =~ /:mysql:/i
+		? "CREATE TABLE users (call VARCHAR(32) PRIMARY KEY, data LONGTEXT NOT NULL) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+		: "CREATE TABLE users (call TEXT PRIMARY KEY, data TEXT)";
     my $r = $dbh->do($sql);
 	die "Failed to create SQL user file in $main::userdsn" unless $r;
 #	$sql = "CREATE UNIQUE INDEX on users ( call )";
@@ -274,17 +270,20 @@ sub _create_table {
 # check to see if a table exists in a SQL database
 sub _table_exists {
     my ($t) = @_;
+	$t ||= 'users';
     if ($main::userdsn =~ /:sqlite:/i) {
-        my $sth = $dbh->prepare("SELECT name FROM sqlite_master WHERE type='table'");
-        $sth->execute();
-        my ($exists) = $sth->fetchrow_array;
-        return defined $exists && $exists eq 'users';
+		return $dbh->selectrow_array(
+			"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+			undef,
+			$t
+		) ? 1 : 0;
     } elsif ($main::userdsn =~ /:mysql:/i) {
-        my $sth = $dbh->prepare("SHOW TABLES LIKE users");
-        $sth->execute();
-        my ($exists) = $sth->fetchrow_array;
-        return defined $exists;
+		my $sth = $dbh->table_info(undef, undef, $t, 'TABLE');
+		my $row = $sth->fetchrow_arrayref;
+		$sth->finish;
+		return $row ? 1 : 0;
     }
+	return 0;
 }
 
 # delete files with extreme prejudice
@@ -293,6 +292,7 @@ sub del_file
 	# with extreme prejudice
 	unlink "$main::data/users.v3j";
 	unlink "$main::local_data/users.v3j";
+	unlink "$main::local_data/dxusers.db";
 }
 
 #
@@ -318,18 +318,19 @@ sub alloc
 {
 	my $pkg = shift;
 	my $call = uc shift;
-	my $self = bless {call => $call, 'sort'=>'U'}, $pkg;
+	$call = "$call";
+	my $self = bless {call => "$call", 'sort'=>'U'}, $pkg;
 	return $self;
 }
 
 sub new
 {
 	my $pkg = shift;
-	my $call = shift;
+	my $call = uc shift;
+	$call = "$call";
 	#  $call =~ s/-\d+$//o;
-	$call = "$call" if is_digits($call);
-  
-#	confess "can't create existing call $call in User\n!" if $u{$call};
+
+	#	confess "can't create existing call $call in User\n!" if $u{$call};
 
 	my $self = $pkg->alloc($call);
 	$self->put;
@@ -346,16 +347,15 @@ my $getsth;
 sub get
 {
 	my $call = uc shift;
+	$call = "$call";
 	my $data;
-	
+
 	# is it in the LRU cache?
-	$call = "$call" if is_digits($call);
-	
 	my $ref = $lru->get($call);
 	if ($ref && ref $ref eq 'DXUser') {
 		return $ref;
 	}
-	
+
 	# search for it in the appropriate source
 	if ($dbh) {
 		unless ($getsth) {
@@ -391,7 +391,7 @@ sub get
 		}
 		return undef;
 	}
-	
+
 	return undef;
 }
 
@@ -406,7 +406,8 @@ sub get
 sub get_current
 {
 	my $call = uc shift;
-  
+	$call = "$call";
+
 	my $dxchan = DXChannel::get($call);
 	if ($dxchan) {
 		my $ref = $dxchan->user;
@@ -418,12 +419,22 @@ sub get_current
 }
 
 #
-# get all callsigns in the database 
+# get all callsigns in the database
 #
 
 sub get_all_calls
 {
-	return (sort keys %u);
+	if ($dbh) {
+		my $sql = "SELECT call FROM users ORDER BY call";
+		dbg("DXUser get_all_calls: sql $sql") if isdbg('sql');
+		 my $sth = $dbh->prepare($sql);
+		return undef unless $sth->execute();
+		my $ref = $sth->fetchall_arrayref;
+		return undef unless $ref;
+		return map {$_->[0]} @$ref;
+	} else {
+		return (sort keys %u);
+	}
 }
 
 #
@@ -435,22 +446,22 @@ my $putsth;
 sub put
 {
 	my $self = shift;
+	my %opt = @_;
 	confess "Trying to put nothing!" unless $self && ref $self;
 	my $call = $self->{call};
-	
+
 	unless ($call) {
 		LogDbg('dxuser', "DXUser::put undefined/zero callsign");
 		return;
 	}
-	$call = "$call" if is_digits($call);
 
-	$self->{lastseen} = $main::systime;
+	$self->{lastseen} = $main::systime unless $opt{preserve_lastseen};
 	my $js = $self->encode;
 
 	if ($dbh) {
 		my $sql;
-		if ($main::userdsn =~ /mysql/i ) {
-			$sql = qq{INSERT INTO users (call, data) VALUES (`$call`, `$js`) ON DUPLICATE KEY UPDATE data = `$js`};
+		if ($main::userdsn =~ /:mysql:/i ) {
+			$sql = q{INSERT INTO users (call, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data)};
 		} else {
 			$sql = qq{INSERT OR REPLACE INTO users (call, data) VALUES (?, ?)};
 		}
@@ -481,7 +492,7 @@ sub interate
 
 	if ($dbh) {
 	} else {
-		
+
 	}
 }
 
@@ -504,17 +515,17 @@ sub encode
 
 sub del
 {
-	my $self = shift;
-	my $call = $self->{call};
-	my $scall = "$call" if $call =~ /^\d+$/;
-	$lru->remove($scall);
+	my $thing = shift;
+	my $call = ref $thing ? $thing->{call} : uc "$thing";
+	return 0 unless $call;
+	$lru->remove($call);
 	if ($dbh) {
 		my $sql = "DELETE FROM users WHERE call = ?";
 		my $sth = $dbh->prepare($sql);
 		$sth->execute($call);
 		$sth->finish;
 	} else {
-		$dbm->del($call);		
+		$dbm->del($call);
 	}
 	return 1;
 }
@@ -548,7 +559,7 @@ sub sync
 	if ($dbh) {
 		my $t;
 		my $r;
-		
+
 		my $bt = $dbh->{AutoCommit} || 0;
 		unless ($bt) {
 			eval {$r = $dbh->commit };
@@ -557,7 +568,7 @@ sub sync
 			$in_transaction = 0;
 			if ($r == 1) {
 				dbg("SQL commit - \$in_transaction: $in_transaction, sql transaction state: $bt->$t, \$r: $r "  ) if isdbg('sql');
-				++$in_transaction; 
+				++$in_transaction;
 			}
 			else {
 				LogDbg('dxuser',"SQL ERROR commit failed \$r = $r");
@@ -571,7 +582,7 @@ sub sync
 				LogDbg('dxuser',"SQL begin_work - transaction: $in_transaction, t: $bt ->$t,  r:$r, \@: $@") if $@;
 				if ($r == 1) {
 					dbg("SQL begin_work - \$in_transaction: $in_transaction, sql transaction state: $bt->$t, \$r: $r "  ) if isdbg('sql');
-					++$in_transaction; 
+					++$in_transaction;
 				}
 				else {
 					LogDbg('dxuser',"SQL ERROR begin work failed \$r = $r");
@@ -601,12 +612,12 @@ sub _import_from_v3j {
 
 		my $count = 0;
 		my ($mod, $last);
-		$dbh->begin_work unless  $dbh->sqlite_txn_state();
+		$dbh->begin_work if $dbh->{AutoCommit};
 		foreach my $call (keys %u) {
 			my $data = eval { $json->decode($u{$call}) };
 			next unless $data && ref $data eq 'HASH';
 			my $u = bless $data, 'DXUser';
-			put($u);
+			$u->put(preserve_lastseen => 1);
 			++$count;
 			$mod = int $count % 10000;
 			if ($mod == 0) {
@@ -617,15 +628,15 @@ sub _import_from_v3j {
 		LogDbg("dxuser", sprintf("[DXUser] Import $count users finished in %d secs", time - $secs));
 		untie %u;
 
-		# start normal work 
+		# start normal work
 		$dbh->begin_work;
 	}
 }
 
 
 #
-# return a list of valid elements 
-# 
+# return a list of valid elements
+#
 
 sub fields
 {
@@ -652,10 +663,10 @@ sub del_group
 	my $self = shift;
 	my $ref = $self->{group} || [ 'local' ];
 	my @in = @_;
-	
+
 	$self->{group} = $ref if !$self->{group};
-	
-	@$ref = map { my $a = $_; return (grep { $_ eq $a } @in) ? () : $a } @$ref;
+
+	@$ref = map { my $a = $_; return (grep { uc $_ eq uc $a } @in) ? () : $a } @$ref;
 }
 
 # does this thing contain all the groups listed?
@@ -663,17 +674,14 @@ sub union
 {
 	my $self = shift;
 	my $ref = $self->{group};
-	my $n;
-	
-	return 0 if !$ref || @_ == 0;
-	return 1 if @$ref == 0 && @_ == 0;
-	for ($n = 0; $n < @_; ) {
-		for (@$ref) {
-			my $a = $_;
-			$n++ if grep $_ eq $a, @_; 
-		}
+
+	return 0 unless $ref && @$ref && @_;
+
+	my %groups = map { uc($_) => 1 } @$ref;
+	for my $group (@_) {
+		return 0 unless defined $group && exists $groups{uc($group)};
 	}
-	return $n >= @_;
+	return 1;
 }
 
 # simplified group test just for one group
@@ -682,9 +690,9 @@ sub in_group
 	my $self = shift;
 	my $s = shift;
 	my $ref = $self->{group};
-	
+
 	return 0 if !$ref;
-	return grep $_ eq $s, $ref;
+	return grep {uc $_ eq uc $s} @$ref;
 }
 
 # set up a default group (only happens for them's that connect direct)
@@ -706,7 +714,7 @@ sub new_buddies
 #
 
 sub field_prompt
-{ 
+{
 	my ($self, $ele) = @_;
 	return $valid{$ele};
 }
@@ -933,6 +941,7 @@ sub set_believe
 {
 	my $self = shift;
 	my $call = uc shift;
+	$call = "$call";
 	$self->{believe} ||= [];
 	push @{$self->{believe}}, $call unless grep $_ eq $call, @{$self->{believe}};
 }
@@ -941,6 +950,7 @@ sub unset_believe
 {
 	my $self = shift;
 	my $call = uc shift;
+	$call = "$call";
 	if (exists $self->{believe}) {
 		$self->{believe} = [grep {$_ ne $call} @{$self->{believe}}];
 		delete $self->{believe} unless @{$self->{believe}};
@@ -956,12 +966,13 @@ sub believe
 sub lastping
 {
 	my $self = shift;
-	my $call = shift;
+	my $call = uc shift;
+	$call = "$call";
 	$self->{lastping} ||= {};
 	$self->{lastping} = {} unless ref $self->{lastping};
 	my $b = $self->{lastping};
 	$b->{$call} = shift if @_;
-	return $b->{$call};	
+	return $b->{$call};
 }
 
 #
@@ -973,18 +984,10 @@ sub export
 	my $name = shift || 'user_json';
 
 	my $fn = $name ne 'user_json' ? $name : "$main::local_data/$name";                       # force use of local
-	
-	# save old ones
-	copy $fn, "$fn.keep" unless -e "$fn.keep";
-	copy "$fn.ooooo", "$fn.backstop" unless -e "$fn,backstop";
 
-	move "$fn.oooo", "$fn.ooooo" if -e "$fn.oooo";
-	move "$fn.ooo", "$fn.oooo" if -e "$fn.ooo";
-	move "$fn.oo", "$fn.ooo" if -e "$fn.oo";
-	move "$fn.o", "$fn.oo" if -e "$fn.o";
-	move "$fn", "$fn.o" if -e "$fn";
+	# Publish the new export only after SQL cleanup succeeds.
+	my $tmpfn = "$fn.tmp.$$";
 
-	
 	my $ta = [gettimeofday];
 	my $count = 0;
 	my $err = 0;
@@ -996,24 +999,29 @@ sub export
 	my $nodes = 0;
 	my $renamed = 0;
 	my $eph =  0;
+	my $phantom = 0;
 
 	my %del;
-	
+	my %rename;
+	my %source_data;
+	my %delete_reason;
+
 	my $exsth;
 
-	my $fh = new IO::File ">$fn" or return "cannot open $fn ($!)";
+	my $fh = new IO::File ">$tmpfn" or return "cannot open $tmpfn ($!)";
+	binmode($fh, ":raw") or die "cannot set raw output for $tmpfn ($!)";
 	if ($fh) {
 		my $key = 0;
 		my $val = undef;
 		my $action = R_FIRST;
 		my $t = scalar localtime;
 		my $r;
-				
+
 		print $fh export_preamble();
 
 		if ($dbh) {
 			sync();
-			$exsth = $dbh->prepare("select * from users");
+			$exsth = $dbh->prepare("select * from users order by call");
 			$exsth->execute;
 		}  else {
 			$action = R_FIRST;
@@ -1030,83 +1038,154 @@ sub export
 				last if $r;
 				$action = R_NEXT;
 			}
+			unless ($key && $val) {
+				$key = 'missing' unless $key;
+				$val = 'missing' unless $val;
+				LogDbg('error', "Export_user: key($key) val($key) has missing info, ignoring");
+				next;
+			}
 
 			my $ref;
+			$source_data{$key} = $val if $dbh;
 			eval {$ref = decode($val); };
-			
+
 			if ($ref) {
-				if (!is_callsign($key) || $key =~ /^\d+$/) {
+				# #WEB-n are internal web channels, not amateur callsigns.
+				# Q-prefix calls are invalid regardless of stored administrative fields.
+				my $internal_web = $key =~ /^#WEB-[0-9]+$/;
+				if ($key =~ /^(?:Q|0)/i || (!$internal_web && (!is_callsign($key) || $key =~ /^\d+$/))) {
 					my $eval = $val;
 					my $ekey = $key;
-					$eval =~ s/([\%\x00-\x1f\x7f-\xff])/sprintf("%%%02X", ord($1))/eg; 
+					$eval =~ s/([\%\x00-\x1f\x7f-\xff])/sprintf("%%%02X", ord($1))/eg;
 					$ekey =~ s/([\%\x00-\x1f\x7f-\xff])/sprintf("%%%02X", ord($1))/eg;
 					LogDbg('dxuser', "Export Error1: invalid call '$key' => '$val'");
-					
+
 					$del{$key} = $ref;
+					++$del unless $dbh && $main::userdsn =~ /:sqlite:/i;
 					++$err;
 					next;
 				}
-				
-				my $t = $ref->{lastseen} if exists $ref->{lastseen};
-				$t = $ref->{lastin} if exists $ref->{lastin} && $ref->{lastin} > $t;
-				$t = $ref->{lastoper} if exists $ref->{lastoper} && $ref->{lastoper} > $t;
-				$t //= 0;
-				
-				if ($ref->is_user) {
-					if ($ref->{homenode} != $main::mycall && !$ref->{priv} ) {
+
+				# is this a misprint?
+				# Some software is adding a digit onto the front of an existing callsign in PC92 sentences
+				# We try to remove them here
+#				my ($p, $c) = ($key =~ /(\d)(\w+)/);
+#				if (is_callsign($c) && get_current($c)) {
+#					LogDbg('dxuser', "$ref->{call} deleted, PC92 PHANTOM call of $c");
+#					++$del;
+#					++$phantom;
+#					$del{$key} = $ref;
+#					next;
+#				}
+
+				my $t = 0;
+				my $flag ;
+				if (exists $ref->{lastseen} && $ref->{lastseen})  {
+					$flag = 'lastseen';
+					$t = $ref->{lastseen};
+				}
+				if (exists $ref->{lastin} && $ref->{lastin} && $ref->{lastin} > $t) {
+					$flag = 'lastin';
+					$t = $ref->{lastin};
+				}
+				if (exists $ref->{lastoper} && $ref->{lastoper} && $ref->{lastoper} > $t) {
+					$flag = 'lastoper';
+					$t = $ref->{lastoper};
+				}
+				dbg(sprintf ("EXPORT:  call=$ref->{call} time=$t  flag: $flag diff=%d", $main::systime-$t) ) if isdbg('export');
+
+				if ($internal_web) {
+					# Preserve special internal web channels, including their export row.
+				} elsif ($ref->is_user && $ref->{call} ne $main::myalias) {
+					# Protect administrative/authentication records from age-based pruning.
+					# Do not use 'next': protected records must still reach the export writer.
+					my $protected = $ref->{registered} || $ref->{priv}
+					    || (defined($ref->{homenode}) && length($ref->{homenode})
+					        && defined($main::mycall) && length($main::mycall)
+					        && $ref->{homenode} eq $main::mycall)
+					    || $ref->{lockout}
+					    || (defined($ref->{passwd}) && length($ref->{passwd}))
+					    || (defined($ref->{passphrase}) && length($ref->{passphrase}));
+
+					# A missing activity timestamp is not evidence of inactivity.
+					# Preserve the original behavior of skipping normalization for
+					# protected records; neither case skips writing the export row.
+					unless ($protected || $t <= 0) {
+						if ($t > 0 && $main::systime > $t + $veryold) {
+							LogDbg('dxuser', sprintf("$ref->{call} deleted, POSITIVELY ANCIENT at %s", difft($t, ' ')));
+							++$del;
+							++$ancient;
+							$delete_reason{$key} = "ancient";
+							$del{$key} = $ref;
+							next;
+						}
+
+						if ($t > 0 && $main::systime > $t + $tooold) {
+							unless ($ref->{homenode} || $ref->{name} || $ref->{qra} || $ref->{qth} || exists $ref->{lat} || exists $ref->{long}) {
+								LogDbg('dxuser', sprintf("Stale $ref->{call} deleted at %s", difft($t, ' ')));
+								++$del;
+								++$old;
+								$delete_reason{$key} = "old";
+								$del{$key} = $ref;
+								next;
+							}
+						}
 
 						# ephmerals
-						if ($main::systime > $t + $ephold &&  !$ref->{qth} && !$ref->{name}) {
-							LogDbg('dxuser', sprintf("Ephmeral $ref->{call} deleted at %s", difft($t, ' ')));
-							++$del;
-							++$old;
-							$del{$key} = $ref;
-							next;
+						if ($t > 0 && $main::systime > $t + $ephold) {
+							unless ($ref->{homenode} || $ref->{name} || $ref->{qra} || $ref->{qth} || exists $ref->{lat} || exists $ref->{long}) {
+								LogDbg('dxuser', sprintf("Ephmeral $ref->{call} deleted at %s", difft($t, ' ')));
+								++$del;
+								++$eph;
+								$delete_reason{$key} = "eph";
+								$del{$key} = $ref;
+								next;
+							}
+
 						}
 
-						unless ( $ref->{homenode} && $main::systime < $t + $tooold) {
-							LogDbg('dxuser', sprintf("Stale $ref->{call} deleted at %s", difft($t, ' ')));
-							++$del;
-							++$eph;
-							$del{$key} = $ref;
+	#					if (exists $ref->{lockout} && $ref->{lockout} == 1 && exists $ref->{priv} && $ref->{priv} == 1) {
+	#						LogDbg('dxuser', "$ref->{call} depriv'd and unlocked");
+	#						$ref->{lockout} = $ref->{priv} = 0;
+	#						$ref->put;
+	#						++$unlocked;
+	#					}
+
+						my $normcall = normalise_call($key);
+						if (!defined($normcall) || !is_callsign($normcall) || $normcall =~ /^\d+$/) {
+							LogDbg('dxuser', "Export: invalid normalised call for '$key', keeping original record");
+						} elsif ($normcall ne $key) {
+							if ($dbh && $main::userdsn =~ /:sqlite:/i) {
+								# Defer changes until the read cursor is closed. Compare
+								# against the exact source value read during this export.
+								$rename{$key} = [$normcall, $ref];
+							} else {
+								my $nref = DXUser::get_current($normcall);
+								unless ($nref) {
+									$ref->{call} = $normcall;
+									$ref->put(preserve_lastseen => 1);
+									++$renamed;
+								}
+								$del{$key} = $ref;
+								++$spurious;
+								++$del;
+							}
 							next;
 						}
-					}
-					if ($main::systime > $t + $veryold) {
-						LogDbg('dxuser', sprintf("$ref->{call} deleted, POSITIVELY ANCIENT at %s", difft($t, ' ')));
-						++$del;
-						++$ancient;
-						$del{$key} = $ref;
-						next;
-					}
-					if (exists $ref->{lockout} && $ref->{lockout} == 1 && exists $ref->{priv} && $ref->{priv} == 1) {
-						LogDbg('dxuser', "$ref->{call} depriv'd and unlocked");
-						$ref->{lockout} = $ref->{priv} = 0;
-						$ref->put;
-						++$unlocked;
-					}
-					if ($ref->is_node && $main::systime > $t + $veryold) {
-						LogDbg('dxuser', sprintf("NODE $ref->{call} deleted (%s) old", difft($t, ' ')));
+					} # end cleanup for unprotected users with valid activity time
+				} elsif ($ref->is_node && $ref->{call} ne $main::mycall) {
+					# Node administrative state and unknown activity dates must survive.
+					my $protected_node = $ref->{registered} || $ref->{priv} || $ref->{lockout}
+					    || (defined($ref->{homenode}) && length($ref->{homenode})
+					        && defined($main::mycall) && $ref->{homenode} eq $main::mycall)
+					    || (defined($ref->{passwd}) && length($ref->{passwd}))
+					    || (defined($ref->{passphrase}) && length($ref->{passphrase}));
+					if (!$protected_node && $t > 0 && $main::systime > $t + $veryold) {
+						LogDbg('dxuser', sprintf("NODE $ref->{call} deleted (%s) POSITIVELY ANCIENT at %s", difft($t, ' ')));
 						++$del;
 						++$nodes;
+						$delete_reason{$key} = "nodes";
 						$del{$key} = undef;
-						next;
-					}
-					
-					my $normcall = normalise_call($key);
-					if ($normcall ne $key) {
-						# if the normalised call does not exist, create it from the duff call.
-						my $nref = DXUser::get_current($normcall);
-						unless ($nref) {
-							$ref->{call} = $normcall;
-							$ref->put;
-							LogDbg('dxuser', "DXProt: spurious call $key normalises to $normcall renaming $key -> $normcall");
-							++$renamed;
-						} 
-						LogDbg('dxuser', "DXProt: spurious call $key (should be $normcall), removing");
-						$del{$key} = $ref;
-						++$spurious;
-						++$del;
 						next;
 					}
 				}
@@ -1116,30 +1195,162 @@ sub export
 				++$err;
 				next;
 			}
-			
+
 			# only store users that are reasonably active or have useful information
-			print $fh "$key\t" . encode($ref) . "\n";
+			print $fh "$key\t" . Encode::encode("UTF-8", encode($ref)) . "\n";
 			++$count;
 		}
-	} 
-	$fh->close;
-
-	while (my ($k, $v) = each %del) {
-		if ($dbh) {
-			del($v);
-		} else {
-			eval {$dbm->del($k)};
-			$v = "undef" unless $v;
-		}
-		LogDbg('dxuser', "Error deleting key: $k value: $v error: $@") if $@;
-		undef $@;
 	}
-	if ($dbh) {
-		undef $exsth if $exsth;
-		sync();
+	unless ($fh->close) { unlink $tmpfn; return "cannot close $tmpfn ($!)"; }
+
+	if ($dbh && $main::userdsn =~ /:sqlite:/i) {
+		$del = 0; $spurious = 0; $renamed = 0;
+		$old = 0; $ancient = 0; $nodes = 0; $eph = 0;
+		# Release the SELECT cursor and its read transaction before writing.
+		# SQLite serialises writers; comparisons below guard against stale data.
+		$exsth->finish if $exsth;
+		undef $exsth;
+		# The export begins with sync(); close that transaction before acquiring
+		# the SQLite writer lock. This is the existing export sync boundary.
+		$dbh->commit unless $dbh->{AutoCommit};
+		my $failed;
+		my @cache_remove;
+		eval {
+			# Acquire the writer lock before inspecting any candidates.
+			defined($dbh->do('BEGIN IMMEDIATE')) or die 'BEGIN IMMEDIATE failed';
+			my $current = $dbh->prepare('SELECT data FROM users WHERE call = ?');
+			my $delete = $dbh->prepare('DELETE FROM users WHERE call = ? AND data = ?');
+			my $insert = $dbh->prepare('INSERT OR IGNORE INTO users (call, data) VALUES (?, ?)');
+			# A concurrent writer may have changed any exported record or
+			# inserted/deleted a row during the scan. Never publish that stale
+			# snapshot as a successful export.
+			# One sequential table scan instead of one indexed SELECT per user.
+			# BEGIN IMMEDIATE prevents other writers changing the snapshot
+			# during verification; check missing, added and modified rows.
+			my $verify = $dbh->prepare('SELECT call, data FROM users');
+			$verify->execute;
+			my $verified = 0;
+			while (my $row = $verify->fetchrow_arrayref) {
+				my ($key, $live_data) = @$row;
+				die "Export snapshot changed: $key"
+					unless exists($source_data{$key}) && defined($live_data)
+					&& $live_data eq $source_data{$key};
+				++$verified;
+			}
+			$verify->finish;
+			die 'Export snapshot changed: row count'
+				unless $verified == scalar(keys %source_data);
+			for my $key (sort keys %rename) {
+				my ($dest, $ref) = @{$rename{$key}};
+				$current->execute($key);
+				my ($live) = $current->fetchrow_array;
+				$current->finish;
+				next unless defined($live) && $live eq $source_data{$key};
+				$current->execute($dest);
+				my ($existing) = $current->fetchrow_array;
+				$current->finish;
+				my $created = 0;
+				if (!defined $existing) {
+					my %copy = %$ref;
+					$copy{call} = $dest;
+					my $newref = bless \%copy, ref($ref);
+					$insert->execute($dest, $newref->encode);
+					$created = ($insert->rows == 1);
+					# A competing writer may have inserted the destination.
+					$current->execute($dest);
+					($existing) = $current->fetchrow_array;
+					$current->finish;
+				}
+				# Existing destination is not proof of equivalence. Keep the
+				# source record unless this transaction created the destination.
+				next unless $created;
+				$delete->execute($key, $source_data{$key});
+				my $removed = $delete->rows == 1;
+				die "Export rename source changed: $key" if $created && !$removed;
+				if ($removed) {
+					++$del; ++$spurious;
+					++$renamed if $created;
+					push @cache_remove, $key;
+					push @cache_remove, $dest if $created;
+				}
+			}
+			for my $key (sort keys %del) {
+				$delete->execute($key, $source_data{$key});
+				if ($delete->rows == 1) {
+					++$del;
+					my $reason = $delete_reason{$key} || '';
+					++$old if $reason eq 'old';
+					++$ancient if $reason eq 'ancient';
+					++$nodes if $reason eq 'nodes';
+					++$eph if $reason eq 'eph';
+					push @cache_remove, $key;
+				} else {
+					++$err;
+					LogDbg('dxuser', "Export: preserved concurrently modified key $key");
+				}
+			}
+			# Build the published export from the exact post-cleanup SQLite state.
+			# Keep the writer lock until the complete file is written; the earlier
+			# scan is only for deciding which records to delete or rename.
+			open my $finalfh, '>:raw', $tmpfn or die "Export final open $tmpfn: $!";
+			print {$finalfh} export_preamble() or die "Export preamble write: $!";
+			my $final = $dbh->prepare('SELECT call, data FROM users ORDER BY call');
+			$final->execute;
+			my $final_count = 0;
+			while (my $row = $final->fetchrow_arrayref) {
+				my ($call, $data) = @$row;
+				print {$finalfh} "$call\t" . Encode::encode('UTF-8', $data) . "\n"
+					or die "Export final row write: $!";
+				++$final_count;
+			}
+			$final->finish;
+			close($finalfh) or die "Export final close: $!";
+			$count = $final_count;
+			defined($dbh->do('COMMIT')) or die 'COMMIT failed';
+			1;
+		} or do {
+			$failed = $@ || 'unknown SQLite error';
+			eval { $dbh->do('ROLLBACK') };
+		};
+		my $restart_ok = eval { $dbh->begin_work if $dbh->{AutoCommit}; 1 };
+		$failed ||= "unable to restart transaction: $@" unless $restart_ok;
+		if (!$failed) { $lru->remove($_) for @cache_remove; }
+		if ($failed) {
+			LogDbg('dxuser', "Export: SQLite cleanup aborted: $failed");
+			unlink $tmpfn;
+			return "Export failed during SQLite cleanup: $failed";
+		}
+	} else {
+		while (my ($k, $v) = each %del) {
+			if ($dbh) {
+				del($k);
+			} else {
+				eval {$dbm->del($k)};
+				$v = "undef" unless $v;
+			}
+			LogDbg('dxuser', "Error deleting key: $k value: $v error: $@") if $@;
+			undef $@;
+		}
+		sync() if $dbh;
+	}
+	# Rotate backups only after the database phase succeeded.
+	# save old ones
+	copy $fn, "$fn.keep" unless -e "$fn.keep";
+	copy "$fn.ooooo", "$fn.backstop" if -e "$fn.ooooo" && !-e "$fn.backstop";
+
+	move "$fn.oooo", "$fn.ooooo" if -e "$fn.oooo";
+	move "$fn.ooo", "$fn.oooo" if -e "$fn.ooo";
+	move "$fn.oo", "$fn.ooo" if -e "$fn.oo";
+	move "$fn.o", "$fn.oo" if -e "$fn.o";
+	move "$fn", "$fn.o" if -e "$fn";
+
+
+	unless (move($tmpfn, $fn)) {
+		unlink $tmpfn;
+		return "cannot publish $fn ($!)";
 	}
 	my $diff = _diffms($ta);
-	my $s = qq{Exported users to $fn - $count Users,  $del Deleted ($eph ephmeral, $old empty \& too old, $ancient ancient, $nodes nodes, $spurious spurious), $renamed renamed, $unlocked Unlocked, $err Errors in $diff mS ('sh/log Export' for details)};
+	my $s = qq{Exported users to $fn - $count Users,  $del Deleted ($eph ephmeral, $old empty \& too old, $ancient ancient, $nodes ancient nodes, $spurious spurious), $renamed renamed, $unlocked Unlocked, $err Errors in $diff mS ('sh/log Export' for details)};
 	LogDbg('dxuser', $s);
 	return ($s);
 }
@@ -1153,21 +1364,21 @@ sub export_preamble
 # Input file: $filename
 #       Time: $t
 #
-			
+
 package main;
-			
+
 # search local then perl directories
 BEGIN {
 	umask 002;
-				
+
 	# root of directory tree for this system
-	$root = "/spider"; 
+	$root = "/spider";
 	$root = $ENV{'DXSPIDER_ROOT'} if $ENV{'DXSPIDER_ROOT'};
-	
+
 	unshift @INC, "$root/perl";	# this IS the right way round!
 	unshift @INC, "$root/local";
-	
-	# try to detect a lockfile (this isn't atomic but 
+
+	# try to detect a lockfile (this isn't atomic but
 	# should do for now
 	$lockfn = "$root/local_data/cluster.lck";       # lock file name
 	if (-e $lockfn) {
@@ -1191,7 +1402,7 @@ our $json = JSON->new->canonical(1);
 
 my $ta = [gettimeofday];
 our $filename = "$main::local_data/users.v3j";
-my $exists = -e $filename ? "OVERWRITING" : "CREATING"; 
+my $exists = -e $filename ? "OVERWRITING" : "CREATING";
 print "perl user_json $exists $filename\n";
 
 del_file();
@@ -1201,12 +1412,13 @@ my $count = 0;
 my $err = 0;
 
 DXUser::sync();
+binmode(DATA, q{:encoding(UTF-8)}) or die q{Cannot enable UTF-8 on DATA};
 while (<DATA>) {
 	chomp;
 	my @f = split /\t/;
 	my $ref = decode($f[1]);
 	if ($ref) {
-		$ref->put();
+		$ref->put(preserve_lastseen => 1);
 		$count++;
         if ($count % 500 == 0) {
             print "\rCount: $count";
@@ -1234,7 +1446,7 @@ sub recover
 	my $name = shift || 'recover_json';
 
 	my $fn = $name ne 'recover_json' ? $name : "$main::local_data/$name";                       # force use of local
-	
+
 	# save old ones
 	move "$fn.oooo", "$fn.ooooo" if -e "$fn.oooo";
 	move "$fn.ooo", "$fn.oooo" if -e "$fn.ooo";
@@ -1246,7 +1458,7 @@ sub recover
 	my $count = 0;
 	my $errs = 0;
 	my $total = 0;
-		
+
 	my $strings = "strings $filename";
 	my $ifh = new IO::File "$strings |" or return "cannot open input $filename ($!)";
 	my $fh = new IO::File ">$fn" or return "cannot open output $fn ($!)";
@@ -1268,7 +1480,7 @@ sub recover
 			my $data = $l;
 			if ($data) {
 				my $v;
-				
+
 				eval{ $v = decode($data); };
 				if ($@) {
 					++$errs;
@@ -1295,10 +1507,6 @@ sub recover
 sub finish
 {
 	dbg('DXUser finished') unless $readonly;
-	if ($dbm) {
-		$dbm->sync;
-		undef $dbm;
-	}
 	if ($dbh) {
 		unless ($dbh->{AutoCommit}) {
 			my $r = $dbh->commit;
@@ -1310,8 +1518,11 @@ sub finish
 		undef $getsth;
 		$dbh->disconnect;
 		undef $dbh;
+	} elsif ($dbm) {
+		$dbm->sync;
+		undef $dbm;
+		untie %u;
 	}
-	untie %u;
 }
 
 
@@ -1325,7 +1536,6 @@ sub END
 
 1;
 __END__
-
 
 
 

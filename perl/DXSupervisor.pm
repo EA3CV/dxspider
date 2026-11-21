@@ -1,0 +1,419 @@
+#
+# DXSpider read-only supervision facade
+#
+# Deliberately passive: no timers, no I/O, no persistence and no subprocesses.
+# Data is collected only when an authenticated dxweb-admin client requests it.
+#
+# Copyright (c) 2026 Dirk Koopman G1TLH
+#
+package DXSupervisor;
+
+use strict;
+use DXHealth;
+use Time::HiRes qw(time);
+use DXChannel;
+use Msg;
+use Spot;
+use Route::Node;
+use DXUser;
+
+our $VERSION = '0.6';
+our $SCHEMA_VERSION = 1;
+our $MAX_CONNECTIONS = 512;
+our $boot_id = join('-', time(), $$, int(rand(0x7fffffff)));
+our %self_health = (
+    requests => 0,
+    errors => 0,
+    last_request => 0,
+    last_generation_ms => 0,
+    max_generation_ms => 0,
+);
+
+sub _num { return defined $_[0] && !ref($_[0]) && $_[0] =~ /^-?(?:\d+(?:\.\d*)?|\.\d+)$/ ? 0 + $_[0] : 0 }
+sub _qlen {
+    my ($v) = @_;
+    return 0 unless ref $v;
+    return scalar(@$v) if ref($v) eq 'ARRAY';
+    return scalar(keys %$v) if ref($v) eq 'HASH';
+    return 0;
+}
+sub _bool { return $_[0] ? 1 : 0 }
+sub _maybe_bool { return undef unless defined $_[0]; return $_[0] ? 1 : 0 }
+
+# DXSpider deliberately stores a peer DXSpider software version in the
+# historic protocol-normalised form (e.g. 1.57 -> 54.57).  Decode it only
+# for channels which DXSpider itself classifies as DXSpider; never apply
+# this transform to other cluster software.
+sub _dxspider_version {
+    my ($c, $raw) = @_;
+    return undef unless defined $raw && !ref($raw) && $raw =~ /^\d+(?:\.\d+)?$/;
+    return undef unless eval { $c->is_spider };
+    my $v = 0 + $raw;
+    return sprintf('%.2f', $v - 53) if $v >= 53 && $v < 59;
+    return "$raw";
+}
+sub _kind {
+    my ($c) = @_;
+    return 'rbn'  if eval { $c->is_rbn };
+    return 'web'  if eval { $c->is_web || ($c->isa('Web::UserChannel') && !$c->{web_released}) };
+    return 'node' if eval { $c->is_node };
+    return 'user' if eval { $c->is_user };
+    return 'other';
+}
+sub _base {
+    return {
+        schema_version => $SCHEMA_VERSION,
+        supervisor_version => $VERSION,
+        boot_id => $boot_id,
+        collected_at => time(),
+    };
+}
+sub capabilities {
+    return [qw(status connections traffic web rbn self_health)];
+}
+sub status {
+    my @all = DXChannel::get_all();
+    my %k = (user=>0,node=>0,rbn=>0,web=>0,other=>0);
+    my ($qtotal,$qmax,$qnonempty)=(0,0,0);
+    for my $c (@all) {
+        my $kind = _kind($c); $k{$kind}++;
+        my $q = _qlen($c->{inqueue});
+        $qtotal += $q; $qmax = $q if $q > $qmax; $qnonempty++ if $q;
+    }
+    my $o = _base();
+    $o->{node} = $main::mycall || '';
+    $o->{sysop_alias} = defined $main::myalias ? "$main::myalias" : '';
+    $o->{version} = defined $main::version ? "$main::version" : '';
+    $o->{build} = defined $main::build ? "$main::build" : '';
+    $o->{git_branch} = defined $main::gitbranch ? "$main::gitbranch" : '';
+    $o->{git_version} = defined $main::gitversion ? "$main::gitversion" : '';
+    $o->{started_at} = _num($main::starttime);
+    $o->{uptime_seconds} = $main::starttime ? int(time() - $main::starttime) : 0;
+    $o->{cpu_self_seconds} = _num($main::clssecs);
+    $o->{cpu_children_seconds} = _num($main::cldsecs);
+    $o->{channels} = scalar @all;
+    $o->{users} = $k{user}; $o->{nodes} = $k{node}; $o->{rbn} = $k{rbn}; $o->{web} = $k{web}; $o->{other} = $k{other};
+    # Route topology gauges are distinct from live DXChannel counts.  Keep the
+    # names explicit so the web never confuses direct peers with discovered
+    # network nodes, or local users with users advertised by the route tree.
+    my @route_nodes = eval { Route::Node::get_all() }; @route_nodes = () if $@;
+    my $network_users = 0;
+    for my $rn (@route_nodes) {
+        my @ru = eval { $rn->users }; @ru = () if $@;
+        $network_users += scalar @ru;
+    }
+    $o->{direct_nodes} = 0 + $k{node};
+    $o->{network_nodes} = 0 + scalar(@route_nodes);
+    $o->{network_users} = 0 + $network_users;
+    $o->{local_users} = 0 + $k{user};
+    $o->{network_nodes_source} = 'Route::Node::get_all';
+    $o->{network_users_source} = 'Route::Node::users';
+    $o->{pending_connects} = scalar(@main::outstanding_connects);
+    $o->{input_queue_total} = $qtotal; $o->{input_queue_max} = $qmax; $o->{input_queue_nonempty} = $qnonempty;
+    return $o;
+}
+# Read-only inventory of connect scripts.  Only regular files with callsign
+# names are included; never execute or modify a connect script.
+sub _configured_peers {
+    my %peers;
+    my $dir = "$main::root/connect";
+    $dir = '/spider/connect' unless defined $main::root && length $main::root;
+    return \%peers unless opendir(my $dh, $dir);
+    my @names = readdir($dh);
+    closedir($dh);
+    for my $name (@names) {
+        next unless $name =~ /\A[A-Za-z0-9]{1,12}(?:-[0-9]{1,2})?\z/;
+        my $path = "$dir/$name";
+        next unless -f $path && !-l $path && -r $path;
+        my $call = uc($name);
+        my $login;
+        if (open my $fh, '<', $path) {
+            my $lines = 0;
+            while (my $line = <$fh>) {
+                last if ++$lines > 256;
+                # RBN connect chat scripts use quoted tokens: 'call:' 'EA4URE'.
+                if ($line =~ /^\s*['"]?call:['"]?\s+['"]?([A-Za-z0-9]+(?:-[0-9]{1,2})?)(?=['"\s]|$)/i) {
+                    $login = uc($1);
+                    last;
+                }
+            }
+            close $fh;
+        }
+        $peers{$call} = { configured => 1, configured_login => $login };
+    }
+    return \%peers;
+}
+
+sub connections {
+    my @all_full = DXChannel::get_all();
+    my %live = map { (uc($_->{call} || '') => $_) } grep { defined $_->{call} && length $_->{call} } @all_full;
+    my $hist = DXHealth::connection_snapshot({ map { $_ => 1 } keys %live });
+    my $hrows = $hist->{rows} || {};
+
+    my $configured = _configured_peers();
+    my %calls = map { $_ => 1 } (keys %live, keys %$hrows, keys %$configured);
+    # Live channels must never be displaced by retained history.
+    my @active = sort keys %live;
+    # Logical Web history supersedes the generic channel history for
+    # the same offline CALL; retain a single row with Web semantics.
+    my $logical_offline = DXHealth::logical_web_snapshot();
+    my %logical_history = map { uc($_->{call} || '') => 1 } @$logical_offline;
+    my @offline = sort {
+        ($hrows->{$b}{last_event} || 0) <=> ($hrows->{$a}{last_event} || 0)
+            || $a cmp $b
+    } grep { !exists $live{$_} && !$logical_history{$_} && !exists $configured->{$_} } keys %$hrows;
+    my $slots = $MAX_CONNECTIONS - scalar(@active);
+    $slots = 0 if $slots < 0;
+    my $truncated = @offline > $slots ? 1 : 0;
+    splice(@offline, $slots) if @offline > $slots;
+    my @configured_offline = sort grep { !exists $live{$_} && !$logical_history{$_} } keys %$configured;
+    my @calls = (@active, @configured_offline, @offline);
+    my @rows;
+    for my $call (@calls) {
+        my $c = $live{$call};
+        my $h = $hrows->{$call} || {};
+        my $conn = $c ? $c->{conn} : undef;
+        my $user = $c ? $c->{user} : undef;
+        my $local_dxu = eval { DXUser::get($call) };
+        my $rnode = $c ? eval { Route::Node::get($c->{call}) } : undef;
+        my $kind = $c ? _kind($c) : ($h->{last_kind} || ($configured->{$call} ? 'node' : 'other'));
+        push @rows, {
+            call => $call, kind => $kind, configured => $configured->{$call} ? 1 : 0, online => $c ? 1 : 0,
+            sort => $c ? ($c->{sort} || '') : ($local_dxu ? ($local_dxu->{sort} || '') : ''), state => $c ? ($c->{state} || '') : 'offline',
+            connected_since => $c ? _num($c->{startt}) : 0,
+            outbound => $c ? (defined $c->{outbound} ? _bool($c->{outbound}) : ($conn && defined $conn->{outgoing} ? _bool($conn->{outgoing}) : undef)) : ($h->{last_direction} eq 'out' ? 1 : $h->{last_direction} eq 'in' ? 0 : undef),
+            errors => $c ? _num($c->{errors}) : 0,
+            ip => $c ? ($c->{hostname} || ($conn ? ($conn->{peerhost} || '') : '')) : ($h->{last_host} || ''),
+            connect_count => _num($h->{connect_count}), disconnect_count => _num($h->{disconnect_count}),
+            last_connect => _num($h->{last_connect}), last_disconnect => _num($h->{last_disconnect}), last_event => _num($h->{last_event}),
+            too_many_count => _num($h->{too_many_count}), last_too_many => _num($h->{last_too_many}),
+            registered => $local_dxu ? _bool($local_dxu->{registered}) : undef,
+            password_configured => $local_dxu ? ((eval { $local_dxu->passwd }) ? 1 : 0) : undef,
+            password_used => $conn ? _maybe_bool($conn->{usedpasswd}) : undef,
+            cnum => ($conn && defined $conn->{cnum}) ? _num($conn->{cnum}) : undef,
+            queue_depth => $c ? _qlen($c->{inqueue}) : 0, lastping => $c ? _num($c->{lastping}) : 0,
+            nopings => $c ? _num($c->{nopings}) : 0, pingave => $c ? _num($c->{pingave}) : 0,
+            bytes_in => $conn ? _num($conn->{datain}) : 0, bytes_out => $conn ? _num($conn->{dataout}) : 0,
+            lines_in => $conn ? _num($conn->{linesin}) : 0, lines_out => $conn ? _num($conn->{linesout}) : 0,
+            # Login means the identity presented over this link.
+            # Outbound: our callsign actually sent by the connect chat.
+            # Inbound: remote callsign observed at the login prompt.
+            peer_login => ($kind eq 'rbn' || ($local_dxu && ($local_dxu->{sort} || '') eq 'N')) && $configured->{$call} && $configured->{$call}{configured_login}
+                ? $configured->{$call}{configured_login}
+                : $c && $conn
+                ? (($conn->{outgoing} || $c->{outbound})
+                    ? $conn->{observed_peer_login}
+                    : $conn->{observed_peer_login})
+                : undef,
+            protocol_version_raw => undef,
+            dxspider_version => $c ? _dxspider_version($c, (defined $c->{version} && $c->{version} ne '') ? $c->{version} : ($rnode ? $rnode->version : undef)) : undef,
+            build => $c ? (defined $c->{build} && $c->{build} ne '' ? $c->{build} : ($rnode ? $rnode->build : undef)) : undef,
+            git_branch => $rnode ? $rnode->gitbranch : undef, git_version => $rnode ? $rnode->gitversion : undef,
+            do_pc9x => $c ? ($rnode ? _maybe_bool($rnode->do_pc9x) : (defined $c->{do_pc9x} ? _maybe_bool($c->{do_pc9x}) : undef)) : undef,
+            via_pc92 => $rnode ? _maybe_bool($rnode->via_pc92) : undef,
+            do_pc91 => $c ? (defined $c->{do_pc91} ? _maybe_bool($c->{do_pc91}) : undef) : undef,
+            is_self => (
+                $c
+                && defined $c->{call}
+                && length $c->{call}
+                && defined $main::mycall
+                && length $main::mycall
+                && $c->{call} eq $main::mycall
+            ) ? 1 : 0,
+        };
+    }
+    # Offline logical Web users are retained separately from physical channels.
+    # Do not show a stale OFFLINE row when the same CALL is currently present.
+    my %web_live;
+    for my $ch (@all_full) {
+        next unless eval { $ch->is_web };
+        $web_live{uc($_)} = 1 for keys %{ $ch->{web_users} || {} };
+    }
+    # Reuse the logical snapshot collected before generic history selection.
+    for my $e (sort { ($b->{last_event} || 0) <=> ($a->{last_event} || 0) } @$logical_offline) {
+        next if $web_live{$e->{call}} || $live{$e->{call}};
+        if (@rows >= $MAX_CONNECTIONS && @active <= $MAX_CONNECTIONS) {
+            $truncated = 1;
+            last;
+        }
+        my $web_dxu = eval { DXUser::get($e->{call}) };
+        push @rows, {
+            registered => $web_dxu ? _bool($web_dxu->{registered}) : undef,
+            password_configured => $web_dxu ? ((eval { $web_dxu->passwd }) ? 1 : 0) : undef,
+            call => $e->{call}, kind => 'web', online => 0, logical_web => 1,
+            state => 'offline', outbound => undef, ip => $e->{ip} || '',
+            connected_since => 0, cnum => undef, queue_depth => undef,
+            errors => undef, bytes_in => undef, bytes_out => undef,
+            connect_count => 0 + ($e->{connect_count} || 0),
+            disconnect_count => 0 + ($e->{disconnect_count} || 0),
+            last_connect => 0 + ($e->{last_connect} || 0),
+            last_disconnect => 0 + ($e->{last_disconnect} || 0),
+            last_event => 0 + ($e->{last_event} || 0),
+        };
+    }
+    my $o=_base();
+    $o->{total}=scalar(@all_full); $o->{truncated}=$truncated; $o->{connections}=\@rows;
+    $o->{connection_totals}=$hist->{totals}; $o->{connection_retained}=$hist->{retained};
+    $o->{connection_retention_seconds}=$hist->{retention_seconds};
+    $o->{incoming_login}=$hist->{incoming_login} if ref($hist->{incoming_login}) eq 'HASH';
+    return $o;
+}
+sub traffic {
+    my $o=_base();
+    $o->{transport}={bytes_in=>_num($Msg::total_in),bytes_out=>_num($Msg::total_out),lines_in=>_num($Msg::total_lines_in),lines_out=>_num($Msg::total_lines_out)};
+    $o->{spots}={total=>_num($Spot::totalspots),hf=>_num($Spot::hfspots),vhf=>_num($Spot::vhfspots)};
+
+    # DXProtHandle already maintains these counters for show/spotstats.
+    # Reading the getter is passive: no command is executed, no packet is
+    # generated and no additional hot-path instrumentation is introduced.
+    # The counters describe logical spot reception/promotion, not physical
+    # per-neighbour traffic, so no OUT or PC92 values are inferred here.
+    if (defined &DXProt::get_pc11_61_stats) {
+        my $r = eval { DXProt::get_pc11_61_stats() };
+        if ($r && ref($r) eq 'HASH') {
+            $o->{pc_spots} = {
+                pc11_received => _num($r->{pc11_rx}),
+                pc61_received => _num($r->{pc61_rx}),
+                pc11_promoted_by_pc61 => _num($r->{pc11_to_61}),
+                pc11_promoted_by_route => _num($r->{rpc11_to_61}),
+                pc11_promotions => _num($r->{promotions}),
+                pc11_percent => _num($r->{pc11_percent}),
+                promotions_percent => _num($r->{promotions_percent}),
+            };
+        }
+    }
+    my $proto = eval { DXHealth::protocol_snapshot() };
+    if ($proto && ref($proto) eq 'HASH') {
+        $o->{protocol} = $proto;
+        $o->{spots}{local_generated} = _num($proto->{local_spots_generated});
+    }
+    my $ops = eval { DXHealth::operator_snapshot() };
+    $o->{operator_events} = $ops if $ops && ref($ops) eq 'HASH';
+    $o->{telemetry_caps}={
+        protocol_pc84_pc85=>1,
+        local_duplicate_spots=>(defined &DXHealth::local_duplicate_spot ? 1 : 0),
+        protocol_input_diagnostics=>(defined &DXHealth::protocol_reject_malformed ? 1 : 0),
+    };
+    my $pc92 = eval { DXHealth::pc92_snapshot() };
+    $o->{pc92} = $pc92 if $pc92 && ref($pc92) eq 'HASH';
+    return $o;
+}
+sub web {
+    my @rows;
+    for my $c (DXChannel::get_all()) {
+        next unless eval { $c->is_web };
+        my $conn=$c->{conn};
+        my ($waiting,$can_write)=(0,0);
+        if ($conn) { $waiting=eval{$conn->bytes_waiting}||0 if $conn->can('bytes_waiting'); $can_write=eval{$conn->can_write}?1:0 if $conn->can('can_write'); }
+        my @users;
+        if (ref($c->{web_users}) eq 'HASH') {
+            for my $call (sort keys %{$c->{web_users}}) {
+                my $u = $c->{web_users}{$call} || {};
+                my $dxu = eval { DXUser::get_current($call) };
+                push @users, {
+                    call => $call, ip => $u->{ip} || '', startt => _num($u->{startt}),
+                    authenticated => _bool($u->{authenticated}), priv => _num($u->{priv}),
+                    registered => _bool($u->{registered}), password_used => _bool($u->{password_used}),
+                    password_configured => ($dxu && eval { $dxu->passwd }) ? 1 : 0,
+                    auth_source => $u->{auth_source} || '',
+                };
+            }
+        }
+        push @rows, {call=>$c->{call}||'',role=>$c->{web_role}||'',version=>_num($c->{web_version}),logical_users=>scalar(@users),users=>\@users,
+            feed_accepted=>_num($c->{web_feed_accepted}),feed_dropped=>_num($c->{web_feed_dropped}),feed_saturated=>_bool($c->{web_feed_saturated}),bytes_waiting=>_num($waiting),can_write=>$can_write};
+    }
+    my $o=_base(); $o->{channels}=\@rows; return $o;
+}
+sub rbn {
+    my @rows;
+    my %totals = (
+        minute => { raw=>0, retrieved=>0, delivered=>0, users=>0 },
+        ten_minute => { raw=>0, retrieved=>0, delivered=>0, users=>0 },
+        hour => { raw=>0, retrieved=>0, delivered=>0, users=>0 },
+        queue_depth => 0,
+    );
+    for my $c (DXChannel::get_all()) {
+        next unless eval { $c->is_rbn };
+        my $row = {call=>$c->{call}||'',lasttime=>_num($c->{lasttime}),queue_depth=>_qlen($c->{queue}),inrush_until=>_num($c->{inrushpreventor}),
+            minute=>{raw=>_num($c->{noraw}),retrieved=>_num($c->{norbn}),delivered=>_num($c->{nospot}),users=>_qlen($c->{nousers})},
+            ten_minute=>{raw=>_num($c->{noraw10}),retrieved=>_num($c->{norbn10}),delivered=>_num($c->{nospot10}),users=>_qlen($c->{nousers10})},
+            hour=>{raw=>_num($c->{norawhour}),retrieved=>_num($c->{norbnhour}),delivered=>_num($c->{nospothour}),users=>_qlen($c->{nousershour})}};
+        push @rows, $row;
+        $totals{queue_depth} += $row->{queue_depth};
+        for my $w (qw(minute ten_minute hour)) { $totals{$w}{$_} += $row->{$w}{$_} for qw(raw retrieved delivered users); }
+    }
+    my $o=_base(); $o->{channels}=\@rows; $o->{totals}=\%totals; return $o;
+}
+
+sub topology {
+    # Keep this snapshot deliberately compact.  It runs in the DXSpider event
+    # loop, therefore it must neither perform I/O nor build an unbounded object.
+    # The Web control channel is protected by a 64 KiB HWM; the compact schema
+    # carries only the fields needed by the graph.
+    my $MAX_TOPOLOGY_NODES = 650;
+    my $MAX_TOPOLOGY_EDGES = 3000;
+    my @all = sort { ($a->{call}||'') cmp ($b->{call}||'') } Route::Node::get_all();
+    my $node_truncated = @all > $MAX_TOPOLOGY_NODES ? 1 : 0;
+    splice(@all, $MAX_TOPOLOGY_NODES) if @all > $MAX_TOPOLOGY_NODES;
+
+    my %included = map { (($_->{call}||'') => 1) } @all;
+    my %node_index; my $next_index=0; for my $n (@all) { my$c=$n->{call}||''; $node_index{$c}=$next_index++ if length$c }
+    my %direct;
+    for my $c (DXChannel::get_all()) {
+        next unless eval { $c->is_node };
+        $direct{$c->{call}} = 1 if $c->{call};
+    }
+
+    my (@nodes,@edges); my %edge_seen; my $edge_truncated=0;
+    for my $n (@all) {
+        my $call=$n->{call}||''; next unless length $call;
+        my @children=eval { $n->nodes }; @children=() if $@;
+        my @users=eval { $n->users }; @users=() if $@;
+        # Compact wire schema v2:
+        # [call,self,direct,pc9x,known_users,known_children,k_users,k_nodes].
+        # K values are bounded RAM-only telemetry from the last valid PC92K.
+        my $k = DXHealth::pc92k_advertised_get($call);
+        push @nodes, [$call,
+            ($call eq ($main::mycall||''))?1:0,
+            $direct{$call}?1:0,
+            _maybe_bool(eval { $n->do_pc9x }),
+            scalar(@users), scalar(@children),
+            ($k ? $k->{users} : undef),
+            ($k ? $k->{nodes} : undef)];
+        for my $child (sort @children) {
+            next unless length($child) && $included{$child};
+            my $key="$call\0$child"; next if $edge_seen{$key}++;
+            if (@edges >= $MAX_TOPOLOGY_EDGES) {$edge_truncated=1; last}
+            my $cn=Route::Node::get($child);
+            # Compact wire schema: [from_node_index,to_node_index,direct,pc92].
+            push @edges,[$node_index{$call},$node_index{$child},
+                ($call eq ($main::mycall||'') && $direct{$child})?1:0,
+                ($cn && eval{$cn->via_pc92})?1:0];
+        }
+    }
+    my $o=_base();
+    $o->{root}=$main::mycall||''; $o->{node_count}=scalar @nodes;
+    $o->{edge_count}=scalar @edges; $o->{direct_count}=scalar keys %direct;
+    $o->{pc92_count}=scalar(grep { $_->[3] } @nodes);
+    $o->{non_pc92_count}=scalar(grep { !$_->[3] } @nodes);
+    $o->{wire_format}='compact-v2';
+    $o->{truncated}=($node_truncated||$edge_truncated)?1:0;
+    $o->{node_truncated}=$node_truncated; $o->{edge_truncated}=$edge_truncated;
+    $o->{nodes}=\@nodes; $o->{edges}=\@edges;
+    return $o;
+}
+
+sub spot_ranks { my $o=_base(); my $r=eval { DXHealth::spot_rank_take_snapshot() }; $o->{spot_ranks}=$r if $r && ref($r) eq 'HASH'; return $o; }
+sub self_health { my $o=_base(); $o->{health}={%self_health}; return $o; }
+sub snapshot {
+    my ($what)=@_; $what=lc($what||'');
+    my %allowed=(status=>\&status,connections=>\&connections,traffic=>\&traffic,web=>\&web,rbn=>\&rbn,self_health=>\&self_health,spot_ranks=>\&spot_ranks,topology=>\&topology);
+    return (0,{error=>'unsupported_snapshot'}) unless $allowed{$what};
+    my $t=time(); $self_health{requests}++; $self_health{last_request}=$t;
+    my ($ok,$data); $ok=eval{$data=$allowed{$what}->();1};
+    my $ms=(time()-$t)*1000; $self_health{last_generation_ms}=0+$ms; $self_health{max_generation_ms}=$ms if $ms>$self_health{max_generation_ms};
+    unless($ok){$self_health{errors}++;return(0,{error=>'snapshot_failed'})}
+    $data->{generation_ms}=0+$ms; $data->{capabilities}=capabilities() if $what eq 'status';
+    return(1,$data);
+}
+1;

@@ -1,0 +1,453 @@
+DXWEB AND DXWEB ADMIN - INSTALLATION, UPDATE AND RECOVERY
+========================================================
+Operational manual in English.
+Revision: November 18, 2026.
+
+1. PURPOSE, ARCHITECTURE AND SCOPE
+----------------------------------
+This is the SYSOP's installation and management manual. The only
+documented interactive entry point is:
+
+  cd /spider
+  perl dxweb/dxweb-menu.pl
+
+The menu internally uses the existing transactional engine to plan,
+install, check status and recover configurations. The SYSOP does NOT
+need to run that engine directly. The menu does not copy or update
+application code: DXWeb and DXWeb Admin come from the DXSpider Git tree.
+
+DXWeb and DXWeb Admin are separate applications: they can be installed,
+configured and managed individually or together. Turnstile protects login in both applications and DXWeb public
+registration, when enabled and correctly configured. The version
+numbers of previously tested builds are not current-version guarantees. This protection does not
+replace passwords or SYSOP authorization.
+
+2. FILES, REQUIREMENTS AND PREPARATION
+--------------------------------------
+  /spider/dxweb/dxweb-menu.pl              Sole SYSOP interface
+  /spider/dxweb/dxweb-manager.pl           Existing internal engine
+  /spider/dxweb/tools/turnstile-config.pl  Turnstile configuration
+  /spider/INSTALL_DXWEB.en                 This manual
+  /spider/dxweb/                           DXWeb application
+  /spider/dxweb-admin/                     DXWeb Admin application
+
+The dxweb/install.pl installer copies a source tree to another
+destination; it is NOT the normal service configuration procedure.
+The earlier diagram remains at
+/spider/dxweb/docs/DXWeb_Configuration_ES.png; check the ports before
+using it for a specific installation.
+
+As root on the DXSpider server, check:
+
+  cd /spider || exit 1
+  ls -ld dxweb dxweb-admin
+  perl -c dxweb/dxweb-menu.pl
+  perl -c dxweb/dxweb-manager.pl
+  perl -c dxweb/tools/turnstile-config.pl
+  systemctl cat dxspider.service
+  systemctl cat dxweb.service
+  systemctl cat dxweb-admin.service
+
+The last two units may not exist during a first installation. The
+engine preserves the identity of existing services or attempts to
+inherit it from the DXSpider service. The menu allows an explicit
+user and group to be specified when appropriate. First check that
+they exist:
+
+  id sysop
+  getent group spider
+
+These are examples: do not assume every system uses sysop:spider.
+Do not recursively change ownership or permissions under /spider.
+
+3. MAIN MENU AND WORKFLOW ORDER
+-------------------------------
+Running the command in section 1 displays:
+
+  1. DXWeb
+  2. DXWeb Admin
+  3. Both applications
+  4. Cloudflare Turnstile
+  5. Rollback
+  6. Exit
+
+Options 1, 2 and 3 provide a submenu:
+  1. Service status
+  2. Plan / install / update
+  3. Back
+
+Sequence for a first installation:
+  A. Check prerequisites and the code present under /spider.
+  B. Choose 1, 2 or 3 depending on which applications to install.
+  C. Choose 2 to select access mode and scheme; review the plan.
+  D. Confirm Apply ONLY if the plan is correct.
+  E. Configure Turnstile keys using main menu option 4.
+  F. Check services using submenu option 1 and test the websites.
+
+For updates: first update the code using the repository's normal
+procedure; open the menu, select the component, review the plan and
+apply it. The menu manages configuration and services, not Git.
+
+4. CHOOSING THE DEPLOYMENT FROM THE MENU
+----------------------------------------
+Under Plan / install / update, the menu asks:
+
+  Access: 1 Direct, 2 Nginx
+  Scheme: 1 HTTP, 2 HTTPS
+
+If HTTPS is selected, it requests an existing public hostname,
+certificate and private key. It validates paths and file existence
+before sending the plan to the engine, which also checks certificate
+validity, whether the key matches and whether the certificate covers
+the hostname. It does not issue certificates.
+
+The menu asks for the service identity:
+  1. Preserve or detect existing user/group
+  2. Explicitly specify user and group
+
+The engine first performs a simulation (plan). The menu applies
+changes only after explicit SYSOP confirmation. If planning fails,
+it does not offer to apply. Installation may create or update services,
+configure Nginx if selected and restart affected services.
+
+4.1. FIRST INSTALLATION, DIRECT HTTP
+------------------------------------
+Recommended as the baseline case, without Nginx.
+Select main menu option 3 (both applications),
+submenu option 2,
+Direct and HTTP, with detected or explicit service identity as
+appropriate for the system.
+Review the plan and confirm.
+For a single web application, use main menu option 1 or 2.
+
+4.2. DIRECT HTTPS
+-----------------
+Select main menu option 1, 2 or 3,
+submenu option 2,
+Direct and HTTPS.
+Enter the existing DNS name, certificate and key.
+TLS terminates in the applications themselves.
+Verify that the certificate includes the hostname.
+
+4.3. NGINX HTTP OR HTTPS
+------------------------
+This is a technical example; there is no general official support
+for proxies on other servers or for URL subpaths. Before installing:
+
+  nginx -t
+  ls -la /etc/nginx/sites-enabled/
+  mkdir -p /root/dxweb-nginx-backup
+  cp -a /etc/nginx/nginx.conf /root/dxweb-nginx-backup/
+  cp -a /etc/nginx/sites-available /root/dxweb-nginx-backup/
+  cp -a /etc/nginx/sites-enabled /root/dxweb-nginx-backup/
+
+Choose Nginx in the submenu and HTTP or HTTPS as appropriate. For
+HTTPS, provide the hostname, certificate and key. The engine uses
+/etc/nginx/sites-available/dxweb-installer.conf and its link in
+sites-enabled, and creates proxies to internal ports 7480 and 7481.
+Do not delete unrelated sites or force installation if an incompatible
+site is detected (for example, an existing dxweb.conf). For a first
+Nginx installation, selecting both applications is recommended. The
+engine can preserve the other application block during a partial
+update when it recognizes the managed configuration exactly.
+
+4.4. UPDATES AND SINGLE-APPLICATION INSTALLATIONS
+-------------------------------------------------
+Select DXWeb or DXWeb Admin from the main menu.
+Keep the access mode, scheme, hostname and certificates of the
+working installation; review differences in the plan.
+Do not mix Direct and Nginx without planning a migration.
+Updating code from Git is a separate step.
+Restarting DXSpider is not necessary when updating only the websites.
+See section 4.5 for service lifecycle and update procedures.
+
+4.5. SERVICE LIFECYCLE AND CODE UPDATES
+---------------------------------------
+DXSpider, DXWeb and DXWeb Admin are three separate systemd services:
+  dxspider.service
+  dxweb.service
+  dxweb-admin.service
+
+Each service can be started, stopped, enabled or disabled independently.
+DXWeb and DXWeb Admin depend on DXSpider for the features that exchange
+information with it; independent service control does not mean that
+those features work while DXSpider is unavailable.
+
+Updating source files on disk does not automatically reload code already
+running in a service. After an update, restart each affected service:
+  - DXSpider Perl modules used by cluster.pl: restart dxspider.service.
+  - DXWeb application code: restart dxweb.service.
+  - DXWeb Admin application code: restart dxweb-admin.service.
+  - Shared components: restart every service that loads those components.
+
+For a coordinated restart after a DXSpider update that also changes both
+web applications, the following is an example (expect a temporary
+interruption of DXSpider connections and web sessions):
+
+  systemctl restart dxspider.service
+  systemctl restart dxweb.service dxweb-admin.service
+  systemctl status dxspider.service dxweb.service dxweb-admin.service --no-pager
+
+If only web application code changed, do not restart DXSpider merely for
+that reason. For changes affecting all three components, a coordinated
+restart of all three services is recommended. Confirm actual unit names
+and dependencies on the host before running these commands. Restarting
+services does not update Git code or apply installer configuration changes.
+
+4.6. METRICS COLLECTION (DXWEB ADMIN)
+-------------------------------------
+Metrics collection is disabled by default in DXWeb Admin. To enable
+collection and storage of new metrics, open:
+  Supervision -> System -> Metrics collection
+Enable the option there. Disabling collection does not disable live
+supervision, administrative views or browsing existing historical data.
+
+5. CLOUDFLARE TURNSTILE: OBTAINING AND CONFIGURING KEYS
+-------------------------------------------------------
+Turnstile does NOT automatically create keys.
+The SYSOP must obtain them from Cloudflare. This step is required
+when protection is enabled.
+Access to the relevant Cloudflare account is required.
+
+5.1. OBTAINING THE KEYS
+-----------------------
+  1. Open https://dash.cloudflare.com/ and sign in or create an account.
+  2. Open Turnstile and create a widget (Add widget).
+  3. Select Managed mode.
+  4. Register the EXACT hostnames browsers will use to access DXWeb
+     and DXWeb Admin. If they share a hostname but use different ports,
+     register the hostname; ports are not part of the authorized name.
+     If the hostnames differ, include both in the widget configuration
+     where supported.
+  5. For SSH tunnel tests using http://localhost:17380 and :17381,
+     ensure localhost is authorized in the Turnstile configuration.
+     127.0.0.1 is not equivalent to the hostname localhost.
+  6. Copy the Site Key (public, used by the browser) and the Secret
+     Key (private, used by the server for verification).
+  7. Keep the Secret Key out of screenshots, tickets, repositories,
+     logs, public files and commands that may remain in shell history.
+
+5.2. STORING AND ENABLING KEYS THROUGH THE MENU
+----------------------------------------------
+Open main menu option 4 (Cloudflare Turnstile):
+  1. Setup instructions
+  2. Show configuration status
+  3. Store / replace keys
+  4. Enable Turnstile
+  5. Disable Turnstile
+  6. Back
+
+Select 3 and confirm.
+Enter the Site Key and Secret Key when prompted.
+Secret Key input is hidden when using an interactive terminal.
+Keys are stored in /etc/dxweb/turnstile.json with restrictive
+permissions (0600).
+The configuration is initially created DISABLED.
+Then choose 4 to enable it.
+Choose 2 to verify CONFIGURED and ENABLED.
+The script requires root to change the configuration.
+
+The configuration is shared by applications reading that file.
+The menu does not create separate keys per application and does not
+itself verify that the hostnames registered with Cloudflare are valid.
+After changing keys or enabling/disabling protection, check whether
+the applications need a restart to reload configuration; perform any
+restart in a controlled manner, without restarting DXSpider.
+
+5.3. ACTUAL TURNSTILE VERIFICATION
+----------------------------------
+Open both websites using their authorized hostnames. Check that the
+widget appears and can be completed. In DXWeb, test login, logout and
+another login in the same session; open a new session and verify that
+another check is required. Also test public registration. In DXWeb
+Admin, check CAPTCHA before login and the usual administrative
+authorization (sufficient privileges); CAPTCHA does not grant privileges.
+
+For diagnostics, check /turnstile-config.json on each server: it
+should show enabled and the public site_key, NEVER secret_key.
+If the widget does not appear, inspect the browser console, Cloudflare
+script loading, authorized hostname and initialization errors.
+If a key is incorrect, do not bypass the control: review configuration
+and logs. HTTP 200 or WS 101 alone does not prove authentication works.
+
+6. VERIFICATION AND SECURITY TESTS
+----------------------------------
+In the menu, choose 1/2/3 and then Service status. Also verify:
+
+  systemctl is-active dxweb.service dxweb-admin.service
+  systemctl show dxweb.service -p ActiveState -p MainPID
+  systemctl show dxweb-admin.service -p ActiveState -p MainPID
+  ss -lntp | grep -E ':(7380|7381|7480|7481)\b'
+
+For direct HTTP:
+  curl -f http://127.0.0.1:7380/software-version.json
+  curl -f http://127.0.0.1:7381/software-versions.json
+
+For Nginx, check nginx -t and the public URLs. Test login,
+registration, WebSocket, spots, supervision and permissions.
+
+7. RECOVERY FROM THE MENU
+-------------------------
+Transactions are normally stored in:
+  /var/backups/dxweb-installer/
+
+Select main menu option 5, Rollback. Enter the absolute path to the
+transaction containing manifest.json. The menu first presents a
+recovery plan; only then does it ask for confirmation to apply.
+Do not roll back without inspecting the plan.
+
+Rollback restores configuration and service state; it does NOT change
+the Git revision of the code. When rolling back a first installation,
+service units may be absent afterward. The engine creates a safety
+checkpoint and uses a bounded shutdown. Do not repeat rollback
+blindly. Do not delete databases, filters or certificates to recover.
+
+8. TECHNICAL REFERENCE: MODES, PORTS AND CONFIGURATION
+------------------------------------------------------
+8.1. MODES AND PORTS
+--------------------
+
+  Mode                 DXWeb          Admin          DXSpider IntMsg
+  -------------------  -------------- -------------- ---------------
+  DIRECT HTTP          0.0.0.0:7380   0.0.0.0:7381   127.0.0.1:27754
+  NGINX, HTTP backend  127.0.0.1:7480 127.0.0.1:7481 127.0.0.1:27754
+  NGINX, public        port 7380      port 7381      not exposed
+
+In direct mode, HTTPS configures TLS in the applications.
+With Nginx, HTTPS configures TLS in the proxy, while the
+applications continue serving HTTP on loopback.
+
+Port 27754 is not a browser port.
+The default is 127.0.0.1:27754. An update preserves DXS_HOST and
+DXS_PORT from existing service units.
+
+8.2. CONFIGURATION VARIABLES AND PORTS
+--------------------------------------
+
+The following variables are set as Environment= in systemd units.
+The manager generates them according to the selected mode.
+Manual editing is unnecessary when using the installer.
+
+  Variable              Application      Purpose
+  --------------------  ---------------  -----------------------------
+  DXS_HOST              Both             IntMsg listener host
+  DXS_PORT              Both             IntMsg listener port
+  HTTP_HOST             DXWeb            HTTP listening address
+  HTTP_PORT             DXWeb            HTTP listening port
+  DXWEB_HOST            DXWeb Admin      Admin listening address
+  DXWEB_PORT            DXWeb Admin      Admin listening port
+  DXWEB_CLIENT_PORT     DXWeb Admin      DXWeb backend port
+  DXWEB_CLIENT_HOST     DXWeb Admin      DXWeb connection host
+  DXWEB_CLIENT_SCHEME   DXWeb Admin      DXWeb connection scheme
+  DXWEB_SCHEME          Both             HTTP or HTTPS scheme
+  MOJO_REVERSE_PROXY    Both             Trust HTTP reverse proxy
+  DXSPIDER_ROOT         Both             DXSpider tree path
+  DXWEB_TLS_CERT        Both             Direct TLS certificate
+  DXWEB_TLS_KEY         Both             Direct TLS private key
+
+Typical values for a new installation:
+
+  Variable              Direct HTTP      With Nginx
+  --------------------  ---------------  -----------------------------
+  DXS_HOST              127.0.0.1        127.0.0.1
+  DXS_PORT              27754            27754
+  HTTP_HOST             0.0.0.0          127.0.0.1
+  HTTP_PORT             7380             7480
+  DXWEB_HOST            0.0.0.0          127.0.0.1
+  DXWEB_PORT            7381             7481
+  DXWEB_CLIENT_PORT     7380             7480
+  MOJO_REVERSE_PROXY    0                1
+
+DXS_HOST and DXS_PORT identify DXSpider's IntMsg service,
+not the browser's HTTP access. During an update, the manager
+preserves their values if they already appear in installed units.
+
+HTTP_HOST and HTTP_PORT belong exclusively to DXWeb.
+DXWEB_HOST and DXWEB_PORT belong to DXWeb Admin. The
+DXWEB_CLIENT_PORT variable tells Admin the DXWeb backend port;
+it must not be confused with the proxy's public port.
+
+DXWEB_CLIENT_HOST and DXWEB_CLIENT_SCHEME are generated according
+to the selected mode and scheme. With Nginx, the applications listen
+on HTTP over loopback even if public access uses HTTPS.
+
+MOJO_REVERSE_PROXY=0 is for direct access; 1 is for access through
+a trusted HTTP proxy. For manual configuration, validate the proxy headers and the
+client's real IP address against the deployed Nginx configuration. Do not enable
+this trust for direct clients.
+
+DXWEB_TLS_CERT and DXWEB_TLS_KEY are included only when the
+applications serve HTTPS directly. With Nginx, the certificate
+and key are configured in the proxy, not the HTTP backends.
+
+To check the actual installed values:
+
+  systemctl cat dxweb.service
+  systemctl cat dxweb-admin.service
+
+The examples above describe new installations. Existing service
+units may retain different local values.
+
+9. LOGS AND DIAGNOSTICS
+-----------------------
+
+  journalctl -u dxweb.service -n 100 --no-pager
+  journalctl -u dxweb-admin.service -n 100 --no-pager
+  systemctl status dxweb.service --no-pager
+  systemctl status dxweb-admin.service --no-pager
+
+With Nginx, also check:
+
+  nginx -t
+  journalctl -u nginx.service -n 100 --no-pager
+
+If the manager detects an incompatible Nginx site, do not delete
+the existing configuration. Plan a migration with a prior backup.
+If NO CONFIG CHANGES appears, it may still be necessary to apply
+the installation from the menu after updating the Git code.
+
+10. TECHNICAL SYSTEMD EXAMPLES
+------------------------------
+
+Four independent examples can be distributed:
+
+  dxweb.service.example
+  dxweb-admin.service.example
+  dxweb.service.nginx.example
+  dxweb-admin.service.nginx.example
+
+They are references for manual testing, NOT installation steps.
+The manager generates installed units directly and preserves some
+pre-existing local options. Therefore, examples should represent
+a new installation using sysop:spider, /spider as the actual path,
+and DXS_HOST=127.0.0.1, DXS_PORT=27754. If /spider is a symbolic
+link, the manager uses the resolved physical path; examples require
+adjusting that path before a manual installation.
+
+The examples are included under /spider/dxweb/examples/.
+Their values must be checked against the installed unit generator and
+local configuration before any manual use. Do not replace an operational unit
+with an example without a backup and checking their differences.
+
+11. LIMITATIONS AND SECURITY
+----------------------------
+
+HTTPS is recommended whenever DXWeb or DXWeb Admin is accessible
+from the Internet or public networks.
+
+This recommendation is especially important for DXWeb Admin,
+which provides access to administrative functions and requires
+authentication.
+
+Unencrypted HTTP should be reserved for trusted local networks
+or controlled test environments.
+
+Nginx support is provided as a configuration example, without
+guaranteed compatibility for all scenarios. External proxies,
+URL subpaths and certificates must be validated separately.
+
+Do not recursively modify ownership or permissions under
+/spider to resolve access problems.
+
+Installation does not require stopping or reinstalling DXSpider.
+Do not use this manual to administer other projects on the node.

@@ -18,6 +18,7 @@ use 5.10.1;
 use POSIX qw(:math_h);
 use DXUtil;
 use DXChannel;
+use DXHealth;
 use DXUser;
 use DXVars;
 use DXDebug;
@@ -126,8 +127,8 @@ sub start
 		my ($h) = $line =~ /host=(\d+\.\d+\.\d+\.\d+)/;
 		$line =~ s/\s*host=\d+\.\d+\.\d+\.\d+// if $h;
 		unless ($h) {
-			($h) = $line =~ /host=([\da..fA..F:]+)/;
-			$line =~ s/\s*host=[\da..fA..F:]+// if $h;
+			($h) = $line =~ /host=([\da-f:]+)/i;
+			$line =~ s/\s*host=[\da-f:]+//i if $h;
 		}
 		$self->{hostname} = $h if $h;
 	}
@@ -174,7 +175,8 @@ sub start
 	$self->send_motd;
 
 	# sort out privilege reduction
-	$self->{priv} = 0 unless $self->{hostname} eq '127.0.0.1' || $self->conn->peerhost eq '127.0.0.1' || $self->{hostname} eq '::1' || $self->conn->{usedpasswd};
+	# Client-supplied host= and PROXY metadata cannot authorize local privilege.
+	$self->{priv} = 0 unless ExtMsg::_direct_local($self->conn) || $self->conn->{usedpasswd};
 
 	
 	Filter::load_dxchan($self, 'spots', 0);
@@ -201,11 +203,13 @@ sub start
 	}
 	
 	$self->tell_login('loginu');
+	DXHealth::connection_up($self, 'user');
 	$self->tell_buddies('loginb');
 
 	# is this a bad ip address?
-	if (is_ipaddr($self->{hostname})) {
-		$self->{badip} = DXCIDR::find($self->{hostname});
+	my $security_ip = $self->conn->peerhost;
+	if (is_ipaddr($security_ip)) {
+		$self->{badip} = DXCIDR::find($security_ip);
 	}
 	
 	# do we need to send a forward/opernam?
@@ -324,6 +328,7 @@ sub normal
 	} elsif ($self->{state} eq 'passwd2') {
 		if ($cmdline eq $self->{passwd}) {
 			$self->{user}->passwd($cmdline);
+			$self->{user}->put();
 			$self->send($self->msg('pw3'));
 		} else {
 			$self->send($self->msg('pw4'));
@@ -364,7 +369,7 @@ sub normal
 								if ($self->{state} eq 'talk') {
 									$self->send_talks($_, $l);
 								} else {
-									send_chats($self, $_, $l)
+									$self->send_chats($_, $l)
 								}
 							}
 						}
@@ -508,6 +513,10 @@ sub send_ans
 sub run_cmd
 {
 	my $self = shift;
+
+	# DXCSS: transient result used only by run_cmd_with_status() during committed replay.
+	# Existing run_cmd() callers and its return value remain unchanged.
+	delete $self->{_dxcss_last_cmd_ok};
 	my $user = $self->{user};
 	my $call = $self->{call};
 	my $dcall = $self->{dcall};
@@ -533,20 +542,23 @@ sub run_cmd
 
 		my ($path, $fcmd);
 			
-		dbg("cmd: $cmd") if isdbg('command');
-			
-		# alias it if possible
+		dbg("cmd: '$cmd'") if isdbg('command');
+
 		my $acmd = CmdAlias::get_cmd($cmd);
 		if ($acmd) {
 			($cmd, $args) = split /\s+/, "$acmd $args", 2;
 			$args = "" unless defined $args;
 			dbg("cmd: aliased $cmd $args") if isdbg('command');
 		}
-			
-		# first expand out the entry to a command
-		($path, $fcmd) = search($main::localcmd, $cmd, "pl");
-		($path, $fcmd) = search($main::cmd, $cmd, "pl") unless $path && $fcmd;
 
+		# first expand out the entry to a command
+		# Exact command names take precedence over abbreviations in either tree.
+		($path, $fcmd) = search_exact($main::localcmd, $cmd, "pl");
+		($path, $fcmd) = search_exact($main::cmd, $cmd, "pl") unless $path && $fcmd;
+		($path, $fcmd) = search($main::localcmd, $cmd, "pl") unless $path && $fcmd;
+		($path, $fcmd) = search($main::cmd, $cmd, "pl") unless $path && $fcmd;
+		dbg("cmd: search '$cmd '-> $fcmd (path: $path) $args") if isdbg('command');
+		
 		if ($path && $cmd) {
 			dbg("cmd: path $cmd cmd: $fcmd") if isdbg('command');
 			
@@ -558,8 +570,28 @@ sub run_cmd
 				dbg("cmd: package $package") if isdbg('command');
 #				Log('cmd', "$self->{dcall} on $self->{hostname} : '$cmd $args'");
 				my $t0 = [gettimeofday];
-				eval { @ans = &{"${package}::handle"}($self, $args) };
+#                eval { @ans = &{"${package}::handle"}($self, $args) };
+
+                # DXCSS: intercept synchronised administrative commands after normal
+                # DXSpider command resolution and before the handler mutates local state.
+                # If DxCSS does not handle the command, normal DXSpider execution continues.
+                my $dxc_handled = 0;
+                if (defined &DXCluster::command) {
+                    my @dxc = DXCluster::command($self, $fcmd, $args);
+                    if (@dxc && $dxc[0]) {
+                        $dxc_handled = 1;
+                        shift @dxc;
+                        @ans = @dxc;
+                    }
+               }
+
+                unless ($dxc_handled) {
+                    eval { @ans = &{"${package}::handle"}($self, $args) };
+                }
+#				eval { @ans = &{"${package}::handle"}($self, $args) };
 				if ($@) {
+					# DXCSS: a handler exception is an unsuccessful committed command result.
+					$self->{_dxcss_last_cmd_ok} = 0;
 					DXDebug::dbgprintring(25);
 					return (DXDebug::shortmess($@));
 				}
@@ -579,6 +611,9 @@ sub run_cmd
 	}
 	
 	my $ok = shift @ans;
+	# DXCSS: preserve the handler status for run_cmd_with_status(); run_cmd() still
+	# returns only the normal DXSpider response lines.
+	$self->{_dxcss_last_cmd_ok} = $ok ? 1 : 0;
 	if ($ok) {
 		delete $self->{errors};
 	} else {
@@ -589,6 +624,17 @@ sub run_cmd
 		} 
 	}
 	return map {s/([^\s])\s+$/$1/; $_} @ans;
+}
+
+# DXCSS: status-preserving wrapper used exclusively when DxCSS applies a
+# committed command. Normal DXSpider callers continue to use run_cmd().
+sub run_cmd_with_status
+{
+	my ($self, $line) = @_;
+	delete $self->{_dxcss_last_cmd_ok};
+	my @out = run_cmd($self, $line);
+	my $ok = exists $self->{_dxcss_last_cmd_ok} ? $self->{_dxcss_last_cmd_ok} : undef;
+	return ($ok, @out);
 }
 
 #
@@ -662,7 +708,7 @@ sub disconnect
 
 		# issue a pc17 to everybody interested
 		$main::me->route_pc17($main::mycall, undef, $main::routeroot, $uref);
-		$main::me->route_pc92d($main::mycall, undef, $main::routeroot, $uref) unless $DXProt::pc92_slug_changes || ! $DXProt::pc92_ad_enable;
+		$main::me->route_pc92d($main::mycall, undef, $main::routeroot, $uref) unless $DXProt::pc92_slug_changes || ! $DXProt::pc92_ad_enabled;
 	} else {
 		confess "trying to disconnect a non existant user $self->{dcall}";
 	}
@@ -672,6 +718,7 @@ sub disconnect
 		
 	# send info to all logged in thingies
 	$self->tell_login('logoutu');
+	DXHealth::connection_down($self, 'user');
 	$self->tell_buddies('logoutb');
 
 	LogDbg('DXCommand', "$self->{dcall} disconnected");
@@ -731,6 +778,17 @@ sub run_script
 }
 
 #
+# Resolve an exact command without consulting the abbreviation cache.
+# A nested command is exact only when every path component matches.
+sub search_exact
+{
+    my ($path, $command, $suffix) = @_;
+    return () unless defined $path && defined $command && defined $suffix;
+    return () unless $command =~ /\A\w+(?:\/\w+)*\z/;
+    return () unless -f "$path/$command.$suffix";
+    return ($path, lc $command);
+}
+
 # search for the command in the cache of short->long form commands
 #
 
@@ -745,6 +803,19 @@ sub search
 
 	# do some checking for funny characters
 	return () if $short_cmd =~ /\/$/;
+
+	# DXReg: only the complete leaf names register/registered are accepted
+	# under show (the show directory itself may still be abbreviated).
+	# Check before the abbreviation cache, for local_cmd and cmd alike.
+	my ($dir_part, $leaf_part) = split m{/}, $short_cmd, 3;
+	if (defined $leaf_part && $short_cmd !~ m{/.*/} &&
+	    length($dir_part) && index('show', $dir_part) == 0 &&
+	    length($leaf_part) &&
+	    (index('register', $leaf_part) == 0 ||
+	     index('registered', $leaf_part) == 0) &&
+	    $leaf_part ne 'register' && $leaf_part ne 'registered') {
+		return ();
+	}
 
 	# return immediately if we have it
 	($apath, $acmd) = split ',', $cmd_cache{$short_cmd} if $cmd_cache{$short_cmd};
@@ -984,7 +1055,7 @@ sub chat
 	my $text = shift;
 	my ($filter, $hops);
 
-	return unless grep uc $_ eq $target, @{$self->{user}->{group}};
+	return unless $self->user->in_group($target);
 	
 	$text =~ s/^\#\d+ //;
 	my $buf;

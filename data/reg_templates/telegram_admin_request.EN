@@ -1,0 +1,4 @@
+<b>$NODE 🆕 DXSpider registration request</b>
+#$REQUEST_ID <b>$CALL</b>
+Email: $EMAIL
+SSIDs: $REQUESTED_SSIDS
