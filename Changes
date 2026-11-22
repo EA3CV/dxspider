@@ -1,3 +1,7 @@
+22Nov26======================================================================
+1. DXUser: Added automatic recovery of a missing dxusers.db from the weekly
+   user_json export at startup. Recovery is atomic, validates SQLite
+   integrity and preserves existing databases and legacy migration priority.
 21Nov26======================================================================
 1. Fixed PC93 duplicate sequence handling across transient Route::Node loss.
 2. Restored DXUser::union() with efficient case-insensitive group matching.

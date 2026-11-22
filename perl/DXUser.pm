@@ -12,6 +12,7 @@ use DXLog;
 use DB_File;
 use Data::Dumper;
 use Fcntl;
+use Fcntl qw(:flock);
 use IO::File;
 use DXDebug;
 use DXUtil;
@@ -23,6 +24,8 @@ use IO::File;
 use DXChannel;
 use DXJSON;
 use DBI;
+use JSON::PP ();
+use IO::Handle ();
 use Encode ();
 
 use strict;
@@ -171,6 +174,10 @@ sub init
 
 			my ($db_path) = $main::userdsn =~ /dbname=([^;]+)/;
 			my $db_missing = !-e $db_path;
+
+			# Restore only when SQLite is absent; preserve native users.v3j priority.
+			_restore_from_user_json_if_missing($main::root, $main::userdsn)
+				if $mode != 3 && $db_missing;
 
 
 			$dbh = DBI->connect($main::userdsn, $main::dbuser, $main::dbpass, {
@@ -596,6 +603,90 @@ sub sync
 	else {
 		$dbm->sync;
 	}
+}
+
+# Recovery fallback for missing SQLite DB, after native users.v3j precedence.
+sub _restore_from_user_json_if_missing {
+    my ($root, $dsn) = @_;
+    return 'SKIP_NON_SQLITE' unless defined($dsn) && $dsn =~ /^dbi:SQLite:dbname=([^;]+)$/i;
+    my $db = $1;
+    die "DXUser recovery: database outside local_data\n" unless $db eq "$root/local_data/dxusers.db";
+    my $dir = "$root/local_data";
+    my $legacy = "$dir/users.v3j";
+    my $source = "$dir/user_json";
+    # Never touch an existing DB, including corrupt DBs and symlinks.
+    return 'SKIP_DB_EXISTS' if -e $db || -l $db;
+    return 'SKIP_LEGACY' if -e $legacy || -l $legacy;
+    return 'SKIP_NO_EXPORT' unless -f $source && !-l $source;
+    die "DXUser recovery: unsafe destination directory\n" if -l $dir || !-d $dir;
+    my $lock = "$dir/.dxuser-auto-restore.lock";
+    sysopen(my $lf, $lock, O_CREAT|O_RDWR, 0600) or die "DXUser recovery: lock open: $!\n";
+    flock($lf, LOCK_EX) or die "DXUser recovery: lock: $!\n";
+    return 'SKIP_DB_EXISTS' if -e $db || -l $db;
+    return 'SKIP_LEGACY' if -e $legacy || -l $legacy;
+    for my $suffix ('-wal', '-shm', '-journal') {
+        die "DXUser recovery: SQLite sidecar present: $suffix\n" if -e "$db$suffix" || -l "$db$suffix";
+    }
+    my @ss = stat($source);
+    die "DXUser recovery: export unavailable\n" unless @ss && -f $source && !-l $source;
+    open(my $fh, '<:raw', $source) or die "DXUser recovery: export open: $!\n";
+    my $tmp = "$dir/.dxusers.db.restore.$$";
+    die "DXUser recovery: temp exists\n" if -e $tmp || -l $tmp;
+    my ($dbh, $count);
+    my $ok = eval {
+        $dbh = DBI->connect("dbi:SQLite:dbname=$tmp", '', '', {RaiseError=>1, PrintError=>0, AutoCommit=>1, sqlite_unicode=>1}) or die 'DBI connect failed';
+        $dbh->do('PRAGMA journal_mode=DELETE');
+        $dbh->do('PRAGMA synchronous=FULL');
+        $dbh->do('CREATE TABLE users (call TEXT PRIMARY KEY, data TEXT)');
+        $dbh->begin_work;
+        my $sth = $dbh->prepare('INSERT INTO users (call,data) VALUES (?,?)');
+        my $json = JSON::PP->new->utf8;
+        my ($in_data, %seen) = (0);
+        $count = 0;
+        while (my $line = <$fh>) {
+            if (!$in_data) { $in_data = 1 if $line =~ /^__DATA__\s*$/; next; }
+            $line =~ s/\r?\n\z//;
+            die "DXUser recovery: blank record\n" unless length $line;
+            my ($call, $raw) = split(/\t/, $line, 2);
+            die "DXUser recovery: malformed record\n" unless defined $raw && length($call) && !$seen{$call}++;
+            my $decoded = eval { $json->decode($raw) };
+            die "DXUser recovery: invalid JSON record\n" if $@ || ref($decoded) ne 'HASH';
+            die "DXUser recovery: record callsign mismatch\n"
+                if exists $decoded->{call} && $decoded->{call} ne $call;
+            $sth->execute($call, $raw);
+            $count++;
+        }
+        die "DXUser recovery: missing DATA marker or empty export\n" unless $in_data && $count;
+        $sth->finish;
+        $dbh->commit;
+        my ($integrity) = $dbh->selectrow_array('PRAGMA integrity_check');
+        die "DXUser recovery: integrity failed\n" unless defined $integrity && $integrity eq 'ok';
+        my ($readback) = $dbh->selectrow_array('SELECT COUNT(*) FROM users');
+        die "DXUser recovery: count mismatch\n" unless $readback == $count;
+        $dbh->disconnect; undef $dbh;
+        close($fh) or die "DXUser recovery: export close failed\n";
+        my @now = stat($source);
+        die "DXUser recovery: source changed during read\n" unless @now && $ss[0] == $now[0] && $ss[1] == $now[1] && $ss[7] == $now[7] && $ss[9] == $now[9];
+        open(my $syncfh, '<', $tmp) or die "DXUser recovery: temp open for sync: $!\n";
+        $syncfh->sync or die "DXUser recovery: temp fsync: $!\n";
+        close $syncfh;
+        die "DXUser recovery: DB appeared during rebuild\n" if -e $db || -l $db;
+        die "DXUser recovery: legacy appeared during rebuild\n" if -e $legacy || -l $legacy;
+        for my $suffix ('-wal','-shm','-journal') { die "DXUser recovery: sidecar appeared\n" if -e "$db$suffix" || -l "$db$suffix"; }
+        link($tmp, $db) or die "DXUser recovery: publish failed: $!\n";
+        unlink($tmp) or die "DXUser recovery: cannot remove temporary hardlink: $!\n";
+        # Sync the directory for durability. Failure is reported, not silently ignored.
+        sysopen(my $dfh, $dir, O_RDONLY) or die "DXUser recovery: directory open: $!\n";
+        $dfh->sync or die "DXUser recovery: directory fsync: $!\n";
+        close $dfh;
+        1;
+    };
+    my $error = $@;
+    eval { $dbh->rollback if $dbh && !$dbh->{AutoCommit}; $dbh->disconnect if $dbh; };
+    close($fh) if fileno($fh);
+    unlink($tmp) if -f $tmp && !-l $tmp;
+    die $error unless $ok;
+    return "RESTORED:$count";
 }
 
 sub _import_from_v3j {
