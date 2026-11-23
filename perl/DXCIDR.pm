@@ -119,6 +119,22 @@ sub append
     return $ok ? scalar @in : 0;
 }
 
+# Some Net::CIDR::Lite builds warn in _pack_ipv6 when the optional IPv4
+# tail is absent.  Scope the compatibility to calls into that library only.
+# All other warnings (including unexpected library warnings) are preserved.
+sub _ipv6_cidr_call
+{
+    my ($code) = @_;
+    my $previous_warn = $SIG{__WARN__};
+    local $SIG{__WARN__} = sub {
+        my ($warning) = @_;
+        return if $warning =~ /\A(?:substr outside of string|Use of uninitialized value in concatenation \(\.\) or string) at \S*Net\/CIDR\/Lite\.pm line \d+\.\n?\z/;
+        if (ref($previous_warn) eq 'CODE') { $previous_warn->($warning); }
+        else { CORE::warn($warning); }
+    };
+    return $code->();
+}
+
 sub add
 {
     return 0 unless $active;
@@ -149,7 +165,7 @@ sub add
             if ($@) { push @out, $@; }
             else { ++$count; push @blocked_intervals, [$f, $lo, $hi]; ++$count4; }
         } elsif ($ip =~ /:/) {
-            eval { $ipv6->add_any($_) for @cidrs };
+            eval { _ipv6_cidr_call(sub { $ipv6->add_any($_) for @cidrs }) };
             if ($@) { push @out, $@; }
             else { ++$count; push @blocked_intervals, [$f, $lo, $hi]; ++$count6; }
         } else { LogDbg('err', "DXCIDR::add non-ip address '$ip' read"); }
@@ -166,8 +182,7 @@ sub clean_prep
 		$ipv4->prep_find;
 	}
 	if ($ipv6 && $count6) {
-		$ipv6->clean;
-		$ipv6->prep_find;
+		_ipv6_cidr_call(sub { $ipv6->clean; $ipv6->prep_find });
 	}
 }
 
@@ -204,7 +219,7 @@ sub list
 	return () unless $active;
 	my @out;
 	push @out, $ipv4->list, $ipv4->list_range if $count4;
-	push @out, $ipv6->list, $ipv6->list_range if $count6;
+	push @out, _ipv6_cidr_call(sub { ($ipv6->list, $ipv6->list_range) }) if $count6;
 	return _sort(@out);
 }
 
@@ -213,11 +228,12 @@ sub find
 	return 0 unless $active;
 	return 0 unless defined $_[0] && length $_[0];
 
+	if ($_[0] =~ /:/) {
+		my $ip = $_[0];
+		return $count6 ? _ipv6_cidr_call(sub { $ipv6->find($ip) }) : 0;
+	}
 	if ($_[0] =~ /\./) {
 		return $count4 ? $ipv4->find($_[0]) : 0;
-	}
-	if ($_[0] =~ /:/) {
-		return $count6 ? $ipv6->find($_[0]) : 0;
 	}
 	return 0;
 }
@@ -271,7 +287,7 @@ sub covered
     return 0 unless defined $family;
     my $table = $family == AF_INET ? $ipv4 : $ipv6;
     my @intervals;
-    for my $entry ($table->list) {
+    for my $entry ($family == AF_INET6 ? _ipv6_cidr_call(sub { $table->list }) : $table->list) {
         my ($f, $b, $lo, $hi) = _spec_interval($entry);
         push @intervals, [$lo, $hi] if defined $f && $f == $family;
     }

@@ -1,3 +1,12 @@
+23Nov26======================================================================
+1. Added automatic validation and repair bad* lists during DXSpider startup.
+2. Hash-format lists are checked for invalid entries, which are removed while
+   preserving valid records.
+3. Added validation of plain-text lists, including badip*.
+4. Repairs create backups in /spider/local_data/badlist-backups/.
+5. Fixed a compatibility issue in DXCIDR.pm caused by a reproducible bug in
+   the external Perl module Net::CIDR::Lite, which generates spurious warnings
+   when processing valid IPv6 addresses.
 22Nov26======================================================================
 1. DXUser: Added automatic recovery of a missing dxusers.db from the weekly
    user_json export at startup. Recovery is atomic, validates SQLite
