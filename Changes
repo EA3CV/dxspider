@@ -10,6 +10,9 @@
 6. Fixed badlist hash recovery for callsigns beginning with digits.
    Recovered hashes are serialized with Data::Dumper to ensure valid
    Perl syntax and preserve valid entries.
+7. Updated UPGRADE.mojo installation documentation with the complete
+   list of required Perl dependencies.
+8. Added load/baddx command.
 22Nov26======================================================================
 1. DXUser: Added automatic recovery of a missing dxusers.db from the weekly
    user_json export at startup. Recovery is atomic, validates SQLite

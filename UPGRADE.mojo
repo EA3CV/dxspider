@@ -22,8 +22,8 @@ there that will definitely see the difference in terms of both CPU
 usage and general responsiveness. Using Mojolicious also brings the
 tantalising possibility of grafting on a web frontend, as it were, to
 the "side" of a DXSpider node. But serious work on this won't start
-until we have a stable base to work on. Apart from anything else there
-will, almost certainly, need to be some internal data structure
+until we have a stable base to work on. Apart from anything else
+there will, almost certainly, need to be some internal data structure
 reorganisation before a decent web frontend could be constructed.
 
 *IMPORTANT* There is an action needed to go from mojo build 228 and
@@ -37,25 +37,25 @@ where they came from (/spider/data).
 
 Prerequisites:
 
-	A supply of good, strong tea - preferably in pint mugs. A tin hat,
-	stout boots, a rucksack with survival rations and a decent miners'
-	lamp might also prove comforting. I enclose this link:
-	http://www.noswearing.com/dictionary in case you run out of swear
-	words.
+    A supply of good, strong tea - preferably in pint mugs. A tin hat,
+    stout boots, a rucksack with survival rations and a decent miners'
+    lamp might also prove comforting. I enclose this link:
+    http://www.noswearing.com/dictionary in case you run out of swear
+    words.
 
-	An installed and known working git based installation. Mojo is not
-	supported under CVS or installation from a tarball.
+    An installed and known working git based installation. Mojo is not
+    supported under CVS or installation from a tarball.
 
-	perl 5.10.1, preferably 5.14.1 or greater. This basically means
-	running ubuntu 12.04 or later (or one of the other linux distros
-	of similar age or later). The install instructions are for debian
-	based systems. IT WILL NOT WORK WITHOUT A "MODERN" PERL. Yes, you
-	can use bleadperl if you know how to use it and can get it to run
-	the node under it as a daemon without resorting the handy URL
-	supplied above. Personally, I wouldn't bother. It's easier and
-	quicker just to upgrade your linux distro. Apart from anything
-	else things like ssh ntpd are broken on ALL older systems and will
-	allow the ungodly in more easily than something modern.
+    perl 5.10.1, preferably 5.14.1 or greater. This basically means
+    running ubuntu 12.04 or later (or one of the other linux distros
+    of similar age or later). The install instructions are for debian
+    based systems. IT WILL NOT WORK WITHOUT A "MODERN" PERL. Yes, you
+    can use bleadperl if you know how to use it and can get it to run
+    the node under it as a daemon without resorting the handy URL
+    supplied above. Personally, I wouldn't bother. It's easier and
+    quicker just to upgrade your linux distro. Apart from anything
+    else things like ssh ntpd are broken on ALL older systems and will
+    allow the ungodly in more easily than something modern.
 
 Install cpamminus:
 
@@ -72,7 +72,18 @@ You will need the following CPAN packages:
 	that is reasonably new (I use Ubuntu 18.04 and Debian 10) then you
 	can simply do:
 
-	sudo apt-get install libev-perl libmojolicious-perl libjson-perl libjson-xs-perl libdata-structure-util-perl libmath-round-perl libnet-cidr-lite-perl libdbd-sqlite3-perl libdbi-perl libemail-sender-perl libio-pty-perl
+	sudo apt-get install \
+	    libtimedate-perl libnet-telnet-perl libcurses-perl \
+            libdigest-sha-perl libdata-dumper-simple-perl libjson-perl \ 
+            libmojolicious-perl libdata-structure-util-perl \
+	    libmath-round-perl libev-perl libjson-xs-perl \
+            libnet-cidr-lite-perl libdbi-perl libdbd-sqlite3-perl \ 
+            libhtml-parser-perl libio-socket-inet6-perl \
+	    libarchive-zip-perl libmailtools-perl libwww-perl libio-pty-perl \
+	    libauthen-sasl-perl libnet-smtp-ssl-perl libemail-sender-perl perl \
+	    git rsync curl iproute2 \
+	    gzip procps build-essential cpanminus \
+	    libssl-dev zlib1g-dev
 
     or on Redhat based systems you can install the very similarly (but
 	not the same) named packages. I don't know the exact names but
@@ -83,12 +94,17 @@ You will need the following CPAN packages:
 	If in doubt or it is taking too long to find the packages you
 	should build from CPAN. Note: you may need to install the
 	essential packages to build some of these. At the very least you
-	will need to install 'make' (sudo apt-get install make) or just
-	get everything you are likely to need with:
+	will need to install 'make' (sudo apt-get install make) or just get
+	everything you are likely to need with:
 	
 	sudo apt-get install build-essential.
 
-	sudo cpanm EV Mojolicious JSON JSON::XS Data::Structure::Util Math::Round Net::CIDR::Lite DBD::SQLite3 DBI Email::Sender IO::Pty
+	sudo cpanm \
+	    TimeDate Net::Telnet Curses Digest::SHA Data::Dumper::Simple \
+	    JSON Mojolicious Data::Structure::Util Math::Round EV JSON::XS \
+	    Net::CIDR::Lite DBI DBD::SQLite3 HTML::Parser IO::Socket::INET6 \
+	    Archive::Zip MailTools libwww-perl IO::Pty Authen::SASL \
+	    Net::SMTP::SSL Email::Sender
 	
 	# just in case it's missing (top, that is)
 	sudo apt-get install procps
@@ -105,56 +121,56 @@ changed from something like:
 
 ---- old ----
 
-	 # the port number of the cluster (just leave this, unless it REALLY matters to you)
-	 $clusterport = 27754;
+     # the port number of the cluster (just leave this, unless it REALLY matters to you)
+     $clusterport = 27754;
 
-	 # your favorite way to say 'Yes'
-	 $yes = 'Yes';
+     # your favorite way to say 'Yes'
+     $yes = 'Yes';
 
-	 # your favorite way to say 'No'
-	 $no = 'No';
+     # your favorite way to say 'No'
+     $no = 'No';
 
-	 # the interval between unsolicited prompts if not traffic
-	 $user_interval = 11*60;
+     # the interval between unsolicited prompts if not traffic
+     $user_interval = 11*60;
 
-	 # data files live in 
-	 $data = "$root/data";
+     # data files live in
+     $data = "$root/data";
 
-	 # system files live in
-	 $system = "$root/sys";
+     # system files live in
+     $system = "$root/sys";
 
-	 # command files live in
-	 $cmd = "$root/cmd";
+     # command files live in
+     $cmd = "$root/cmd";
 
-	 # local command files live in (and overide $cmd)
-	 $localcmd = "$root/local_cmd";
+     # local command files live in (and overide $cmd)
+     $localcmd = "$root/local_cmd";
 
-	 # where the user data lives
-	 $userfn = "$data/users";
+     # where the user data lives
+     $userfn = "$data/users";
 
-	 # the "message of the day" file
-	 $motd = "$data/motd";
+     # the "message of the day" file
+     $motd = "$data/motd";
 
-	 # are we debugging ?
-	 @debug = qw(chan state msg cron );
+     # are we debugging ?
+     @debug = qw(chan state msg cron );
 
 ---- to this: ----
 
-	 # the port number of the cluster (just leave this, unless it REALLY matters to you)
-	 $clusterport = 27754;
+     # the port number of the cluster (just leave this, unless it REALLY matters to you)
+     $clusterport = 27754;
 
-	 # your favorite way to say 'Yes'
-	 $yes = 'Yes';
+     # your favorite way to say 'Yes'
+     $yes = 'Yes';
 
-	 # your favorite way to say 'No'
-	 $no = 'No';
+     # your favorite way to say 'No'
+     $no = 'No';
 
-	 # this is where the paths used to be which you have just removed
-	 
-	 # are we debugging ?
-	 @debug = qw(chan state msg cron );
+     # this is where the paths used to be which you have just removed
 
----- new  ------
+     # are we debugging ?
+     @debug = qw(chan state msg cron );
+
+---- new ------
 
 There may be other stuff after this in DXVars.pm, that doesn't
 matter. The point is to remove all the path definitions in
@@ -171,8 +187,8 @@ distribution.
 Now run the console program or telnet localhost and login as the sysop
 user.
 
-	export_users
-	bye
+    export_users
+    bye
 
 as the sysop user:
 
@@ -194,7 +210,7 @@ if you have not already done this:
 
 Now in another window run:
 
-	watchdbg
+   watchdbg
 
 and finally:
 
@@ -219,7 +235,7 @@ the current git revision number (the hex string after "git: mojo/" and
 the "[r]"). Also do an 'export_users' (belt and braces).
 
 With this revision of the code, the users.v3 file will be replaced
-with users.v3j.  On restarting the node, the users.v3j file will be
+with users.v3j. On restarting the node, the users.v3j file will be
 generated from the users.v3 file. The users.v3 file is not changed.
 The process of generation will take up to 30 seconds depending on the
 number of users in your file, the speed of your disk(s) and the CPU
@@ -255,5 +271,3 @@ keep the 'user_asc' that you just created for emergencies). The modern
 equivalent of this file is now called 'user_json' and can used in
 exactly the same way as 'user_asc' to restore the users.v3j file (stop
 the node; cd /spider/local_data; perl user_json; start the node).
-
-
