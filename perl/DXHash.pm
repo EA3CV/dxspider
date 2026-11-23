@@ -355,18 +355,20 @@ sub _badlist_hash {
     die "invalid hash envelope $path" unless defined($first) && defined($last)
         && $first =~ /^\s*(?:bless\s*\(\s*)?\{\s*$/
         && $last =~ /^\s*\}\s*(?:,\s*['"]DXHash['"]\s*\))?\s*;?\s*$/;
-    my (@keep,$removed,$name); $removed=0;
+    my (%clean,$removed,$name); $removed=0;
     for my $line (@lines) {
         if ($line =~ /^\s*(?:'([^']+)'|([A-Za-z0-9_\/-]+))\s*=>\s*(?:'([^']*)'|([0-9]+))\s*,?\s*$/) {
             my ($key,$val)=(defined($1)?$1:$2,defined($3)?$3:$4);
-            if ($key eq 'name' && $val eq $base) { $name=$val; push @keep,$line; }
-            elsif ($key =~ m{\A[A-Za-z0-9_/-]+\z} && $val =~ /^\d+$/) { push @keep,$line; }
+            if ($key eq 'name' && $val eq $base) { $name=$val; $clean{name}=$val; }
+            elsif ($key =~ m{\A[A-Za-z0-9_/-]+\z} && $val =~ /^\d+$/) { $clean{$key}=$val; }
             else { ++$removed; }
-        } elsif ($line =~ /^\s*$/) { push @keep,$line; }
+        } elsif ($line =~ /^\s*$/) { next; }
         else { ++$removed; }
     }
     die "invalid hash name $path" unless defined $name;
-    my $out=$first.join('',@keep).$last;
+    # Re-serialize parsed keys, never re-evaluate the original unquoted rows.
+    # Data::Dumper correctly quotes digit-leading callsigns such as 6L0NJ.
+    my $out=Data::Dumper->new([\%clean])->Indent(1)->Terse(1)->Quotekeys(0)->Dump;
     my $check=eval $out;
     die "invalid recovered hash $path: $@" if $@ || !ref($check) || !eval { keys %$check; 1 };
     _badlist_write($path,$src,$out,$removed,'hash');
