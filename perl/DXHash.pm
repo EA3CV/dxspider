@@ -410,7 +410,8 @@ sub _badlist_run {
     my $dir=$main::local_data;
     return unless defined($dir) && -d $dir;
     opendir(my $dh,$dir) or die "DXHash badlist: opendir $dir: $!";
-    my @names=sort grep { /^bad/ && !/^badlist-/ && -f "$dir/$_" && !/\.badlist-backup-/ && !/\.bak(?:\.|$)/ } readdir($dh);
+    # BadWords regex files are not DXHash lists; leave their format untouched.
+    my @names=sort grep { /^bad/ && !/^badlist-/ && !/\Abadw_regex(?:\..*)?\z/ && -f "$dir/$_" && !/\.badlist-backup-/ && !/\.bak(?:\.|$)/ } readdir($dh);
     closedir $dh;
     for my $name (@names) {
         my $path="$dir/$name";

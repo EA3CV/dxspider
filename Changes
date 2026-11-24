@@ -1,3 +1,11 @@
+24Nov26======================================================================
+1. Fixed a PC92 A/C/D regression where invalid callsigns listed in badspotter
+   could cause an entire packet to be rejected and rolled back.
+2. Exclude badw_regex files, with or without extensions, from DXHash startup 
+   bad-list validation, preserving their original contents and format.
+3. DXWeb Admin: obtain live Overview snapshots independently of historical metrics collection.
+4. DXWeb Admin: improve Peers diagram layout for large numbers of direct neighbours.
+   DXWeb to 4.0.6 and DXWeb Admin to 2.0.19.
 23Nov26======================================================================
 1. Added automatic validation and repair bad* lists during DXSpider startup.
 2. Hash-format lists are checked for invalid entries, which are removed while

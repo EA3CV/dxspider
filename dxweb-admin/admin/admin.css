@@ -1876,10 +1876,7 @@ body.v2-shell #operation #spots .spotFilterModal{
 /* New matches on inactive custom spot views (browser-only state). */
 #spots .spotViewTab.hasMatch:not(.selected)::after{content:"";display:inline-block;width:7px;height:7px;margin-left:7px;border-radius:50%;background:#f59e0b;box-shadow:0 0 0 2px rgba(245,158,11,.18);vertical-align:middle}
 
-/* Temporary BETA indicator: decoration only; does not affect topbar layout. */
 body.v2-shell .v2Topbar{position:relative!important}
-body.v2-shell .v2Topbar::before{content:"BETA";position:absolute;left:20px;top:50%;transform:translateY(-50%);font-family:Arial,Helvetica,sans-serif;font-size:34px;font-weight:800;line-height:1;color:#d97706;pointer-events:none;z-index:1}
-@media(max-width:760px){body.v2-shell .v2Topbar::before{left:8px;font-size:clamp(14px,3.5vw,24px)}}
 
 /* DXWeb Neighbours native view */
 .neighTools{display:flex;gap:7px;margin:10px 0}.neighTools button{min-width:42px}.neighWorkspace{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:12px;min-height:580px}.neighSvg{width:100%;height:600px;border:1px solid var(--border,#34485f);border-radius:9px;background:#0c192a}.neighDetail{padding:14px;border:1px solid var(--border,#34485f);border-radius:9px;overflow:auto}.neighField{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #46556a;font-size:13px}.neighField strong{text-align:right}.neighSvg g[role=button]{cursor:pointer}@media(max-width:800px){.neighWorkspace{grid-template-columns:1fr;min-height:0}.neighSvg{height:460px}.neighDetail{max-height:330px}}
@@ -1896,3 +1893,6 @@ body.v2-shell #supervisionTabs .supervisionRefresh.refreshAwaiting{background:#d
 .policyHead button{font-size:15px;font-weight:700;padding:9px 14px;border-radius:8px;cursor:pointer}
 .policyToggle{display:flex;align-items:center;gap:9px;margin:12px 0}
 #sessionPolicyState,#metricsPolicyState{display:block;margin-top:8px;font-size:13px}
+
+/* Peers: keep large diagrams readable and independently scrollable. */
+.neighViewport{min-width:0;height:600px;overflow:auto;border:1px solid var(--border,#34485f);border-radius:9px;background:#0c192a}.neighViewport .neighSvg{display:block;max-width:none;max-height:none;border:0;border-radius:0}.neighWorkspace{min-height:0}.neighDetail{max-height:600px;box-sizing:border-box}@media(max-width:800px){.neighViewport{height:460px}.neighDetail{max-height:330px}}

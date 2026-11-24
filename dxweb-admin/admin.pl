@@ -725,6 +725,7 @@ sub pending_timeout($id) {
         'registration timeout action=' . $p->{action} . ' id=' . $id )
       if ( $p->{action} // '' ) =~ /\Areg_(?:accept|reject)\z/;
     delete $pending{$id};
+    if ($p->{callback}) { $p->{callback}->({status => 'error', error => 'request_timeout'}); return; }
     my $cid = $p->{client};
     my $cl  = $clients{$cid} or return;
     my $a   = $p->{action} || '';
@@ -745,7 +746,7 @@ sub pending_timeout($id) {
     );
 }
 
-sub dxs_request( $cid, $action, $o ) {
+sub dxs_request( $cid, $action, $o, $callback = undef ) {
     return unless $stream && $state{web_call};
     return if scalar( keys %pending ) >= $MAX_PENDING_TOTAL;
     if ($cid) {
@@ -761,6 +762,7 @@ sub dxs_request( $cid, $action, $o ) {
       Mojo::IOLoop->timer( $REQUEST_TIMEOUT => sub { pending_timeout($id) } );
     $pending{$id} = {
         client => $cid,
+        callback => $callback,
         action => $action,
         timer  => $t,
         call   => ( $action eq 'auth' ? $o->{call} : undef )
@@ -875,6 +877,7 @@ sub handle_response($msg) {
               . ( $msg->{error} // '-' ) );
     }
     Mojo::IOLoop->remove( $p->{timer} ) if $p->{timer};
+    if ($p->{callback}) { $p->{callback}->($msg); return; }
     if ( $p->{internal_history} ) {
         $history_inflight = 0;
         return unless $metrics_enabled;
@@ -1366,77 +1369,60 @@ sub history_summary_compact($r) {
     return \%out;
 }
 
+# Overview is live supervision, not a consumer of the historical sampler.
 sub send_overview_snapshot($id) {
-    $history_store->latest_snapshots_async(
-        cb => sub( $err, $latest ) {
-            return unless $clients{$id} && $clients{$id}{authenticated};
-            if ($err) {
-                ws_send_guarded(
-                    $id,
-                    encode_json(
-                        {
-                            type   => 'supervisor_overview_result',
-                            status => 'error',
-                            error  => "$err"
-                        }
-                    )
-                );
-                return;
-            }
-            $history_store->semantic_window_async(
-                window => '15m',
-                cb     => sub( $serr, $hist ) {
-                    return unless $clients{$id} && $clients{$id}{authenticated};
-                    if ($serr) {
-                        ws_send_guarded(
-                            $id,
-                            encode_json(
-                                {
-                                    type   => 'supervisor_overview_result',
-                                    status => 'error',
-                                    error  => "$serr"
-                                }
-                            )
-                        );
-                        return;
-                    }
-                    my %snap =
-                      map  { $_ => $latest->{$_}{payload} }
-                      grep { ref( $latest->{$_}{payload} ) eq 'HASH' }
-                      keys %$latest;
-                    my %ages = map {
-                        $_ => time - ( $latest->{$_}{collected_at} // time )
-                    } keys %$latest;
-                    my $result = {
-                        schema_version       => 1,
-                        collected_at         => time,
-                        source               => 'dxhistory.db',
-                        snapshots            => \%snap,
-                        snapshot_age_seconds => \%ages,
-                        history              => history_summary_compact($hist),
-                        system               => local_system_snapshot()
-                    };
-                    my $json = encode_json(
-                        {
-                            type   => 'supervisor_overview_result',
-                            status => 'ok',
-                            result => $result
-                        }
-                    );
-                    if ( length($json) > $MAX_WS_MESSAGE_BYTES ) {
-                        $json = encode_json(
-                            {
-                                type   => 'supervisor_overview_result',
-                                status => 'error',
-                                error  => 'response_too_large'
-                            }
-                        );
-                    }
-                    ws_send_guarded( $id, $json );
-                }
-            );
-        }
-    );
+    my $cl = $clients{$id} or return;
+    my $valid = sub { $clients{$id} && $clients{$id} == $cl
+        && $cl->{authenticated} && ($cl->{priv} // 0) >= 9 };
+    my $reply = sub ($result, $error) {
+        return unless $valid->();
+        my $json = encode_json({type => 'supervisor_overview_result',
+            status => $error ? 'error' : 'ok',
+            ($error ? (error => $error) : (result => $result))});
+        $json = encode_json({type => 'supervisor_overview_result',
+            status => 'error', error => 'response_too_large'})
+            if length($json) > $MAX_WS_MESSAGE_BYTES;
+        ws_send_response($id, $json);
+    };
+    my %snap;
+    my %at;
+    my $finish = sub {
+        my $result = {schema_version => 1, collected_at => time,
+            source => 'live', snapshots => \%snap,
+            snapshot_age_seconds => {map { $_ => time - $at{$_} } keys %at},
+            system => local_system_snapshot(), history => {}};
+        return $reply->($result, undef) unless $metrics_enabled;
+        # History is optional: a reader failure must not hide live node data.
+        $history_store->semantic_window_async(window => '15m', cb => sub ($err, $hist) {
+            $result->{history} = history_summary_compact($hist)
+                if !$err && ref($hist) eq 'HASH' && $metrics_enabled;
+            $result->{snapshot_age_seconds} = {map { $_ => time - $at{$_} } keys %at};
+            $reply->($result, undef);
+        });
+    };
+    my $traffic = sub {
+        return unless $valid->();
+        my $rid = dxs_request($id, 'supervisor_overview',
+            {type => 'supervisor', call => $cl->{call}, what => 'traffic'},
+            sub ($msg) {
+                return unless $valid->();
+                return $reply->(undef, $msg->{error} || 'traffic_snapshot_failed')
+                    unless ($msg->{status} // '') eq 'ok' && ref($msg->{result}) eq 'HASH';
+                $snap{traffic} = $msg->{result}; $at{traffic} = time;
+                $finish->();
+            });
+        $reply->(undef, 'request_unavailable') unless defined $rid;
+    };
+    my $rid = dxs_request($id, 'supervisor_overview',
+        {type => 'supervisor', call => $cl->{call}, what => 'status'},
+        sub ($msg) {
+            return unless $valid->();
+            return $reply->(undef, $msg->{error} || 'status_snapshot_failed')
+                unless ($msg->{status} // '') eq 'ok' && ref($msg->{result}) eq 'HASH';
+            $snap{status} = $msg->{result}; $at{status} = time;
+            $traffic->();
+        });
+    $reply->(undef, 'request_unavailable') unless defined $rid;
 }
 
 sub send_history_summary( $id, $window = '15m' ) {

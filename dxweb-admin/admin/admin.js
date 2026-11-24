@@ -1123,8 +1123,8 @@ $('metricsPolicySave')?.addEventListener('click',()=>{
 });
 
 function supervisorKindsFor(panel){return panel==='neighbours'?['connections','status']:panel==='overview'?['overview']:panel==='diagnostics'?['self_health']:panel==='system'?['system']:panel==='nodes'?['connections','web']:panel==='connections'?['connections','web']:panel==='users'?['connections','web']:panel==='peers'?['connections','traffic']:[panel]}
-function supervisorRequest(panel=activeSupervisionPanel){if(!authenticated||!ws||ws.readyState!==WebSocket.OPEN)return;if(panel==='maintenance'){requestMaintenance();return}if(panel==='system'){send({type:'session_policy_get'});send({type:'metrics_policy_get'});}const todo=supervisorKindsFor(panel).filter(what=>!supervisorInflight.has(what));if(!todo.length)return;$('supervisionState').textContent='';for(const what of todo){supervisorInflight.add(what);if(!send({type:`supervisor_${what}`}))supervisorInflight.delete(what)}}
-function selectSupervision(id){if(activeSupervisionPanel!==(id||'overview')&&$('supervisionRefresh'))refreshClear($('supervisionRefresh'));activeSupervisionPanel=id||'overview';if(activeSupervisionPanel==='neighbours')neighboursRender();if(activeSupervisionPanel==='overview')refreshSoftwareVersions();document.querySelectorAll('#supervisionTabs button[data-superpanel]').forEach(b=>b.classList.toggle('active',b.dataset.superpanel===activeSupervisionPanel));document.querySelectorAll('#supervision .superPanel').forEach(p=>p.classList.toggle('active',p.id===activeSupervisionPanel));if(authenticated){supervisorRequest(activeSupervisionPanel);if(activeSupervisionPanel==='diagnostics')requestMetrics()}}
+function supervisorRequest(panel=activeSupervisionPanel){if(!authenticated||!ws||ws.readyState!==WebSocket.OPEN)return;if(panel==='maintenance'){requestMaintenance();return}if(panel==='overview')refreshSoftwareVersions();if(panel==='system'){send({type:'session_policy_get'});send({type:'metrics_policy_get'});}const todo=supervisorKindsFor(panel).filter(what=>!supervisorInflight.has(what));if(!todo.length)return;$('supervisionState').textContent='';for(const what of todo){supervisorInflight.add(what);if(!send({type:`supervisor_${what}`}))supervisorInflight.delete(what)}}
+function selectSupervision(id){if(activeSupervisionPanel!==(id||'overview')&&$('supervisionRefresh'))refreshClear($('supervisionRefresh'));activeSupervisionPanel=id||'overview';document.querySelectorAll('#supervisionTabs button[data-superpanel]').forEach(b=>b.classList.toggle('active',b.dataset.superpanel===activeSupervisionPanel));document.querySelectorAll('#supervision .superPanel').forEach(p=>p.classList.toggle('active',p.id===activeSupervisionPanel));if(activeSupervisionPanel==='neighbours')neighboursRender();if(authenticated){supervisorRequest(activeSupervisionPanel);if(activeSupervisionPanel==='diagnostics')requestMetrics()}}
 document.querySelectorAll('#supervisionTabs button[data-superpanel]').forEach(b=>b.onclick=()=>selectSupervision(b.dataset.superpanel));
 if($('supervisionRefresh'))$('supervisionRefresh').onclick=()=>refreshUser('supervisionRefresh');
 function fmtBytes(n){n=Number(n)||0;for(const u of ['B','KiB','MiB','GiB','TiB']){if(Math.abs(n)<1024||u==='TiB')return `${n.toFixed(u==='B'?0:1)} ${u}`;n/=1024}}
@@ -1347,11 +1347,11 @@ function renderOverviewSnapshot(r){
  setText('ovTraffic',`${fmtBytes(bi)} / ${fmtBytes(bo)}`);setText('ovLines',`${li.toLocaleString()} RX · ${lo.toLocaleString()} TX lines`);
  setText('ovSpots',sp.toLocaleString());setText('ovSpotMix',`${tr.spots?.hf||0} HF · ${tr.spots?.vhf||0} VHF`);
  setText('ovQueues',st.input_queue_max??'—');setText('ovQueueDetail',`${st.input_queue_total||0} total · ${st.pending_connects||0} pending connects`);
- setText('ovRbn',`${st.rbn||0} feeds`);setText('ovRbnDetail','latest stored status');setText('ovWeb',`${st.web||0} channels`);setText('ovWebDetail','latest stored status');
+ setText('ovRbn',`${st.rbn||0} feeds`);setText('ovRbnDetail','live status');setText('ovWeb',`${st.web||0} channels`);setText('ovWebDetail','live status');
  const age=Math.max(...Object.values(r?.snapshot_age_seconds||{}).map(Number).filter(Number.isFinite),0);supervisorLastCollectedAt=Date.now()/1000-age;
  $('supervisorStatus').innerHTML=metricRows([['Node',st.node||'-'],['Branch',dash(st.git_branch),`updateBranchField${updateStatusCache?.comparisons?.branch?.comparable===true&&updateStatusCache.comparisons.branch.match===false?' updateMismatch':''}`],['Version',dash(st.version??st.dxspider_version),`updateVersionField${updateStatusCache?.comparisons?.version?.comparable===true&&updateStatusCache.comparisons.version.match===false?' updateMismatch':''}`],['Build',dash(st.build),`updateBuildField${updateStatusCache?.comparisons?.build?.comparable===true&&updateStatusCache.comparisons.build.match===false?' updateMismatch':''}`],['Git commit',dash(st.git_version),`updateCommitField${updateStatusCache?.comparisons?.commit?.comparable===true&&updateStatusCache.comparisons.commit.match===false?' updateMismatch':''}`],['Uptime',fmtDuration(st.uptime_seconds||0)]]);
- $('supervisorOverviewTraffic').innerHTML=metricRows([['RX bytes',fmtBytes(bi)],['RX lines',li.toLocaleString()],['TX bytes',fmtBytes(bo)],['TX lines',lo.toLocaleString()],['Spots total',sp.toLocaleString()],['History coverage',fmtDuration(hist.window_coverage_seconds||0)]]);
- $('supervisorOverviewRbn').innerHTML=`<div class="compactRow"><strong>${Number(st.rbn||0)}</strong><span>RBN channels</span><span>stored snapshot ${age.toFixed(1)}s old</span></div>`;
+ $('supervisorOverviewTraffic').innerHTML=metricRows([['RX bytes',fmtBytes(bi)],['RX lines',li.toLocaleString()],['TX bytes',fmtBytes(bo)],['TX lines',lo.toLocaleString()],['Spots total',sp.toLocaleString()],['History coverage',hist.window_coverage_seconds==null?'—':fmtDuration(hist.window_coverage_seconds)]]);
+ $('supervisorOverviewRbn').innerHTML=`<div class="compactRow"><strong>${Number(st.rbn||0)}</strong><span>RBN channels</span><span>live snapshot ${age.toFixed(1)}s old</span></div>`;
  $('supervisorOverviewWeb').innerHTML=`<div class="compactRow"><strong>${Number(st.web||0)}</strong><span>Web channels</span><span>Admin RSS ${fmtBytes(sys.admin_rss_bytes||0)}</span></div>`;
  updateSupervisorBanner(st);updateSupervisorBanner();
 }
@@ -1749,6 +1749,56 @@ $('terminalDisconnect').onclick=terminalDisconnect;
 
 /* DXWeb Neighbours: native supervision view; no independent network polling. */
 let neighboursZoom=1,neighboursSnapshotAt=0;
+let neighboursPan={x:0,y:0},neighboursScene=null;
+// Camera coordinates are independent of the live SVG scene and survive refreshes.
+function neighboursCamera(layout,width,height,zoom,pan){
+ const margin=Math.min(24,width/8,height/8);
+ const scale=Math.min((width-2*margin)/layout.W,(height-2*margin)/layout.H)*zoom;
+ const w=width/scale,h=height/scale;
+ return {x:layout.cx-w/2+pan.x,y:layout.cy-h/2+pan.y,w,h,scale};
+}
+function neighboursApplyCamera(){
+ const svg=document.getElementById('neighboursSvg');
+ if(!svg||!neighboursScene)return null;
+ const width=svg.clientWidth,height=svg.clientHeight;
+ if(!width||!height)return null;
+ const c=neighboursCamera(neighboursScene,width,height,neighboursZoom,neighboursPan);
+ svg.setAttribute('viewBox',`${c.x} ${c.y} ${c.w} ${c.h}`);
+ return c;
+}
+function neighboursBindPan(svg){
+ let drag=null;
+ svg.addEventListener('pointerdown',e=>{
+  if(!e.isPrimary||e.button!==0||e.target.closest('g[role="button"]'))return;
+  const camera=neighboursApplyCamera();if(!camera)return;
+  drag={id:e.pointerId,x:e.clientX,y:e.clientY,pan:{...neighboursPan},scale:camera.scale};
+  svg.setPointerCapture(e.pointerId);svg.style.cursor='grabbing';e.preventDefault();
+ });
+ svg.addEventListener('pointermove',e=>{
+  if(!drag||drag.id!==e.pointerId)return;
+  neighboursPan={x:drag.pan.x-(e.clientX-drag.x)/drag.scale,y:drag.pan.y-(e.clientY-drag.y)/drag.scale};
+  neighboursApplyCamera();
+ });
+ const stop=e=>{if(!drag||drag.id!==e.pointerId)return;drag=null;svg.style.cursor='grab';};
+ for(const event of ['pointerup','pointercancel','lostpointercapture'])svg.addEventListener(event,stop);
+}
+
+function neighboursLayout(count){
+ const nodeR=52,centerR=76,ringStep=152,outerMargin=58;
+ const ringCount=count===0?0:count<=12?1:count<=28?2:Math.ceil(count/16);
+ // Allocate unique, evenly spaced spokes. Round-robin distributes each ring
+ // around the entire circle, including the final partially filled ring.
+ const extraGap=ringCount>1&&count%ringCount===1?1:0;
+ const step=2*Math.PI/Math.max(1,count+extraGap);
+ const startRadius=Math.max(250,count>2?Math.ceil(Math.max(65/Math.sin(step),62/Math.sin(ringCount===1?step/2:step))):250);
+ const outer=startRadius+Math.max(0,ringCount-1)*ringStep;
+ const W=Math.max(820,2*(outer+nodeR+outerMargin)),H=W,cx=W/2,cy=H/2;
+ const positions=Array.from({length:count},(_,i)=>{
+  const ring=i%ringCount,radius=startRadius+ring*ringStep,angle=-Math.PI/2+i*step;
+  return {x:cx+radius*Math.cos(angle),y:cy+radius*Math.sin(angle),radius,ring,angle};
+ });
+ return {W,H,cx,cy,nodeR,centerR,ringCount,positions};
+}
 function neighboursRender(){
  const svg=document.getElementById('neighboursSvg'),detail=document.getElementById('neighboursDetail'),note=document.getElementById('neighboursNote');
  if(!svg||!detail)return;
@@ -1757,71 +1807,30 @@ function neighboursRender(){
  const fresh=age>=0&&age<=120;
  const rows=supervisorConnectionsCache.filter(x=>x&&x.call&&String(x.call).toUpperCase()!==self&&!x.logical_web&&(x.configured===true||x.configured===1||['node','rbn','peer'].includes(x.kind)||['S','A','C','R','L','X','N'].includes(String(x.sort||'').toUpperCase())));
  const unique=[...new Map(rows.map(x=>[String(x.call).toUpperCase(),x])).values()].sort((a,b)=>String(a.call).localeCompare(String(b.call)));
- note.textContent=`${unique.length} configured and observed peers · ${fresh?'Snapshot '+Math.round(age)+'s old':'Snapshot stale or unavailable — link states unknown'} · Direct connections only`;
  const NS='http://www.w3.org/2000/svg',el=(tag,attrs={},content)=>{const n=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,String(v));if(content!==undefined)n.textContent=String(content);return n};
- // Allocate concentric rings by usable circumference, keeping 120 SVG units
- // between peer centres (52-unit node radius plus label clearance).
- const ringStep=132,firstRadius=235,minArc=125;
- const rings=[],positions=[];
- for(let i=0;i<unique.length;){
-  const radius=firstRadius+rings.length*ringStep;
-  const capacity=Math.max(1,Math.floor(2*Math.PI*radius/minArc));
-  const count=Math.min(capacity,unique.length-i);
-  rings.push({radius,count});
-  for(let j=0;j<count;j++){
-   const angle=-Math.PI/2+2*Math.PI*(j+(rings.length%2?0:.5))/count;
-   positions.push({angle,radius});
-  }
-  i+=count;
- }
- // Test actual line-to-disc clearance against every other node, not only
- // the preceding ring. Keep a generous margin for stroke and arrowheads.
- const clearance=61;
- const pointSegmentDistance=(px,py,ax,ay,bx,by)=>{
-  const dx=bx-ax,dy=by-ay,den=dx*dx+dy*dy;
-  const t=den?Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/den)):0;
-  return Math.hypot(px-ax-t*dx,py-ay-t*dy);
- };
- const unobstructed=(a,b,skip)=>positions.every((p,i)=>i===skip||pointSegmentDistance(p.radius*Math.cos(p.angle),p.radius*Math.sin(p.angle),a[0],a[1],b[0],b[1])>clearance);
- const outer=rings.length?rings[rings.length-1].radius:235;
- // Exterior routing is used only if a direct ray would intersect a peer.
- // It enters the destination from the outside, avoiding all inner rings.
- const routingRadius=outer+115;
- const extent=routingRadius+80, cx=extent,cy=extent;
- const side=extent*2;
- svg.replaceChildren();svg.setAttribute('viewBox',`0 0 ${side} ${side}`);
+ // Direct peers are rendered as a multi-ring radial star: one centre node and one or more concentric peer rings.
+ const layout=neighboursLayout(unique.length), {W,H,cx,cy,positions,nodeR,centerR,ringCount}=layout;
+ note.textContent=`${unique.length} configured and observed peers · ${ringCount} radial level${ringCount===1?'':'s'} · ${fresh?'Snapshot '+Math.round(age)+'s old':'Snapshot stale or unavailable — link states unknown'} · Direct connections only`;
+ svg.replaceChildren();
+ neighboursScene=layout;
+ // Keep the SVG exactly the size of its viewport; move only its camera.
+ svg.style.width='100%';svg.style.height='100%';
+ svg.style.touchAction='none';svg.style.cursor='grab';
+ svg.parentElement.style.overflow='hidden';
+ neighboursApplyCamera();
  const defs=el('defs');for(const [id,color] of [['blue','#3989e6'],['red','#ef6464']]){const m=el('marker',{id:'neigh-'+id,markerWidth:9,markerHeight:9,refX:8,refY:4,orient:'auto-start-reverse',markerUnits:'strokeWidth'});m.append(el('path',{d:'M0 0 L8 4 L0 8 Z',fill:color}));defs.append(m)}svg.append(defs);
- const scene=el('g',{transform:`translate(${cx} ${cy}) scale(${neighboursZoom}) translate(${-cx} ${-cy})`});svg.append(scene);
- const center=el('g');center.append(el('circle',{cx,cy,r:76,fill:'#193954',stroke:'#64a7d7','stroke-width':3}));center.append(el('text',{x:cx,y:cy+7,'text-anchor':'middle',fill:'#fff','font-size':20,'font-weight':700},self||'LOCAL NODE'));scene.append(center);
+ const scene=el('g');svg.append(scene);
+ const ringRadii=[...new Set(positions.map(p=>Math.round(p.radius)))].sort((a,b)=>a-b);
+ ringRadii.forEach(r=>scene.append(el('circle',{cx,cy,r,fill:'none',stroke:'#23384f','stroke-width':1.5,'stroke-dasharray':'7 8','stroke-opacity':0.75})));
+ const center=el('g');center.append(el('circle',{cx,cy,r:centerR,fill:'#193954',stroke:'#64a7d7','stroke-width':3}));center.append(el('text',{x:cx,y:cy+7,'text-anchor':'middle',fill:'#fff','font-size':20,'font-weight':700},self||'LOCAL NODE'));scene.append(center);
  if(!unique.length){detail.textContent='No observed physical peers in the current supervisor snapshot.';return}
  unique.forEach((r,i)=>{
-  const {angle:a,radius:rad}=positions[i],x=cx+rad*Math.cos(a),y=cy+rad*Math.sin(a);
+  const {x,y}=positions[i];
   const live=fresh&&(r.online===true||r.online===1);
   const offline=fresh&&(r.online===false||r.online===0);
   const color=live?'#3989e6':offline?'#ef6464':'#8493a5';
-  const ux=Math.cos(a),uy=Math.sin(a);
-  const start=[ux*79,uy*79],end=[ux*(rad-56),uy*(rad-56)];
-  let line;
-  if(unobstructed(start,end,i)){
-   line=el('line',{x1:cx+start[0],y1:cy+start[1],x2:cx+end[0],y2:cy+end[1],stroke:color,'stroke-width':3});
-  }else{
-   // Find a free radial corridor through *all* rings. The external arc
-   // stays beyond every peer, then approaches the target from outside.
-   let corridor=null,best=-Infinity;
-   for(let k=0;k<1440;k++){
-    const theta=2*Math.PI*k/1440;
-    const vx=Math.cos(theta),vy=Math.sin(theta);
-    const margin=Math.min(...positions.map(p=>pointSegmentDistance(p.radius*Math.cos(p.angle),p.radius*Math.sin(p.angle),vx*79,vy*79,vx*routingRadius,vy*routingRadius)));
-    if(margin>best){best=margin;corridor=theta}
-   }
-   const vx=Math.cos(corridor),vy=Math.sin(corridor);
-   // A full outer-ring detour is possible only if a free radial lane exists.
-   // Ring capacities leave open gaps; enforce the safety test here.
-   if(best<=clearance)console.warn('Peers: no unobstructed radial corridor',best);
-   const sweep=((a-corridor+2*Math.PI)%(2*Math.PI))<=Math.PI?1:0;
-   const d=`M ${cx+vx*79} ${cy+vy*79} L ${cx+vx*routingRadius} ${cy+vy*routingRadius} A ${routingRadius} ${routingRadius} 0 ${sweep?0:1} ${sweep} ${cx+ux*routingRadius} ${cy+uy*routingRadius} L ${cx+ux*(rad+56)} ${cy+uy*(rad+56)}`;
-   line=el('path',{d,fill:'none',stroke:color,'stroke-width':3});
-  }
+  const dx=x-cx,dy=y-cy,len=Math.hypot(dx,dy),ux=dx/len,uy=dy/len;
+  const line=el('line',{x1:cx+ux*(centerR+3),y1:cy+uy*(centerR+3),x2:x-ux*(nodeR+4),y2:y-uy*(nodeR+4),stroke:color,'stroke-width':3});
   // A missing outbound property is not proof of inbound direction.
   const outbound=r.outbound===true||r.outbound===1||((r.kind==='rbn'||String(r.sort||'').toUpperCase()==='N')&&live);
   const inbound=!outbound&&(r.outbound===false||r.outbound===0);
@@ -1830,16 +1839,20 @@ function neighboursRender(){
   if(live&&inbound)line.setAttribute('marker-start','url(#neigh-blue)');
   scene.insertBefore(line,center);
   const group=el('g',{tabindex:0,role:'button','aria-label':String(r.call)});
-  group.append(el('circle',{cx:x,cy:y,r:52,fill:'#172e46',stroke:color,'stroke-width':3}));
+  group.append(el('circle',{cx:x,cy:y,r:nodeR,fill:'#172e46',stroke:color,'stroke-width':3}));
   group.append(el('text',{x,y:y+5,'text-anchor':'middle',fill:'#f2f6ff','font-size':14,'font-weight':700},r.call));
   const info=()=>{const values=[['Node',r.call],['Type',neighboursType(r)],['State',live?'Connected':offline?'Disconnected':'Unknown'],['Direction',live&&outbound?'Outbound':live&&inbound?'Inbound':'Unknown'],['Login',r.peer_login],['Version',r.dxspider_version],['Build',r.build],['PC9x',r.do_pc9x],['PC9x negotiated',r.do_pc9x],['PC91',r.do_pc91],['Last connection',r.last_connect?new Date(Number(r.last_connect)*1000).toLocaleString():null],['Registered (local DXUser)',r.registered],['Password (local DXUser)',r.password_configured]];detail.replaceChildren();for(const [key,val] of values){const div=document.createElement('div');div.className='neighField';const k=document.createElement('span'),v=document.createElement('strong');k.textContent=key;v.textContent=val===true||val===1?'Yes':val===false||val===0?'No':val??'Unknown';if(key==='Login'&&val&&live&&!(r.kind==='rbn'||String(r.sort||'').toUpperCase()==='N')){const expected=outbound?self:String(r.call).toUpperCase();if(expected&&String(val).toUpperCase()!==expected){v.style.color='#ef6464';v.title=outbound?'Outgoing login differs from our local node callsign':'Incoming login differs from remote node callsign';}}div.append(k,v);detail.append(div)}};
   group.addEventListener('click',info);group.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();info()}});group.addEventListener('mouseenter',info);scene.append(group);
  });
 }
-function neighboursZoomSet(delta){neighboursZoom=Math.max(.5,Math.min(2.5,Math.round((neighboursZoom+delta)*10)/10));document.getElementById('neighboursZoomValue').textContent=Math.round(neighboursZoom*100)+'%';neighboursRender()}
+function neighboursZoomSet(delta){neighboursZoom=Math.max(.5,Math.min(2.5,Math.round((neighboursZoom+delta)*10)/10));document.getElementById('neighboursZoomValue').textContent=Math.round(neighboursZoom*100)+'%';neighboursApplyCamera()}
 document.getElementById('neighboursMinus')?.addEventListener('click',()=>neighboursZoomSet(-.1));
 document.getElementById('neighboursPlus')?.addEventListener('click',()=>neighboursZoomSet(.1));
-document.getElementById('neighboursReset')?.addEventListener('click',()=>{neighboursZoom=1;neighboursZoomSet(0)});
+document.getElementById('neighboursReset')?.addEventListener('click',()=>{neighboursZoom=1;neighboursPan={x:0,y:0};neighboursZoomSet(0)});
+
+const neighboursCanvas=document.getElementById('neighboursSvg');
+if(neighboursCanvas){neighboursBindPan(neighboursCanvas);new ResizeObserver(()=>neighboursApplyCamera()).observe(neighboursCanvas);}
+window.addEventListener('resize',()=>{if(activeSection==='supervision'&&activeSupervisionPanel==='neighbours')neighboursApplyCamera()});
 
 function neighboursType(r){const sort=String(r.sort||'').toUpperCase();const map={S:'Spider',A:'AK1A',C:'CLX',R:'AR Cluster',L:'CC Cluster',X:'DXNet',N:'RBN',B:'BBS'};return map[sort]||({rbn:'RBN',node:'Node',peer:'Node'}[r.kind]||'Unknown')}
 

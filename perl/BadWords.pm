@@ -18,6 +18,7 @@ use IO::File;
 
 our $regex;					# the big bad regex generated from @relist
 our @relist; # the list of regexes to try, record = [canonical word, regex] 
+my @legacy_regex; # independent, read-only badw_regex sources
 my %in;	# the collection of words we are building up and their regexes
 
 
@@ -67,6 +68,31 @@ sub _source_words
     return (\@words, undef);
 }
 
+# Historical mojo: whitespace-separated words, full-line comments, and
+# repeated characters / punctuation between letters. Keep these sources
+# independent from the editable badword lists and never evaluate file code.
+sub _load_legacy_regex
+{
+    my $dir = $main::local_data;
+    opendir my $dh, $dir or return ("BadWords: can't open $dir: $!");
+    my @files = sort grep { /\Abadw_regex(?:\..*)?\z/ && -f "$dir/$_" } readdir $dh;
+    closedir $dh;
+    my @next;
+    for my $name (@files) {
+        my $fh = IO::File->new("$dir/$name", 'r') or return ("BadWords: can't open $dir/$name: $!");
+        while (my $line = <$fh>) {
+            next if $line =~ /^\s*#/;
+            for my $word (split ' ', uc $line) {
+                my $pattern = join '+[\s\W]*', map { quotemeta $_ } split //, $word;
+                push @next, qr/\b($pattern)/;
+            }
+        }
+        $fh->close or return ("BadWords: can't close $dir/$name: $!");
+    }
+    @legacy_regex = @next;
+    return ();
+}
+
 sub load
 {
     my @files = _sources();
@@ -90,7 +116,9 @@ sub load
     add_regex($_) for sort @words;
     generate_regex();
     dbg('BadWords: loaded ' . scalar(@relist) . ' unique entries from ' . scalar(@files) . ' files');
-    return ();
+    my @legacy_errors = _load_legacy_regex();
+    dbg($_) for @legacy_errors;
+    return @legacy_errors;
 }
 
 sub _rewrite_source
@@ -171,6 +199,7 @@ sub remove_word
 
 sub generate_regex
 {
+	unless (@relist) { $regex = ''; return; }
 	my $res;
 	@relist = sort {$a->[0] cmp $b->[0]} @relist;
 	for (@relist) {
@@ -252,10 +281,15 @@ sub check
 		my %uniq;
 		@out = grep {++$uniq{$_}; $uniq{$_} == 1 ? $_ : undef }($s =~ /($regex)/g);
 		dbg("BadWords: check '$s' = '" . join(', ', @out) . "'") if isdbg('badword');
-		return @out;
+		return @out if @out;
+	} elsif (@relist) {
+		@out = _slowcheck($s);
+		return @out if @out;
 	}
-	return _slowcheck($s) if @relist;
-	return;
+	for my $pattern (@legacy_regex) {
+		push @out, $s =~ /$pattern/;
+	}
+	return @out;
 }
 
 

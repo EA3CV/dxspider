@@ -2532,6 +2532,16 @@ sub _pc92_acd_preflight
     return '';
 }
 
+# Existing wire exception: an otherwise unrecognisable flag-1 badspotter
+# is transit-only. Do not change routing policy for valid callsigns.
+sub _pc92_acd_transit_only
+{
+    my ($wire) = @_;
+    my ($call) = ($wire // '') =~ /\A1([^:]+)/;
+    return defined($call) && !is_callsign($call)
+        && defined($badspotter) && $badspotter->in($call);
+}
+
 sub _pc92_acd_wire_object
 {
     my ($wire, $must_node) = @_;
@@ -2757,6 +2767,7 @@ sub _pc92_acd_user_checkpoint
     # thousands of unrelated DXUser records before every small PC92 update.
     my %calls;
     for my $entry (@$pc[5 .. $#$pc - 1]) {
+        next if _pc92_acd_transit_only($entry);
         my ($call) = _decode_pc92_call($entry);
         $calls{$call} = 1 if $call;
     }
@@ -2970,6 +2981,7 @@ sub _pc92_acd_guarded
         return;
     }
     for my $i (5 .. $#$pc - 1) {
+        next if _pc92_acd_transit_only($pc->[$i]);
         my ($flag, $call) = $pc->[$i] =~ /\A([0-7])([^:]+)/;
         unless (defined $flag && defined $call) {
             _pc92_admission_trace($self, $pc, 'object_decode_failed');
@@ -3342,10 +3354,11 @@ sub _pc92_handle_92_original
 		}
 	}
 
-	# A/C/D: reject the entire packet before lastid, Route or DXUser changes.
-	# Do not silently filter conflicting identities from a full C snapshot.
+	# A/C/D: reject conflicting local OBJECTs before lastid or route changes.
+	# The preflight-admitted transit-only exception is not a local identity.
 	if ($sort eq 'A' || $sort eq 'C' || $sort eq 'D') {
 		for my $i (5 .. $#$pc - 1) {
+			next if _pc92_acd_transit_only($pc->[$i]);
 			my ($flag, $call) = $pc->[$i] =~ /\A([0-7])([^:]+)/;
 			return unless defined $flag && defined $call;
 			if ($call eq $main::mycall ||
@@ -3358,12 +3371,17 @@ sub _pc92_handle_92_original
 		}
 	}
 
-	# Decode all advertised OBJECTs before check_pc9x_t can mutate lastid.
-	# A failed decode must reject the entire A/C/D message, never silently
-	# remove an OBJECT from a C snapshot after sequence admission.
+	# Decode all locally applicable OBJECTs before check_pc9x_t mutates lastid.
+	# A genuine decode failure still rejects the entire message.
 	my @pc92_acd_decoded;
+	my $pc92_acd_ignored = 0;
 	if ($sort eq 'A' || $sort eq 'C' || $sort eq 'D') {
 		for my $i (5 .. $#$pc - 1) {
+			# Wire validated above; omit transit-only objects from local state.
+			if (_pc92_acd_transit_only($pc->[$i])) {
+				++$pc92_acd_ignored;
+				next;
+			}
 			my @slot = _decode_pc92_call($pc->[$i]);
 			unless (@slot && defined $slot[0] && length $slot[0]) {
 				dbg("PCPROT: PC92$sort undecodable OBJECT at index $i, rejected") if isdbg('chanerr') || isdbg('routelow');
@@ -3587,7 +3605,8 @@ sub _pc92_handle_92_original
 			}
 			# A classical D with only RELAY removes ORIGIN -> RELAY.
 			# Route::Node::del cascades only when no other parents remain.
-			if (!@nent && $pc92_owner_call ne $pcall) {
+			# Ignored OBJECTs must not turn a D into a relay deletion.
+			if (!@nent && !$pc92_acd_ignored && $pc92_owner_call ne $pcall) {
 				my $relay = Route::Node::get($pc92_owner_call);
 				if ($relay && grep { $_ eq $pcall } @{$relay->{parent} || []}) {
 					push @rdel, _del_thingy($oparent, [$pc92_owner_call, 1], $self);
@@ -3603,7 +3622,8 @@ sub _pc92_handle_92_original
 
 			#
 			# All OBJECT identities were validated before check_pc9x_t.
-			# Never turn an invalid full snapshot into a partial snapshot.
+			# Transit-only objects are absent from the local snapshot by policy.
+			# The original wire snapshot is retained for forwarding.
 			foreach my $r (@nent) {
 				#			my ($call, $is_node, $is_extnode, $here, $version, $build) = _decode_pc92_call($_);
 				if ($r->[0]) {
