@@ -15,6 +15,8 @@
    if the native CIDR engine fails.
 8. Added support for badip.vpn, including compatibility with load/badip.
 9. Added copyhash.pl to merge multiple hash and plain-text files.
+10.Enhanced the download command to support wildcard file selection and a 
+   secondary mirror for known DXSpider resources.
 24Nov26======================================================================
 1. Fixed a PC92 A/C/D regression where invalid callsigns listed in badspotter
    could cause an entire packet to be rejected and rolled back.
