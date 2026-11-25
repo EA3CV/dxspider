@@ -407,6 +407,22 @@ DX cluster <callsign>. This process creates a new 'client' process which will
 use the script in /spider/connect/<callsign> to effect the 'chat' exchange
 necessary to traverse the network(s) to logon to the cluster <callsign>.
 
+=== 9^COPYHASH <source> [<source> ...] <destination>^Merge hash and plain-text files
+Merge native hash and plain-text files in local_data.
+Files without an extension are native DXHash files; files with an extension
+are plain text. The last argument determines the output format.
+Source patterns may contain * or ?; the destination may be a source too.
+Only filenames are accepted, not paths. Duplicate keys are removed; the
+latest existing hash timestamp wins. The destination is replaced atomically.
+The command runs asynchronously and reports the result when finished.
+It does not reload lists or create a backup. Use only the intended files.
+
+  copyhash badnode.* badnode.global
+  copyhash hash1 hash2 hashglobal
+  copyhash hash1 list.txt hashglobal
+
+The command is restricted to local SYSOP commands (privilege 9 or above).
+
 === 5^CREATE/USER <callsign> ...^Create this user from the User Database
 This command will create one or more new users. None of the fields
 like name, qth etc will be filled in. It is just a new entry in the user

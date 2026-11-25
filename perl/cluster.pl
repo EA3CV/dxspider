@@ -275,9 +275,18 @@ sub new_channel
 	# check for bad IP addresses
 	my $host = $conn->peerhost;
 	unless ($conn->isa('IntMsg')) {
-		if (DXCIDR::find($host)) {
+		# VPN provenance is checked independently; the generic union is unchanged.
+		my $vpn = DXCIDR::find_vpn($host);
+		if ($vpn || DXCIDR::find($host)) {
 			eval { DXHealth::connection_badip($call); 1 };
-			LogDbg('*', "$call on $host is from a badip $host, disconnected");
+			if ($vpn) {
+				LogDbg('*', "$call on $host is from badip.vpn, disconnected");
+				# D frame follows the existing admission message convention.
+				# Explicit UTF-8 bytes keep the socket write byte-oriented.
+				eval { $conn->send_now("D$call|Sorry, we don\xE2\x80\x99t accept connections from VPNs, goodbye"); 1 };
+			} else {
+				LogDbg('*', "$call on $host is from a badip $host, disconnected");
+			}
 			$conn->disconnect;
 			return;
 		}

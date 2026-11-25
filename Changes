@@ -1,9 +1,27 @@
+25Nov26======================================================================
+1. Improved startup resilience against corrupt or malformed bad-list files.
+   Invalid records are repaired where possible or removed individually,
+   preserving all recoverable valid entries.
+2. Replaced Perl eval-based bad-list parsing with a safer data parser,
+   preventing execution of file contents during loading.
+3. Improved recovery of historical hash and plain-text formats, including
+   empty, truncated and partially corrupted files.
+4. Added atomic file repair, backups and native audit logging.
+   Original files are preserved in local_data/badlist-backups.
+5. Improved BadWords loading by isolating individual file failures and
+   preserving the historical behaviour of badword and badw_regex.
+6. Improved validation and recovery of IPv4 and IPv6 bad lists.
+7. Added an alternative IP matching mechanism to maintain filtering
+   if the native CIDR engine fails.
+8. Added support for badip.vpn, including compatibility with load/badip.
+9. Added copyhash.pl to merge multiple hash and plain-text files.
 24Nov26======================================================================
 1. Fixed a PC92 A/C/D regression where invalid callsigns listed in badspotter
    could cause an entire packet to be rejected and rolled back.
 2. Exclude badw_regex files, with or without extensions, from DXHash startup 
    bad-list validation, preserving their original contents and format.
-3. DXWeb Admin: obtain live Overview snapshots independently of historical metrics collection.
+3. DXWeb Admin: obtain live Overview snapshots independently of historical 
+   metrics collection.
 4. DXWeb Admin: improve Peers diagram layout for large numbers of direct neighbours.
    DXWeb to 4.0.6 and DXWeb Admin to 2.0.19.
 23Nov26======================================================================

@@ -35,28 +35,35 @@ sub new
 {
 	my ($pkg, $name) = @_;
 
-	# move existing file to localhost, if necessary.
-	localdata_mv($name);
-	_badlist_run() if defined($main::local_data) && -d $main::local_data;
-	my $s = readfilestr($main::local_data, $name);
-	my $self = undef;
-	$self = eval $s if $s;
-	dbg("error in reading $name in DXHash $@") if $@;
-	$self = bless({name => $name}, $pkg) unless defined $self;
-    bless($self,$pkg) if ref($self) eq 'HASH';
-	
-	if (_is_multifile_list($name)) {
-        my %merged;
-        for my $path (_list_files($name)) {
-            my $obj = _list_read($path);
-            for my $call (keys %$obj) {
-                next if $call eq 'name';
-                $merged{$call} = $obj->{$call};
-            }
-        }
-        %$self = (name => $name);
-        $self->add($_, $merged{$_}) for sort keys %merged;
+    # Keep unrelated DXHash consumers on the historical path.
+    unless (_is_multifile_list($name)) {
+        localdata_mv($name);
+        my $s = readfilestr($main::local_data, $name);
+        my $self = undef;
+        $self = eval $s if $s;
+        dbg("error in reading $name in DXHash $@") if $@;
+        $self = bless({name=>$name}, $pkg) unless defined $self;
+        bless($self,$pkg) if ref($self) eq 'HASH';
+        return $self;
     }
+    my $self = bless {name => $name}, $pkg;
+    return $self unless defined($main::local_data) && length($main::local_data);
+    my $migrated = eval { localdata_mv($name); 1 };
+    _badlist_log("migration failed for $name: $@") unless $migrated;
+    my @paths;
+    my $ok = eval { @paths = _list_files($name); 1 };
+    _badlist_log("enumeration failed for $name: $@") unless $ok;
+    # If migration failed, read the original without trying to rewrite it.
+    push @paths, "$main::data/$name" if !$migrated && defined($main::data)
+        && -f "$main::data/$name" && !-e "$main::local_data/$name";
+    my %merged;
+    for my $path (@paths) {
+        my $obj;
+        my $loaded = eval { $obj = _list_read($path, !$migrated && defined($main::data) && $path eq "$main::data/$name", 1); 1 };
+        unless ($loaded) { _badlist_log("source skipped $path: $@"); next; }
+        $merged{$_}=$obj->{$_} for grep { $_ ne 'name' } keys %$obj;
+    }
+    $self->add($_,$merged{$_}) for sort keys %merged;
     return $self;
 }
 
@@ -75,7 +82,7 @@ sub add
 
 	# also add the base version if it has some ssid on it
 	my $nn = basecall($n);
-	$self->{$nn} = $t unless exists $self->{$nn} || $n eq $nn;
+	$self->{$nn} = $t if defined($nn) && length($nn) && !exists($self->{$nn}) && $n ne $nn;
 }
 
 sub del
@@ -101,7 +108,7 @@ sub in
 	return 1 if exists $self->{$n};
 	return 0 if $exact;
 	my $m = basecall($n);
-	return exists $self->{$m};
+	return defined($m) && length($m) && exists $self->{$m};
 }
 
 # File-backed lists with layered sources. Keep other DXHash lists unchanged.
@@ -123,25 +130,10 @@ sub _list_files
 
 sub _list_read
 {
-    my ($path) = @_;
-    my $src = readfilestr($path);
-    die "cannot read $path" unless defined $src;
-    if ($path =~ /\.(?:[^\/]+)$/) {
-        my %obj = (name => basename($path) =~ /^([^.]*)/ ? $1 : '');
-        for my $line (split /\n/, $src) {
-            $line =~ s/\r$//;
-            $line =~ s/\s+#.*$//;
-            next if $line =~ /^\s*(?:#|$)/;
-            for my $word (split /\s+/, $line) {
-                $obj{uc $word} = $main::systime || time;
-            }
-        }
-        return \%obj;
-    }
-    my $obj = eval $src;
-    die "invalid $path: $@" if $@;
-    die "invalid hash in $path" unless ref($obj) && eval { keys %$obj; 1 };
-    return $obj;
+    my ($path, $readonly, $startup) = @_;
+    my ($name) = basename($path) =~ /^([^.]+)/;
+    my ($obj) = _badlist_source($path, 'call', $readonly, !$startup);
+    return {name => $name, %$obj};
 }
 
 sub _list_write
@@ -195,6 +187,7 @@ sub _list_command
         }
     }
     for my $path (sort keys %changed) {
+        die "cannot modify symlink $path" if -l $path;
         if ($path =~ /\.[^\/]+$/) {
             my $old = readfilestr($path);
             my $out;
@@ -300,14 +293,14 @@ sub show
 
 
 
-# Startup verification of bad* lists. No additional module.
-our $badlist_checked = 0;
-
+# Shared data-only bad-list recovery. Each consumer validates the exact
+# sources it will load, after any migration. Never evaluate list contents.
 sub _badlist_log {
     my ($msg) = @_;
-    if (defined &DXLog::LogDbg) { eval { DXLog::LogDbg('audit', "DXHash badlist: $msg") }; }
-    elsif (defined &DXDebug::dbg) { DXDebug::dbg("DXHash badlist: $msg") }
-    else { warn "DXHash badlist: $msg\n" }
+    my $ok = defined(&DXLog::LogDbg) && eval { DXLog::LogDbg('audit', "DXHash badlist: $msg"); 1 };
+    unless ($ok) {
+        eval { DXDebug::dbg("DXHash badlist: $msg"); 1 } or eval { warn "DXHash badlist: $msg\n"; 1 };
+    }
 }
 sub _badlist_write {
     my ($path,$src,$out,$removed,$kind) = @_;
@@ -317,116 +310,150 @@ sub _badlist_write {
     my $bak = "$backup_dir/" . basename($path) . "." . time . "-$$";
     my $seq = 0;
     $bak .= "." . ++$seq while -e $bak;
+    # Copy the exact bytes inspected, and refuse to overwrite a concurrently changed source.
+    my $current = readfilestr($path);
+    $current = '' if !defined($current) && -z $path;
+    die "source changed during repair $path" unless defined($current) && $current eq $src;
     copy($path,$bak) or die "backup $path -> $bak: $!";
     my ($fh,$tmp) = tempfile('.badlist-check-XXXXXX',DIR=>dirname($path),UNLINK=>0);
-    my $mode = (stat($path))[2] & 07777;
+    my @st = stat($path);
+    my $mode = $st[2] & 07777;
     my $ok = eval {
+        my @ts = stat($tmp);
+        if ($ts[4] != $st[4] || $ts[5] != $st[5]) { chown($st[4],$st[5],$tmp) or die "chown $tmp: $!"; }
         chmod($mode,$tmp) or die "chmod $tmp: $!";
         print {$fh} $out or die "write $tmp: $!";
         close($fh) or die "close $tmp: $!";
+        my $current=readfilestr($path);
+        $current='' if !defined($current) && -z $path;
+        die "source changed during repair $path" unless defined($current) && $current eq $src;
         rename($tmp,$path) or die "rename $tmp: $!";
         1;
     };
     if (!$ok) { my $err=$@; close($fh) if fileno($fh); unlink($tmp); die $err; }
     _badlist_log("repaired $path format=$kind removed=$removed backup=$bak");
 }
+# Parse the native Data::Dumper format without executing it. Recovery is
+# deliberately limited to complete literal key/value records, never guessing
+# timestamps or interpreting arbitrary Perl expressions.
 sub _badlist_hash {
-    my ($path,$src) = @_;
-    my $base=basename($path);
-    my $obj=eval $src;
-    if (!$@ && ref($obj) && eval { keys %$obj; 1 }) {
-        my %clean;
-        my $removed=0;
-        for my $key (keys %$obj) {
-            if ($key eq 'name') { $clean{name}=$base; next; }
-            if ($key =~ m{\A[A-Za-z0-9_/-]+\z} && defined($obj->{$key}) && !ref($obj->{$key}) && $obj->{$key} =~ /\A[0-9]+\z/) {
-                $clean{$key}=$obj->{$key};
-            } else { ++$removed; }
+    my ($src,$name,$type) = @_;
+    my %clean;
+    my ($removed,$changed,$named) = (0,0,0);
+    my $body = $src;
+    $changed++ if $body =~ s/\A\xEF\xBB\xBF//;
+    my $blessed = $body =~ /\A\s*bless\s*\(/;
+    $changed++ unless $body =~ s/\A\s*(?:bless\s*\(\s*)?\{//;
+    if ($blessed) { $changed++ unless $body =~ s/\}\s*,\s*['"]DXHash['"]\s*\)\s*;?\s*\z//; }
+    else { $changed++ unless $body =~ s/\}\s*;?\s*\z//; }
+    # Missing commas between physical rows are repairable.
+    $changed++ if $body =~ /[^,\s]\s*\n\s*[^\s#]/;
+    # Data::Dumper emits one record per line. Also accept compact literal
+    # records; a comma inside an invalid quoted key is not a separator.
+    for my $line (split /\n/, $body) {
+        next if $line =~ /^\s*(?:#.*)?$/;
+        my @records;
+        my $start=0; my $quote='';
+        for (my $i=0; $i<length($line); ++$i) {
+            my $c=substr($line,$i,1);
+            if ($quote) { $quote='' if $c eq $quote; }
+            elsif ($c eq "'" || $c eq '"') { $quote=$c; }
+            elsif ($c eq ',') { push @records,substr($line,$start,$i-$start); $start=$i+1; }
+            elsif ($c eq '#') { $line=substr($line,0,$i); last; }
         }
-        return unless $removed;
-        my $out=Data::Dumper->new([\%clean])->Indent(1)->Terse(1)->Quotekeys(0)->Dump;
-        _badlist_write($path,$src,$out,$removed,'hash');
-        return;
+        push @records,substr($line,$start);
+        $changed++ if grep { /^\s*$/ } @records[0..$#records-1];
+        for my $row (@records) {
+            next if $row =~ /^\s*$/;
+            if ($row =~ /^\s*(?:'([^']*)'|"([^"\\]*)"|([A-Za-z0-9_\/-]+))\s*=>\s*(?:'([^']*)'|"([^"\\]*)"|([0-9]+))\s*$/) {
+                my $key = defined($1) ? $1 : defined($2) ? $2 : $3;
+                my $val = defined($4) ? $4 : defined($5) ? $5 : $6;
+                if ($key eq 'name') { $named++; $changed++ if $val ne $name || $named > 1; next; }
+                if (_badlist_token($key,$type) && $val =~ /\A[0-9]+\z/ && length($val) <= 18) {
+                    $changed++ if exists $clean{$key};
+                    $changed++ if $row =~ /=>\s*0[0-9]+\s*$/ || $row =~ /^\s*0[0-9]+\s*=>/;
+                    # Unquoted digit-leading mixed keys, slash and hyphen
+                    # are not native Perl barewords; reserialize them.
+                    $changed++ if $row =~ /^\s*[0-9A-Za-z_\/-]+\s*=>/ && $key !~ /\A(?:[A-Za-z_][A-Za-z0-9_]*|[0-9]+)\z/;
+                    $clean{$key} = $val;
+                    next;
+                }
+            }
+            $removed++;
+        }
     }
-    # Salvage only isolated key => integer rows within an intact hash envelope.
-    my @lines=split /(?<=\n)/,$src;
-    my $first=shift @lines;
-    my $last=pop @lines;
-    die "invalid hash envelope $path" unless defined($first) && defined($last)
-        && $first =~ /^\s*(?:bless\s*\(\s*)?\{\s*$/
-        && $last =~ /^\s*\}\s*(?:,\s*['"]DXHash['"]\s*\))?\s*;?\s*$/;
-    my (%clean,$removed,$name); $removed=0;
-    for my $line (@lines) {
-        if ($line =~ /^\s*(?:'([^']+)'|([A-Za-z0-9_\/-]+))\s*=>\s*(?:'([^']*)'|([0-9]+))\s*,?\s*$/) {
-            my ($key,$val)=(defined($1)?$1:$2,defined($3)?$3:$4);
-            if ($key eq 'name' && $val eq $base) { $name=$val; $clean{name}=$val; }
-            elsif ($key =~ m{\A[A-Za-z0-9_/-]+\z} && $val =~ /^\d+$/) { $clean{$key}=$val; }
-            else { ++$removed; }
-        } elsif ($line =~ /^\s*$/) { next; }
-        else { ++$removed; }
+    $changed++ unless $named == 1;
+    my $out = $src;
+    if ($changed || $removed) {
+        $out = Data::Dumper->new([bless({name=>$name,%clean}, 'DXHash')])->Indent(1)->Terse(1)->Quotekeys(0)->Sortkeys(1)->Dump;
     }
-    die "invalid hash name $path" unless defined $name;
-    # Re-serialize parsed keys, never re-evaluate the original unquoted rows.
-    # Data::Dumper correctly quotes digit-leading callsigns such as 6L0NJ.
-    my $out=Data::Dumper->new([\%clean])->Indent(1)->Terse(1)->Quotekeys(0)->Dump;
-    my $check=eval $out;
-    die "invalid recovered hash $path: $@" if $@ || !ref($check) || !eval { keys %$check; 1 };
-    _badlist_write($path,$src,$out,$removed,'hash');
+    return (\%clean,$out,$removed);
+}
+sub _badlist_token {
+    my ($token,$type) = @_;
+    return $token =~ /\A[A-Za-z0-9_\/-]+\z/ if $type eq 'call';
+    return $token =~ /\A[A-Za-z0-9_]+\z/ if $type eq 'word';
+    # Legacy badw_regex words are literal tokens, including punctuation.
+    return $token =~ /\A[^\x00-\x20\x7f]+\z/ if $type eq 'legacy';
+    return 0;
 }
 sub _badlist_text {
-    my ($path,$src,$type) = @_;
-    # A legacy Hash stored in a dotted file is migrated to text once, with backup.
-    if ($type eq 'call') {
-        my $obj=eval $src;
-        if (!$@ && ref($obj) && eval { keys %$obj; 1 }) {
-            my @words=sort grep { $_ ne 'name' && m{\A[A-Za-z0-9_/-]+\z} && defined($obj->{$_}) && !ref($obj->{$_}) && $obj->{$_} =~ /^\d+$/ } keys %$obj;
-            my $invalid=(scalar(keys %$obj)-1)-scalar(@words);
-            my $out=join('',map { "$_\n" } @words);
-            _badlist_write($path,$src,$out,$invalid,'hash-to-text');
-            return;
+    my ($src,$type) = @_;
+    my (@tokens,@keep); my $removed=0;
+    my $first=1;
+    for my $line (split /(?<=\n)/,$src) {
+        my $v=$line;
+        my $bom=$first && ($v =~ s/\A\xEF\xBB\xBF//);
+        $first=0;
+        $v =~ s/\r?\n\z//;
+        if ($v =~ /^\s*(?:#|$)/) { push @keep,($bom ? "$v\n" : $line); next; }
+        my $comment='';
+        if ($type ne 'legacy' && $v =~ s/(\s+#.*)\z//) { $comment=$1; }
+        $v =~ s/\A[ \t]+|[ \t]+\z//g;
+        my @parts=split /[ \t]+/, $v;
+        my @good;
+        for my $token (@parts) {
+            my $valid = $type eq 'ip' ? eval { DXCIDR::valid_spec($token) } : _badlist_token($token,$type);
+            if ($valid) { push @good,$token; push @tokens,$token; }
+            else { ++$removed; }
         }
-    }
-    if ($type eq 'call' && $src =~ /^\s*(?:bless\s*\(|\{)/) {
-        die "unrecoverable dotted hash $path (kept unchanged)";
-    }
-    my @lines=split /(?<=\n)/,$src;
-    my (@keep,$removed); $removed=0;
-    for my $line (@lines) {
-        my $v=$line; $v =~ s/\r?\n$//;
-        if ($v =~ /^\s*(?:#|$)/) { push @keep,$line; next; }
         if ($type eq 'ip') {
-            if (DXCIDR::valid_spec($v)) { push @keep,$line; } else { ++$removed; }
-        } else {
-            $v =~ s/\s+#.*$//;
-            my @words=split /\s+/, $v;
-            my $valid= @words && !grep { $_ !~ ($type eq 'call' ? qr{\A[A-Za-z0-9_/-]+\z} : qr{\A[A-Za-z0-9_]+\z}) } @words;
-            if ($valid) { push @keep,$line; } else { ++$removed; }
+            if (!$bom && @good == 1 && @parts == 1 && $line eq $good[0]."\n") { push @keep,$line; next; }
+            if (@good) { push @keep, map { "$_\n" } @good; $comment =~ s/^\s+//; push @keep, "$comment\n" if length $comment; }
+            elsif (length $comment) { $comment =~ s/^\s+//; push @keep,"$comment\n"; }
+            next;
         }
+        if (!$bom && @good == @parts) { push @keep,$line; }
+        elsif (@good) { push @keep, join(' ',@good).$comment."\n"; }
+        elsif (length $comment) { $comment =~ s/^\s+//; push @keep,"$comment\n"; }
     }
-    _badlist_write($path,$src,join('',@keep),$removed,$type);
+    return (\@tokens,join('',@keep),$removed);
 }
-sub _badlist_run {
-    return if $badlist_checked;
-    my $dir=$main::local_data;
-    return unless defined($dir) && -d $dir;
-    opendir(my $dh,$dir) or die "DXHash badlist: opendir $dir: $!";
-    # BadWords regex files are not DXHash lists; leave their format untouched.
-    my @names=sort grep { /^bad/ && !/^badlist-/ && !/\Abadw_regex(?:\..*)?\z/ && -f "$dir/$_" && !/\.badlist-backup-/ && !/\.bak(?:\.|$)/ } readdir($dh);
-    closedir $dh;
-    for my $name (@names) {
-        my $path="$dir/$name";
-        my $ok=eval {
-            open(my $fh,'<',$path) or die "open $path: $!";
-            local $/; my $src=<$fh>; close $fh;
-            if ($name =~ /^badip(?:\.\w+)?$/) { _badlist_text($path,$src,'ip'); }
-            elsif ($name !~ /\./) { _badlist_hash($path,$src); }
-            elsif ($name =~ /^(?:baddx|badnode|badspotter)\.[A-Za-z0-9_]+$/) { _badlist_text($path,$src,'call'); }
-            elsif ($name =~ /^badword\.[A-Za-z0-9_]+$/) { _badlist_text($path,$src,'word'); }
-            elsif ($name =~ /^bad[A-Za-z0-9_]+\.[A-Za-z0-9_]+$/) { _badlist_text($path,$src,'word'); }
-            1;
-        };
-        if (!$ok) { my $err=$@ || 'unknown error'; _badlist_log("ERROR $path: $err"); die "DXHash badlist: $err"; }
+sub _badlist_source {
+    my ($path,$type,$readonly,$strict_write) = @_;
+    die "not a regular source $path" unless -f $path;
+    open(my $fh,'<',$path) or die "open $path: $!";
+    binmode($fh);
+    my $src='';
+    while (1) { my $n=read($fh,my $buf,65536); die "read $path: $!" unless defined $n; last unless $n; $src.=$buf; }
+    close($fh) or die "close $path: $!";
+    my ($name) = basename($path) =~ /^([^.]+)/;
+    my ($obj,$out,$removed,$kind);
+    if (($type eq 'call' || $type eq 'word') && (basename($path) eq $name || $src =~ /\A(?:\xEF\xBB\xBF)?\s*(?:bless\s*\(|\{)/ || $src =~ /^\s*(?:[A-Za-z0-9_\/-]+|'[^'\n]*'|"[^"\n]*")\s*=>\s*(?:[0-9]+|['"][0-9]+['"])\s*,?\s*$/m)) {
+        ($obj,$out,$removed)=_badlist_hash($src,$name,$type);
+        $kind='hash';
+        if (basename($path) ne $name) { $out=join('',map { "$_\n" } sort keys %$obj); $kind='hash-to-text'; }
+    } else {
+        my $tokens;
+        ($tokens,$out,$removed)=_badlist_text($src,$type);
+        $obj=($type eq 'call' || $type eq 'word') ? {map { uc($_)=>($main::systime || time) } @$tokens} : $tokens;
+        $kind=$type;
     }
-    $badlist_checked=1;
+    if ($src ne $out && !$readonly && !-l $path) {
+        my $ok=eval { _badlist_write($path,$src,$out,$removed,$kind); 1 };
+        unless ($ok) { my $err=$@; die $err if $strict_write; _badlist_log("repair not persisted $path; using recovered records in memory: $err"); }
+    }
+    if ($src ne $out && -l $path) { die "cannot repair symlink $path" if $strict_write; _badlist_log("source is a symlink; using recovered records without rewriting $path"); }
+    return ($obj,$out,$removed);
 }
 1;
