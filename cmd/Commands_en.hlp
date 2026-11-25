@@ -662,21 +662,34 @@ or everything (except yourself) with
 
   DISC all
 
-=== 9^DOWNLOAD <url>^Download a file into local_data
-This command is a direct replacement for the unix 'wget -Qn' command
-that is used to download files like badip, spot data, user databases
-like usdb. It is designed to work either on the command line in a console
-or (more likely) in the crontab, like the example below:
+=== 9^DOWNLOAD <url>^Download files into local_data
+Download a single HTTP or HTTPS URL, or expand '*' in the filename against
+ the built-in catalogue for a documented download directory. Downloads run
+ asynchronously and wildcard matches are fetched one at a time. The catalogue
+ is maintained in download.pl; it is not a remote directory listing.
+ The catalogue includes bad-list candidates that may not exist remotely.
+ For known list URLs, a failed or invalid download is retried once using
+ the download mirror (https://raw.githubusercontent.com/dxspider-official/download/main/).
+ Both sources are validated before replacing local files. If both fail,
+ the existing file is preserved. Other URLs retain their original behaviour.
+ WARNING: bad* includes native hashes; successful downloads replace them,
+ including any local entries. Use a narrower pattern to avoid this.
+ Query strings on individual URLs are supported; '?' is not a wildcard.
+ Each successful download replaces its destination atomically. A failed
+ download leaves its existing destination intact. Lists are not reloaded.
 
-24 * * * * run_cmd('download http://www.dxspider.net/download/badip.torexit')
-24 * * * * run_cmd('download http://www.dxspider.net/download/badip.torrelay')
-24 * * * * run_cmd('download http://www.dxspider.net/download/badip.global')
-25 * * * * run_cmd('load/badip')
+ Examples:
+   download http://dxspider.dxcluster.net/download/badip.torexit
+   download http://dxspider.dxcluster.net/download/badip.*
+   download http://dxspider.dxcluster.net/download/badnode*
+   download http://dxspider.dxcluster.net/download/bad*
 
-If you do use the crontab then *please* use a random minute between 15-40
-and not all use minute 24.
+ Crontab example (choose a random minute between 15 and 40):
+   24 * * * * run_cmd('download http://dxspider.dxcluster.net/download/badip.*')
 
-Windows users may well find this particularly useful.
+ The batch may still be running when a later cron job starts. Do not assume
+ a fixed delay guarantees completion before load/badip or copyhash.
+ Check the download completion summary in the native log.
 
 === 0^DX <freq> <call> <remarks>^Send a DX spot
 === 2^DX [BY <call>] [ip <ipaddress>] <freq> <call> <remarks>^Send a DX spot
