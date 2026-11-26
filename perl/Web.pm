@@ -2223,7 +2223,8 @@ sub normal
 
 	# Before WebCluster negotiation, preserve Dirk's existing Web/CLI behaviour.
 	unless ($self->is_webcluster) {
-		my $req = $json->decode($line);
+		local $@;
+		my $req = $line =~ /^\s*\{/ ? $json->decode($line) : undef;
 
 		if ($req && ref $req eq 'HASH' && ($req->{type} || '') eq 'hello' &&
 			(($req->{role} || '') eq 'webcluster' || ($req->{role} || '') eq 'dxweb' || ($req->{role} || '') eq 'dxweb-admin')) {
@@ -2274,6 +2275,7 @@ sub normal
 			return;
 		}
 
+		$@ = q{};
 		return $self->SUPER::normal($line);
 	}
 

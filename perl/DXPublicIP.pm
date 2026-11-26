@@ -5,8 +5,8 @@ use Socket qw(AF_INET AF_INET6 inet_pton inet_ntop);
 use DXUtil ();
 
 # Linux procfs route tables are kernel interfaces, not distribution command output.
-# Only directly connected, non-default routes are used. Explicit local aliases
-# remain supported by DXUtil::alias_localhost.
+# Directly connected, non-default routes supplement private intranet ranges.
+# Explicit local aliases remain supported by DXUtil::alias_localhost.
 my @networks;
 my $published;
 my $previous;
@@ -17,6 +17,12 @@ sub _unmap_ipv4 {
     return $ip unless defined $ip;
     return $1 if $ip =~ /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i
         && inet_pton(AF_INET, $1);
+    # Also accept the hexadecimal spelling of an IPv4-mapped IPv6 address.
+    if ($ip =~ /:/) {
+        my $packed = inet_pton(AF_INET6, $ip);
+        return inet_ntop(AF_INET, substr($packed, 12, 4))
+            if defined($packed) && substr($packed, 0, 12) eq ("\0" x 10 . "\xff\xff");
+    }
     return $ip;
 }
 
@@ -84,7 +90,18 @@ sub _alias_configured {
 
 sub _is_local_network_address {
     my ($lookup) = @_;
+    $lookup = _unmap_ipv4($lookup);
+    return 0 unless defined($lookup) && length($lookup);
     return 0 if DXUtil::is_public_ip($lookup);
+    # Locally originated protocol addresses may come from routed VLANs or
+    # private overlays. Do not depend on a directly connected kernel route.
+    # Do not generalise this to all non-public/special-purpose addresses.
+    for my $n (['10.0.0.0', 8], ['172.16.0.0', 12], ['192.168.0.0', 16],
+               ['100.64.0.0', 10], ['169.254.0.0', 16],
+               ['fc00::', 7], ['fe80::', 10]) {
+        return 1 if _prefix_match($lookup, @$n);
+    }
+    # Preserve the previous behaviour for directly connected networks.
     for my $n (@networks) { return 1 if _prefix_match($lookup, @$n) }
     return 0;
 }

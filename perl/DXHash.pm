@@ -113,6 +113,8 @@ sub in
 
 # File-backed lists with layered sources. Keep other DXHash lists unchanged.
 sub _is_multifile_list { return $_[0] =~ /\A(?:badnode|baddx|badspotter)\z/; }
+sub _inactive_source { return $_[0] =~ /(?:\.(?:bak|backup|old|disabled|orig|save)(?:\.|$)|\.badlist-backup-|~$)/i; }
+
 sub _list_files
 {
     my $name = shift;
@@ -123,7 +125,7 @@ sub _list_files
     # do not enumerate files or abort the module load.
     return () unless defined($dir) && length($dir);
     opendir(my $dh, $dir) or die "$name: cannot open $dir: $!";
-    my @names = sort grep { /^\Q$name\E(?:\.[^\/]+)?$/ && -f "$dir/$_" } readdir($dh);
+    my @names = sort grep { /^\Q$name\E(?:\.[^\/]+)?$/ && !_inactive_source($_) && -f "$dir/$_" } readdir($dh);
     closedir($dh);
     return map { "$dir/$_" } @names;
 }
@@ -437,6 +439,8 @@ sub _badlist_source {
     my $src='';
     while (1) { my $n=read($fh,my $buf,65536); die "read $path: $!" unless defined $n; last unless $n; $src.=$buf; }
     close($fh) or die "close $path: $!";
+    die "HTML/XML document rejected: $path"
+        if $src =~ /<(?:!DOCTYPE\s+html\b|\?xml\b|html\b|head\b|body\b|title\b|\/html\s*>)/i;
     my ($name) = basename($path) =~ /^([^.]+)/;
     my ($obj,$out,$removed,$kind);
     if (($type eq 'call' || $type eq 'word') && (basename($path) eq $name || $src =~ /\A(?:\xEF\xBB\xBF)?\s*(?:bless\s*\(|\{)/ || $src =~ /^\s*(?:[A-Za-z0-9_\/-]+|'[^'\n]*'|"[^"\n]*")\s*=>\s*(?:[0-9]+|['"][0-9]+['"])\s*,?\s*$/m)) {

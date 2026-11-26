@@ -32,7 +32,7 @@ sub _sources
     opendir my $dh, $dir or return ();
     my @files = sort map { "$dir/$_" }
                 grep { $_ eq 'badword' || /^badword\./ }
-                grep { -f "$dir/$_" } readdir $dh;
+                grep { !DXHash::_inactive_source($_) && -f "$dir/$_" } readdir $dh;
     closedir $dh;
     return @files;
 }
@@ -53,7 +53,7 @@ sub _load_legacy_regex
 {
     my $dir = $main::local_data;
     opendir my $dh, $dir or return ("BadWords: can't open $dir: $!");
-    my @files = sort grep { /\Abadw_regex(?:\..*)?\z/ && -f "$dir/$_" } readdir $dh;
+    my @files = sort grep { /\Abadw_regex(?:\..*)?\z/ && !DXHash::_inactive_source($_) && -f "$dir/$_" } readdir $dh;
     closedir $dh;
     my (@next,@errors);
     for my $name (@files) {
@@ -71,6 +71,7 @@ sub _load_legacy_regex
         }
     }
     @legacy_regex = @next;
+    dbg("BadWords: loaded " . scalar(@legacy_regex) . " legacy patterns from " . scalar(@files) . " candidate files");
     return @errors;
 }
 

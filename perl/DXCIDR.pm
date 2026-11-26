@@ -560,6 +560,7 @@ sub reload
 	while (my $fn = readdir $dir) {
 		next unless $fn eq $badipfn || $fn =~ /^\Q$badipfn\E\.(\w+)$/;
         my $suffix = $fn eq $badipfn ? undef : $1;
+        next if DXHash::_inactive_source($fn);
         next unless -f "$main::local_data/$fn";
         my $c;
         my $ok=eval { $c=_load($suffix); 1 };

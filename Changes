@@ -1,3 +1,14 @@
+26Nov26======================================================================
+1. Fix a Windows-specific issue in bad-list recovery where CRLF translation
+   could incorrectly trigger concurrent modification detection  >:(
+2. Extend public IP normalisation to cover routed private networks, including
+   VLANs and private overlays, without requiring directly connected routes.
+3. Fix a regression in Web.pm affecting classic IntMsg #WEB clients. Only 
+   attempt JSON decoding for object-shaped input before protocol negotiation.
+   Thanks to Daniel, DA6IT, for reporting.
+4. Reject HTML/XML documents when loading bad lists, preventing unintended
+   filtering of legitimate spots. Exclude backup and disabled files from 
+   bad-list loading.
 25Nov26======================================================================
 1. Improved startup resilience against corrupt or malformed bad-list files.
    Invalid records are repaired where possible or removed individually,
