@@ -246,12 +246,15 @@ sub dequeue
 	}
 }
 
-# External logins use normal admission (including allowmultiple), never
-# interactive session takeover, even with a password or a loopback peer.
+# External logins may replace an existing user after normal admission.
+# This marker is set only by the inbound login/password state machine.
 sub _session_admission
 {
     my ($conn, $call, $sort) = @_;
-    $conn->{observed_peer_login} = $call unless $conn->{outgoing};
+    unless ($conn->{outgoing}) {
+        $conn->{observed_peer_login} = $call;
+        $conn->{session_external_login} = normalise_call($call);
+    }
     $conn->to_connected($call, 'A', $sort);
 }
 

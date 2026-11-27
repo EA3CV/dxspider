@@ -444,6 +444,12 @@ sub new_channel
 		}
 
 	   
+        # Consume the external login marker; never trust a raw A frame.
+        my $external_login = delete $conn->{session_external_login};
+        my $external_takeover = $conn->isa('ExtMsg') && !$conn->{outgoing} &&
+            $sort eq 'A' && defined($external_login) && $external_login eq $call &&
+            (!$main::passwdreq && !($user && $user->passwd) || $conn->{usedpasswd});
+
         # A confirmed local-console takeover is not an ordinary reconnect.
         # Bind the exception to the exact still-current human channel.
         my $takeover = $conn->isa('IntMsg') &&
@@ -559,24 +565,31 @@ sub new_channel
 
 			# handle "normal" (non-multiple) connections in the existing way
 			if ($call eq $newcall) {
-				# Session admission v0.01: never evict an existing human
-				# channel from an unauthenticated incoming connection.
-				# DXCommandmode authentication happens only after new().
-				# Until a verified takeover handshake is implemented,
-				# preserve the original channel regardless of bumpexisting
-				if ($takeover && $conn->{session_takeover_target} == $dxchan) {
+				# Console confirmation or completed external login only.
+				# Preserve node channels and normal multiple-SSID admission.
+				if (($takeover && $conn->{session_takeover_target} == $dxchan) ||
+                    ($external_takeover && $dxchan->is_user && $user && $user->is_user)) {
+                    # Check the projected connection count before eviction.
+                    if ($conn->{sort} && $conn->{sort} =~ /^I/) {
+                        my ($count, @calls) = Route::basecall_no($call);
+                        --$count if $main::routeroot->is_user($call);
+                        if ($maxconnect_user && $count > $maxconnect_user + $allowmultiple) {
+                            already_conn($conn, $call, DXM::msg($lang, 'contomany', $call, $maxconnect_user, join(' ', @calls)));
+                            return;
+                        }
+                    }
 					delete $conn->{session_takeover_verified};
 					delete $conn->{session_takeover_target};
-					LogDbg('*', "existing $call  on $existing_host authenticated session takeover from $new_host accepted");
+					LogDbg('*', "existing $call on $existing_host session takeover from $new_host accepted");
 					$dxchan->send_now('D', "Another authenticated session for $call has replaced this connection.");
 					$dxchan->disconnect;
                     if (DXChannel::get($call) || $main::routeroot->is_user($call)) {
-                        LogDbg('*', "$call console takeover: old session release incomplete");
-                        already_conn($conn, $call, 'Existing session could not be released. Console connection cancelled.');
+                        LogDbg('*', "$call session takeover: old session release incomplete");
+                        already_conn($conn, $call, 'Existing session could not be released. Connection cancelled.');
                         return;
                     }
 				} else {
-					LogDbg('*', "$call on $existing_host - duplicate login from $new_host rejected; existing channel preserved");
+					LogDbg('duplogin', "$call on $existing_host - duplicate login from $new_host rejected; existing channel preserved") if isdbg('duplogin');
 					already_conn($conn, $call, "Another session on $existing_host for $call from $new_host is already connected. Existing session preserved.");
 					return;
 				}

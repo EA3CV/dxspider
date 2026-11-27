@@ -1181,53 +1181,46 @@ sub _auth_request
 		# its effective actor privilege remains zero after authentication.
 		$password_required = $main::passwdreq || ($user && $user->passwd) ? 1 : 0;
 		if ($password_required) {
-			unless ($user && defined($password) && $password eq ($user->passwd || '')) {
+			unless ($user && length($user->passwd || '') && defined($password) && $password eq $user->passwd) {
 				$self->_error($id, 'auth', 'bad_password', {call => $call, password_required => 1});
 				return;
 			}
 		}
 	}
 
-	# Public DXWeb must never negotiate or confirm a session takeover.
-	# Keep normal duplicate admission in _user_add, including logical users.
-	if (!$is_admin && (DXChannel::get($call) || defined $req->{takeover_token})) {
-		delete $self->{web_takeover_pending}{$call};
-		$self->_error($id, 'auth', 'already_connected', {call => $call});
+	# Public DXWeb uses automatic replacement after normal login checks.
+	# Admin requires a confirmation bound to the exact current channel.
+	my $old = DXChannel::get($call);
+	my $target;
+	if (!$is_admin && defined $req->{takeover_token}) {
+		$self->_error($id, 'auth', 'takeover_changed', {call => $call});
 		return;
 	}
-
-	# Only a successfully authenticated request may negotiate a takeover.
-	# The confirmation must identify the exact channel still occupying CALL.
-	my $old = DXChannel::get($call);
 	if ($old && $old->is_user) {
-		my $token = $req->{takeover_token};
-		my $pending = $self->{web_takeover_pending}{$call};
-		if (defined($token) && !ref($token) && $token =~ /\A[0-9]+\z/ &&
-		    $pending && "$token" eq "$pending->{token}" &&
-		    time <= $pending->{expires} && $pending->{channel} &&
-		    $pending->{channel} == $old) {
-			delete $self->{web_takeover_pending}{$call};
-			# Only the precise, previously approved user channel can be displaced.
-			# The logical Web disconnect preserves the shared #WEB-n transport.
-			$old->send_now('D', "Another authenticated session for $call has replaced this connection.");
-			$old->disconnect;
-			if (DXChannel::get($call) || $main::routeroot->is_user($call)) {
-				$self->_error($id, 'auth', 'takeover_release_failed', {call => $call});
+		if (!$is_admin) {
+			$target = $old;
+		} else {
+			my $token = $req->{takeover_token};
+			my $pending = $self->{web_takeover_pending}{$call};
+			if (defined($token) && !ref($token) && $token =~ /\A[0-9]+\z/ &&
+			    $pending && "$token" eq "$pending->{token}" &&
+			    time <= $pending->{expires} && $pending->{channel} &&
+			    $pending->{channel} == $old) {
+				delete $self->{web_takeover_pending}{$call};
+				$target = $old;
+			} else {
+				my $new_token = ++$web_takeover_challenge_seq;
+				$self->{web_takeover_pending}{$call} = {
+					token => $new_token, channel => $old, expires => time + 60,
+				};
+				weaken($self->{web_takeover_pending}{$call}{channel});
+				$self->_error($id, 'auth', 'takeover_required', {
+					call => $call, takeover_token => $new_token,
+				});
 				return;
 			}
-		} else {
-			my $new_token = ++$web_takeover_challenge_seq;
-			$self->{web_takeover_pending}{$call} = {
-				token => $new_token, channel => $old, expires => time + 60,
-			};
-			weaken($self->{web_takeover_pending}{$call}{channel});
-			$self->_error($id, 'auth', 'takeover_required', {
-				call => $call, takeover_token => $new_token,
-			});
-			return;
 		}
 	} elsif (defined $req->{takeover_token}) {
-		# An obsolete confirmation cannot authorize an unrelated admission.
 		delete $self->{web_takeover_pending}{$call};
 		$self->_error($id, 'auth', 'takeover_changed', {call => $call});
 		return;
@@ -1248,6 +1241,7 @@ sub _auth_request
 		registered => $user ? ($user->registered ? 1 : 0) : 0,
 		password_used => $password_required ? 1 : 0,
 		auth_source => 'dxspider',
+		takeover_target => $target,
 	});
 }
 
@@ -1288,7 +1282,13 @@ sub _user_add
 		return;
 	}
 
-	if (exists $self->{web_users}{$call}) {
+	my $target = $authmeta ? $authmeta->{takeover_target} : undef;
+	my $current = DXChannel::get($call);
+	if ($target && (!$current || $current != $target || !$current->is_user)) {
+		$self->_error($id, 'auth', 'takeover_changed', {call => $call});
+		return;
+	}
+	if (!$target && exists $self->{web_users}{$call}) {
 		$self->_error($id, 'user_add', 'already_owned', {call => $call});
 		return;
 	}
@@ -1296,7 +1296,7 @@ sub _user_add
 	# A local DXChannel is authoritative even if its routing presence has
 	# not yet been published (or is already being torn down).  This also
 	# prevents a WebCluster login from claiming a Telnet user channel.
-	if (DXChannel::get($call) || $main::routeroot->is_user($call)) {
+	if (!$target && (DXChannel::get($call) || $main::routeroot->is_user($call))) {
 		$self->_error($id, 'user_add', 'already_connected', {call => $call});
 		return;
 	}
@@ -1317,6 +1317,7 @@ sub _user_add
 	# SSIDs that have no persistent DXUser record yet.  basecall_no()
 	# includes the proposed connection in its count.
 	my ($callcount, @calls) = Route::basecall_no($call);
+	--$callcount if $target && $main::routeroot->is_user($call);
 	my $max = $user ? $user->maxconnect : undef;
 	$max = $main::maxconnect_user unless defined $max;
 	if ($max && $callcount > $max + ($main::allowmultiple || 0)) {
@@ -1326,6 +1327,16 @@ sub _user_add
 			nodes => \@calls,
 		});
 		return;
+	}
+
+	# All normal admission checks have passed; release only the selected user.
+	if ($target) {
+		$target->send_now('D', "Another authenticated session for $call has replaced this connection.");
+		$target->disconnect;
+		if (DXChannel::get($call) || $main::routeroot->is_user($call) || exists $self->{web_users}{$call}) {
+			$self->_error($id, 'auth', 'takeover_release_failed', {call => $call});
+			return;
+		}
 	}
 
 	# Do not pre-create a missing DXUser here.  _add_thingy() calls the native
