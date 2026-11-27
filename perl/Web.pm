@@ -1188,6 +1188,14 @@ sub _auth_request
 		}
 	}
 
+	# Public DXWeb must never negotiate or confirm a session takeover.
+	# Keep normal duplicate admission in _user_add, including logical users.
+	if (!$is_admin && (DXChannel::get($call) || defined $req->{takeover_token})) {
+		delete $self->{web_takeover_pending}{$call};
+		$self->_error($id, 'auth', 'already_connected', {call => $call});
+		return;
+	}
+
 	# Only a successfully authenticated request may negotiate a takeover.
 	# The confirmation must identify the exact channel still occupying CALL.
 	my $old = DXChannel::get($call);

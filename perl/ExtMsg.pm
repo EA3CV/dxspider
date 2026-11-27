@@ -234,20 +234,6 @@ sub dequeue
 					$conn->send_now("Sorry");
 					$conn->disconnect;
 				}
-			} elsif ($conn->{state} eq 'WD') {
-				$msg =~ s/^\s+|\s+$//g;
-				my $old = delete $conn->{session_pending_target};
-				my $call = delete $conn->{session_pending_call};
-				my $sort = delete $conn->{session_pending_sort};
-				if (defined $call && $msg =~ /^(?:Y|YES)$/i && $old &&
-				    DXChannel::get($call) && DXChannel::get($call) == $old) {
-					$conn->{session_takeover_verified} = 1;
-					$conn->{session_takeover_target} = $old;
-					$conn->to_connected($call, 'A', $sort);
-				} else {
-					$conn->send_now('Existing session preserved. Connection cancelled.');
-					$conn->disconnect;
-				}
 			} elsif ($conn->{state} eq 'WC') {
 				if (exists $conn->{cmd} && @{$conn->{cmd}}) {
 					$conn->_docmd($msg);
@@ -260,26 +246,12 @@ sub dequeue
 	}
 }
 
-# Negotiate duplicate interactive logins before constructing a DXChannel.
-# Only verified passwords (or the existing trusted local-console path)
-# can reach this point. The transport remains in a pre-channel state.
+# External logins use normal admission (including allowmultiple), never
+# interactive session takeover, even with a password or a loopback peer.
 sub _session_admission
 {
     my ($conn, $call, $sort) = @_;
-    # The incoming callsign has already passed the normal login/password
-    # path. Preserve the actual identity supplied by the remote endpoint.
     $conn->{observed_peer_login} = $call unless $conn->{outgoing};
-    my $old = DXChannel::get($call);
-    if ($old && $old->is_user &&
-        ($conn->{usedpasswd} || _direct_local($conn))) {
-        $conn->{state} = 'WD';
-        $conn->{session_pending_target} = $old;
-        $conn->{session_pending_call} = $call;
-        $conn->{session_pending_sort} = $sort;
-        $conn->send_raw("Another session for $call is already connected.\r\nDisconnect the existing session and continue? (Y/N): ");
-        $conn->_dotimeout(60);
-        return;
-    }
     $conn->to_connected($call, 'A', $sort);
 }
 

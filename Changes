@@ -1,3 +1,5 @@
+27Nov26======================================================================
+1. Restrict session takeover to the local console and DXWeb Admin.
 26Nov26======================================================================
 1. Fix a Windows-specific issue in bad-list recovery where CRLF translation
    could incorrectly trigger concurrent modification detection  >:(
