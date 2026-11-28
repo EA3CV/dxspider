@@ -24,6 +24,7 @@ use DXWeb::Turnstile;
 use DXWeb::TurnstileGate;
 use lib "$FindBin::Bin/../perl";
 use DXWeb::Admission;
+use DXWeb::HTTP;
 use JSON::PP ();
 
 
@@ -121,6 +122,7 @@ my $WS_PONG_GRACE_SEC    = $ENV{WS_PONG_GRACE_SEC}    // 90;
 
 app->static->paths->[0] = app->home->rel_file('public');
 app->secrets( [ $ENV{DXWEB_SECRET} // 'dxspider-dxweb-v2' ] );
+DXWeb::HTTP::install_headers(app);
 
 # Public registration CAPTCHA: configuration is read on demand so key rotation
 # and enable/disable do not require restarting the DXSpider node.
@@ -934,6 +936,15 @@ get '/software-version.json' => sub($c) {
     $c->res->headers->cache_control('no-store');
     $c->render( json => { running => $DXWEB_RUNNING_VERSION } );
 };
+get '/version.json' => sub($c) {
+    $c->res->headers->cache_control('no-store');
+    $c->render(
+        json => {
+            name    => 'DXSpider Web',
+            version => $DXWEB_RUNNING_VERSION
+        }
+    );
+};
 get '/' => sub($c) {
     my $path = app->home->rel_file('public/index.html');
     open my $fh, '<:raw', $path or return $c->reply->not_found;
@@ -963,6 +974,15 @@ get '/healthz' => sub($c) {
     $c->render(
         status => $state{state} eq 'ready' ? 200 : 503,
         json   => public_status()
+    );
+};
+get '/readyz' => sub($c) {
+    my $s = public_status();
+    my $ready = $state{state} eq 'ready';
+    $s->{ready} = $ready ? \1 : \0;
+    $c->render(
+        status => $ready ? 200 : 503,
+        json   => $s
     );
 };
 any [qw(POST PUT PATCH DELETE)] => '/*whatever' => sub($c) {

@@ -1,0 +1,281 @@
+#!/usr/bin/env perl
+
+# dxwebctl - small operational CLI for DXWeb and DXWeb Admin.
+#
+# This is a thin wrapper around systemd, the installer's configuration
+# checker and the HTTP health endpoints. It never edits configuration
+# files except through dxweb-manager.pl.
+
+use strict;
+use warnings;
+use FindBin;
+use lib "$FindBin::Bin/lib";
+use Getopt::Long qw(GetOptions);
+use JSON::PP ();
+use HTTP::Tiny;
+use DXWeb::Config;
+
+my %o = (
+    web   => 'http://127.0.0.1:7380',
+    admin => 'http://127.0.0.1:7381',
+    json  => 0,
+);
+GetOptions(
+    'json'        => \$o{json},
+    'web-base=s'  => \$o{web},
+    'admin-base=s' => \$o{admin},
+    'since=s'     => \$o{since},
+    'follow|f'    => \$o{follow},
+    'help|h'      => \$o{help},
+) or die "Invalid options\n";
+usage() if $o{help};
+
+sub usage {
+    print <<'HELP';
+dxwebctl - DXWeb and DXWeb Admin operations
+
+Usage:
+  dxwebctl status [--json]
+  dxwebctl check [--json]
+  dxwebctl start|stop|restart [dxweb|admin|both]
+  dxwebctl logs [dxweb|admin] [--since 1h] [-f]
+  dxwebctl version [--json]
+  dxwebctl config show|check|set KEY=VALUE
+
+Options:
+  --json              Machine-readable output where supported
+  --web-base URL      DXWeb base URL (default http://127.0.0.1:7380)
+  --admin-base URL    DXWeb Admin base URL (default http://127.0.0.1:7381)
+  --since TIME        journalctl --since value (default 1h)
+  -f, --follow        Follow logs
+  -h, --help          This help
+
+Exit status: 0 healthy/OK, 1 degraded or failed, 2 usage error.
+HELP
+    exit 0;
+}
+
+my $cmd = shift @ARGV // 'status';
+my $json = JSON::PP->new->canonical(1);
+
+sub services {
+    my ($which) = @_;
+    $which ||= 'both';
+    my @list = $which eq 'both' ? qw(dxweb admin) : ($which);
+    die "Unknown component '$which' (use dxweb, admin or both)\n"
+      unless $which =~ /\A(?:dxweb|admin|both)\z/;
+    return map { $_ eq 'dxweb' ? 'dxweb.service' : 'dxweb-admin.service' } @list;
+}
+
+sub systemctl_state {
+    my ($svc) = @_;
+    my $active = `systemctl is-active $svc 2>/dev/null`;
+    my $enabled = `systemctl is-enabled $svc 2>/dev/null`;
+    chomp( $active, $enabled );
+    return {
+        active  => ( $active  || 'unknown' ),
+        enabled => ( $enabled || 'unknown' ),
+    };
+}
+
+sub http_probe {
+    my ( $base, $path ) = @_;
+    my $ua  = HTTP::Tiny->new( timeout => 3 );
+    my $res = $ua->get("$base$path");
+    my $body;
+    if ( $res->{success} && $res->{content} =~ /^\s*[{\[]/ ) {
+        $body = eval { JSON::PP->new->decode( $res->{content} ) };
+    }
+    return {
+        url   => "$base$path",
+        code  => ( $res->{status} || 0 ),
+        ok    => ( $res->{success} ? 1 : 0 ),
+        body  => $body,
+        error => ( $res->{success} ? undef : $res->{content} ),
+    };
+}
+
+sub probe_pair {
+    my ( $name, $base ) = @_;
+    my $health = http_probe( $base, '/healthz' );
+    my $ready  = http_probe( $base, '/readyz' );
+    my $ver    = http_probe( $base, '/version.json' );
+    return {
+        name    => $name,
+        base    => $base,
+        health  => $health,
+        ready   => $ready,
+        version => ( $ver->{body} && ref $ver->{body} eq 'HASH'
+            ? $ver->{body}{version}
+            : undef ),
+    };
+}
+
+sub config_check {
+    my ($q) = @_;
+    my ( $cfg, $errors, $warnings ) = DXWeb::Config::report();
+    if ($q) {
+        return {
+            status   => ( @$errors ? 'error' : 'ok' ),
+            path     => $cfg->{_config_file},
+            exists   => $cfg->{_file_exists} ? \1 : \0,
+            errors   => $errors,
+            warnings => $warnings,
+        };
+    }
+    print "Configuration: $cfg->{_config_file}",
+      ( $cfg->{_file_exists} ? '' : ' (not present)' ), "\n";
+    print "WARNING: $_\n" for @$warnings;
+    print "ERROR: $_\n"   for @$errors;
+    return { status => ( @$errors ? 'error' : 'ok' ) };
+}
+
+if ( $cmd eq 'status' ) {
+    my @out;
+    my $bad = 0;
+    my %ports = (
+        dxweb => $o{web},
+        admin => $o{admin},
+    );
+    for my $name (qw(dxweb admin)) {
+        my $svc = $name eq 'dxweb' ? 'dxweb.service' : 'dxweb-admin.service';
+        my $st  = systemctl_state($svc);
+        my $http = probe_pair( $name, $ports{$name} );
+        my $ok = $st->{active} eq 'active' && $http->{ready}{ok};
+        $bad++ unless $ok;
+        push @out,
+          {
+            name    => $name,
+            service => $svc,
+            %$st,
+            healthy => $ok ? \1 : \0,
+            http    => $http,
+          };
+    }
+    if ($o{json}) {
+        print $json->encode(
+            {
+                status   => ( $bad ? 'degraded' : 'ok' ),
+                services => \@out,
+            }
+        ), "\n";
+    }
+    else {
+        for my $s (@out) {
+            my $http = $s->{http};
+            printf "%-6s %-22s %-10s %-12s ready=%s version=%s\n",
+              $s->{name}, $s->{service}, $s->{active}, $s->{enabled},
+              ( $http->{ready}{code} || 0 ), ( $s->{version} // '-' );
+        }
+        print "STATUS ", ( $bad ? 'DEGRADED' : 'OK' ), "\n";
+    }
+    exit( $bad ? 1 : 0 );
+}
+
+if ( $cmd eq 'check' ) {
+    my $cfg = config_check( $o{json} );
+    my $status = 0;
+    my @services;
+    for my $name (qw(dxweb admin)) {
+        my $svc = $name eq 'dxweb' ? 'dxweb.service' : 'dxweb-admin.service';
+        my $st  = systemctl_state($svc);
+        my $http = probe_pair( $name,
+            $name eq 'dxweb' ? $o{web} : $o{admin} );
+        push @services,
+          {
+            name => $name,
+            %$st,
+            ready       => $http->{ready}{code} || 0,
+            health      => $http->{health}{code} || 0,
+            version     => $http->{version},
+            error       => $http->{ready}{error},
+          };
+        $status++ if $st->{active} ne 'active' || !$http->{ready}{ok};
+        if ( !$o{json} ) {
+            printf "%-6s %-10s ready=%s health=%s version=%s%s\n",
+              $name, $st->{active}, $http->{ready}{code} || 0,
+              $http->{health}{code} || 0, $http->{version} // '-',
+              ( $http->{ready}{error}
+                  ? ' (' . $http->{ready}{error} . ')'
+                  : '' );
+        }
+    }
+    $status++ if $cfg->{status} ne 'ok';
+    if ($o{json}) {
+        print $json->encode(
+            {
+                status      => ( $status ? 'degraded' : 'ok' ),
+                config      => $cfg,
+                services    => \@services,
+            }
+        ), "\n";
+    }
+    else {
+        print "CHECK ", ( $status ? 'FAILED' : 'OK' ), "\n";
+    }
+    exit( $status ? 1 : 0 );
+}
+
+if ( $cmd =~ /\A(?:start|stop|restart)\z/
+    || $cmd eq 'logs' )
+{
+    my $which = shift @ARGV // 'both';
+    my @svcs = services($which);
+    if ( $cmd eq 'logs' ) {
+        my $since = $o{since} // '1h';
+        my @args = ( 'journalctl', '--no-pager', '--since', $since );
+        push @args, '-f' if $o{follow};
+        push @args, map { ( '-u', $_ ) } @svcs;
+        exec @args;
+        die "Cannot run journalctl: $!\n";
+    }
+    my $rc = 0;
+    for my $svc (@svcs) {
+        print uc($cmd), " $svc\n" unless $o{json};
+        system( 'systemctl', $cmd, $svc ) == 0 or $rc = 1;
+    }
+    print $json->encode(
+        { status => ( $rc ? 'error' : 'ok' ), action => $cmd, services => \@svcs } ),
+      "\n" if $o{json};
+    exit($rc);
+}
+
+if ( $cmd eq 'version' ) {
+    my $v = { dxweb => undef, admin => undef };
+    for my $name (qw(dxweb admin)) {
+        my $base = $name eq 'dxweb' ? $o{web} : $o{admin};
+        my $r = http_probe( $base, '/version.json' );
+        $v->{$name} = $r->{body}{version} if $r->{body};
+    }
+    if ($o{json}) {
+        print $json->encode($v), "\n";
+    }
+    else {
+        print "dxweb        ", ( $v->{dxweb} // 'unknown' ), "\n";
+        print "dxweb-admin  ", ( $v->{admin} // 'unknown' ), "\n";
+    }
+    exit 0;
+}
+
+if ( $cmd eq 'config' ) {
+    my $sub = shift @ARGV // 'show';
+    my @args;
+    if ( $sub eq 'show' ) {
+        @args = ( '--action', 'config', '--print-effective' );
+    }
+    elsif ( $sub eq 'check' ) {
+        @args = ( '--action', 'config', '--check' );
+    }
+    elsif ( $sub eq 'set' ) {
+        my @pairs = @ARGV or die "config set requires KEY=VALUE\n";
+        @args = ( '--action', 'config', '--set', @pairs );
+    }
+    else {
+        die "Unknown config subcommand '$sub'\n";
+    }
+    push @args, '--json' if $o{json} && $sub ne 'set';
+    exec $^X, "$FindBin::Bin/dxweb-manager.pl", @args;
+    die "Cannot run dxweb-manager.pl: $!\n";
+}
+
+die "Unknown command '$cmd' (try dxwebctl --help)\n";

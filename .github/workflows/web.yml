@@ -1,0 +1,66 @@
+name: web
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+
+  javascript:
+    name: JavaScript lint and browser smoke tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run lint:syntax
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+
+  perl:
+    name: Perl syntax, configuration and HTTP headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libmojolicious-perl libjson-perl libdbd-sqlite3-perl \
+            libio-pty-perl libio-socket-inet6-perl
+      - name: Syntax check
+        run: |
+          perl -c dxweb/lib/DXWeb/Config.pm
+          perl -c dxweb/lib/DXWeb/HTTP.pm
+          perl -c dxweb/dxweb-manager.pl
+          perl -c dxweb/dxwebctl
+          perl -c dxweb/start.pl
+      - name: Configuration check
+        run: |
+          printf '{"DXSPIDER_ROOT":"%s","HTTP_PORT":7380,"DXWEB_PORT":7381}\n' "$PWD" > /tmp/dxweb.conf
+          DXWEB_CONFIG=/tmp/dxweb.conf perl dxweb/dxweb-manager.pl --action config --check
+      - name: Perl tests
+        run: prove -I dxweb/lib tests/perl
+      - name: Start DXWeb and verify headers and version
+        run: |
+          perl dxweb/start.pl >/tmp/dxweb.out 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:7380/version.json >/tmp/version.json && break
+            sleep 1
+          done
+          cat /tmp/version.json
+          grep -q '"version"' /tmp/version.json
+          curl -fsS -D /tmp/headers.txt -o /dev/null http://127.0.0.1:7380/
+          cat /tmp/headers.txt
+          grep -qi '^content-security-policy:' /tmp/headers.txt
+          grep -qi "^x-content-type-options: *nosniff" /tmp/headers.txt
+          grep -qi '^referrer-policy:' /tmp/headers.txt
+          grep -qi "frame-ancestors 'none'" /tmp/headers.txt
+          kill %1 || true

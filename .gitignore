@@ -17,6 +17,14 @@ tmp
 *zip
 .*
 !.gitignore
+!.github/
+!.github/**
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+package-lock.json.orig
 packclus
 tutor*
 db

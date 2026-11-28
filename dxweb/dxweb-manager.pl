@@ -9,6 +9,7 @@
 use strict;
 use warnings;
 use FindBin;
+use lib "$FindBin::Bin/lib";
 use Cwd          qw(abs_path);
 use Getopt::Long qw(GetOptions);
 use File::Find;
@@ -21,6 +22,7 @@ use JSON::PP;
 use Fcntl qw(:flock);
 use HTTP::Tiny;
 use POSIX qw(strftime);
+use DXWeb::Config;
 
 # Bounded stop: do not let a systemd stop timeout hold a transaction for 90s.
 # Never edit unit files while a stop is still pending.
@@ -89,12 +91,18 @@ GetOptions(
     'user=s'       => \$o{user},
     'group=s'      => \$o{group},
     'backup=s'     => \$o{backup},
+    'config=s'     => \$o{config},
+    'set=s@'       => \$o{set},
+    'check'        => \$o{check},
+    'print-effective' => \$o{print_effective},
+    'json'         => \$o{json},
     'help'         => \$o{help}
 ) or die "Invalid options\n";
 if ( $o{help} ) {
     print <<'HELP';
 DXWeb Installer v0.51
-  --action plan|install|rollback|status    Default: plan
+  --action plan|install|rollback|status|config
+                                    Default: plan
   --root /spider                    Installation root
   --components dxweb|admin|both     Default: both
   --mode direct|nginx               Default: direct
@@ -103,15 +111,83 @@ DXWeb Installer v0.51
   --user USER --group GROUP         Optional service identity
   --backup-dir DIR                  Backup base directory
   --backup DIR                      Required for --action rollback
+  --config FILE                     Configuration file for --action config
+  --set KEY=VALUE                   With --action config, update one key
+  --json                            Machine-readable output where supported
   --apply                           Required for installation or rollback
   --help                            This help
   --action status                   Read-only systemd status (no root needed)
+  --action config --check           Validate configuration, no root needed
+  --action config --print-effective Print the resolved configuration
 Examples:
   perl dxweb/dxweb-manager.pl --action plan --root /spider --components both --mode direct --scheme http
   perl dxweb/dxweb-manager.pl --action install --root /spider --components both --mode direct --scheme http --apply
   perl dxweb/dxweb-manager.pl --action rollback --backup /var/backups/dxweb-installer/TRANSACTION --apply
+  perl dxweb/dxweb-manager.pl --action config --check
+  perl dxweb/dxweb-manager.pl --action config --set DXWEB_WS_PER_IP_LIMIT=8
 HELP
     exit 0;
+}
+
+if ( $o{action} eq 'config' ) {
+    my $path = $o{config} || DXWeb::Config::config_path();
+
+    if ( $o{set} && @{ $o{set} } ) {
+        my $file = -e $path ? DXWeb::Config::load_file($path) : {};
+        for my $pair ( @{ $o{set} } ) {
+            my ( $k, $v ) = split /=/, $pair, 2;
+            die "Invalid --set value '$pair' (expected KEY=VALUE)\n"
+              unless defined $k && defined $v && length $k;
+            my $err = DXWeb::Config::check_value( $k, $v );
+            die "$err\n" if $err;
+            $file->{$k} = $v;
+        }
+        my $written = DXWeb::Config::save_file( $path, $file );
+        print "WROTE $written\n";
+        if ( $o{json} ) {
+            print JSON::PP->new->canonical(1)->encode(
+                { status => 'ok', path => $written } ), "\n";
+        }
+        exit 0;
+    }
+
+    my ( $cfg, $errors, $warnings ) =
+      DXWeb::Config::report( path => $path );
+
+    if ( $o{print_effective} ) {
+        for my $k ( sort grep { !/^_/ } keys %$cfg ) {
+            print "$k=$cfg->{$k}\n";
+        }
+        print STDERR "ERROR: $_\n" for @$errors;
+        exit( @$errors ? 1 : 0 );
+    }
+
+    if ( $o{json} ) {
+        print JSON::PP->new->canonical(1)->encode(
+            {
+                status   => ( @$errors ? 'error' : 'ok' ),
+                path     => $path,
+                exists   => $cfg->{_file_exists} ? \1 : \0,
+                errors   => $errors,
+                warnings => $warnings,
+                effective => {
+                    map { $_ => $cfg->{$_} }
+                      sort grep { !/^_/ } keys %$cfg
+                },
+            }
+        ), "\n";
+        exit( @$errors ? 1 : 0 );
+    }
+
+    print "CONFIG $path",
+      ( $cfg->{_file_exists} ? '' : ' (not present, using defaults)' ), "\n";
+    for my $k ( sort grep { !/^_/ } keys %$cfg ) {
+        printf "  %-28s %s\n", $k, $cfg->{$k};
+    }
+    print "WARNING: $_\n" for @$warnings;
+    print "ERROR: $_\n"   for @$errors;
+    print( @$errors ? "CONFIG CHECK: FAILED\n" : "CONFIG CHECK: OK\n" );
+    exit( @$errors ? 1 : 0 );
 }
 
 # Read-only operational status. Never creates a transaction, changes a unit,

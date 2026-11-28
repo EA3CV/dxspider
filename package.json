@@ -1,0 +1,17 @@
+{
+  "name": "dxspider-web",
+  "private": true,
+  "description": "Development tooling for the DXSpider web interfaces",
+  "type": "module",
+  "scripts": {
+    "lint:syntax": "node tests/web/check-syntax.mjs",
+    "lint": "eslint .",
+    "test:e2e": "playwright test",
+    "test": "npm run lint && npm run lint:syntax",
+    "screenshots": "node tests/web/screenshots.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "eslint": "^9.39.0"
+  }
+}
