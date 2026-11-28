@@ -4,16 +4,12 @@ DXWeb is the browser client. DXWeb Admin is the supervision and
 administration interface. Both are optional and both talk to the DXSpider
 node through a local connection to the `IntMsg` listener on port 27754.
 
-![DXWeb spots](../images/dxweb-spots.png)
-
-![DXWeb Admin overview](../images/dxweb-admin-overview.png)
-
 Recommended path: install everything with the main installer.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/EA3CV/dxspider/mojo/install.sh \
   -o /tmp/dxspider-install.sh
-sudo bash /tmp/dxspider-install.sh --with-web --call <your-node-call>
+sudo bash /tmp/dxspider-install.sh --all --call <your-node-call>
 ```
 
 It installs DXSpider, DXWeb and DXWeb Admin, creates the services and prints
@@ -61,16 +57,12 @@ login, preferably through Nginx.
 
 ```bash
 systemctl status dxspider.service dxweb.service dxweb-admin.service
-perl /spider/dxweb/dxweb-manager.pl --action status
-```
-
-If your tree includes `dxwebctl` (the web operations update), it also
-reports the readiness endpoint and validates configuration:
-
-```bash
 perl /spider/dxweb/dxwebctl status
 perl /spider/dxweb/dxwebctl check
 ```
+
+`dxwebctl status` reports the systemd state and the readiness endpoint for
+each application. `dxwebctl check` also validates the configuration file.
 
 Open `http://<server>:7380/` for DXWeb and `http://<server>:7381/` for DXWeb
 Admin.
@@ -116,7 +108,10 @@ Example:
 }
 ```
 
-If `dxwebctl` is available, inspect and validate it:
+Every key, default and scope is listed in
+[`CONFIGURATION.md`](CONFIGURATION.md).
+
+Inspect and validate it:
 
 ```bash
 perl /spider/dxweb/dxwebctl config show
@@ -124,9 +119,7 @@ perl /spider/dxweb/dxwebctl config check
 perl /spider/dxweb/dxwebctl config set DXWEB_WS_PER_IP_LIMIT=8
 ```
 
-Restart the affected service after changing configuration. On trees without
-the configuration loader, keep using `Environment=` entries in the systemd
-units.
+Restart the affected service after changing configuration.
 
 ---
 
@@ -158,14 +151,11 @@ The application treats a group- or world-readable key file as broken.
 ## Logs and health
 
 ```bash
-journalctl -u dxweb.service -f
-journalctl -u dxweb-admin.service -f
-curl -s http://127.0.0.1:7380/healthz
-curl -s http://127.0.0.1:7381/healthz
+perl /spider/dxweb/dxwebctl logs dxweb -f
+perl /spider/dxweb/dxwebctl logs admin -f
+curl -s http://127.0.0.1:7380/readyz
+curl -s http://127.0.0.1:7381/readyz
 ```
-
-If your tree includes the web operations update, `dxwebctl logs` and
-`/readyz` are also available.
 
 `/healthz` reports process state, `/readyz` returns 200 only when the
 DXSpider link is ready, and `/version.json` returns the running release.
@@ -173,6 +163,20 @@ DXSpider link is ready, and `/version.json` returns the running release.
 ---
 
 ## Updating
+
+The recommended path is the guided upgrade helper:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/EA3CV/dxspider/mojo/upgrade.sh \
+  -o /tmp/dxspider-upgrade.sh
+sudo bash /tmp/dxspider-upgrade.sh
+```
+
+It snapshots the code and data, fast-forwards the branch, restarts dxspider,
+DXWeb and DXWeb Admin, and verifies the endpoints. Rollback instructions are
+printed after every run. See `docs/UPGRADE.md`.
+
+Manual web update:
 
 ```bash
 cd /spider
@@ -195,4 +199,5 @@ as `perl/Web.pm`.
 - Do not expose the backend ports 7480 and 7481.
 - Keep the admin application on a trusted network or behind an
   authenticating proxy.
-- Review `README_DXWeb` and `INSTALL_DXWEB.en` before going live.
+- Review `README_DXWeb`, `INSTALL_DXWEB.en` and
+  [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) before going live.

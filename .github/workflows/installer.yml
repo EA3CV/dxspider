@@ -23,9 +23,16 @@ jobs:
         run: |
           perl -MMojolicious -e 'die "Mojolicious too old\n" if $Mojolicious::VERSION < 7.26; print "Mojolicious $Mojolicious::VERSION\n"'
           perl -MDBI -MDBD::SQLite -e 'print "DBI $DBI::VERSION, DBD::SQLite $DBD::SQLite::VERSION\n"'
-      - name: Run the installer from the working tree
+      - name: Run the installer from the repository
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          REPO_URL: https://github.com/${{ github.event.pull_request.head.repo.full_name || github.repository }}.git
         run: |
-          bash install.sh --non-interactive --dxspider-only --no-deps --no-service             --source "$GITHUB_WORKSPACE"             --call GB7CI-2 --alias GB7CI --name "CI Sysop"             --qth "CI container" --locator JO02AA --lat 52.0 --lon 0.0             --email ci@example.org --yes
+          bash install.sh --non-interactive --dxspider-only --no-deps --no-service \
+            --repo "$REPO_URL" --branch "$BRANCH_NAME" \
+            --call GB7CI-2 --alias GB7CI --name "CI Sysop" \
+            --qth "CI container" --locator JO02AA --lat 52.0 --lon 0.0 \
+            --email ci@example.org --yes
       - name: Verify the installed node
         run: |
           test -f /spider/perl/cluster.pl
@@ -56,3 +63,30 @@ jobs:
           grep -q '"running"' /tmp/version.json
           curl -fsS -o /dev/null http://127.0.0.1:7380/
           pkill -f '/spider/dxweb/app.pl' || true
+      - name: Upgrade smoke test
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+        run: |
+          bash /spider/upgrade.sh --check --dir /spider --branch "$BRANCH_NAME"
+          bash /spider/upgrade.sh --dry-run --dir /spider --branch "$BRANCH_NAME" --yes
+
+          runuser -u sysop -- git clone --bare /spider /tmp/upgrade-origin.git
+          runuser -u sysop -- git clone /tmp/upgrade-origin.git /tmp/upgrade-work
+          runuser -u sysop -- bash -c '
+            cd /tmp/upgrade-work
+            git config user.email ci@example.org
+            git config user.name CI
+            echo "upgrade marker" > UPGRADE-TEST
+            git add UPGRADE-TEST
+            git commit -m "upgrade smoke marker"
+            git push origin "HEAD:'"$BRANCH_NAME"'"'
+
+
+          bash /spider/upgrade.sh --dir /spider --repo /tmp/upgrade-origin.git \
+            --branch "$BRANCH_NAME" --yes
+          test -f /spider/UPGRADE-TEST
+
+          SNAP=$(ls -d /var/backups/dxspider/upgrade-* | tail -1)
+          bash /spider/upgrade.sh --rollback-to "$SNAP" --yes
+          test ! -e /spider/UPGRADE-TEST
+

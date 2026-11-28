@@ -176,12 +176,6 @@ sh/health
 For the web services:
 
 ```bash
-perl /spider/dxweb/dxweb-manager.pl --action status
-```
-
-If your tree includes `dxwebctl`, it adds checks, logs and configuration:
-
-```bash
 perl /spider/dxweb/dxwebctl status
 perl /spider/dxweb/dxwebctl check
 perl /spider/dxweb/dxwebctl logs dxweb -f
@@ -194,6 +188,10 @@ internet.
 ---
 
 ## Upgrades
+
+For a guided upgrade with a snapshot and rollback, use `upgrade.sh` and
+read [`UPGRADE.md`](UPGRADE.md). The notes below describe the
+`install.sh --upgrade` mode, which only updates the code.
 
 `--upgrade` performs a code update only:
 
@@ -245,7 +243,8 @@ them. Review `/etc/nginx` if the web installer configured a proxy.
 | `apt-get` missing | The distribution is not Debian-like; install the guide's packages manually |
 | Service starts then stops | `journalctl -u dxspider.service -n 80` and check `local/DXVars.pm` |
 | `create_sysop.pl` failed | Check ownership of `local_data`, and that the callsigns differ |
-| Web ports unreachable | `ss -ltnp`, firewall, and `dxweb-manager.pl --action status` |
-| HTTPS fails | Certificate and key paths, hostname coverage |
+| Web ports unreachable | `ss -ltnp`, firewall, and `dxwebctl status --json` |
+| HTTPS fails | Certificate and key paths, hostname coverage, `dxwebctl check` |
 
-See `README_DXWeb` and `INSTALL_DXWEB.en` for web-specific behaviour.
+More web-specific symptoms are covered in
+[`dxweb/TROUBLESHOOTING.md`](dxweb/TROUBLESHOOTING.md).
