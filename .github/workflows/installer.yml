@@ -1,0 +1,58 @@
+name: installer
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+
+  installer-smoke:
+    name: Installer smoke test on Debian 12
+    runs-on: ubuntu-latest
+    container: debian:12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install minimum runtime dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends             ca-certificates curl git gzip hostname iproute2 passwd procps tar             util-linux perl libmojolicious-perl libjson-perl libjson-xs-perl             libdbi-perl libdbd-sqlite3-perl libnet-cidr-lite-perl             libmath-round-perl libdata-structure-util-perl             libtimedate-perl libhtml-parser-perl libio-socket-inet6-perl             libarchive-zip-perl libcurses-perl libmailtools-perl libwww-perl             libio-pty-perl
+      - name: Check Perl modules
+        run: |
+          perl -MMojolicious -e 'die "Mojolicious too old\n" if $Mojolicious::VERSION < 7.26; print "Mojolicious $Mojolicious::VERSION\n"'
+          perl -MDBI -MDBD::SQLite -e 'print "DBI $DBI::VERSION, DBD::SQLite $DBD::SQLite::VERSION\n"'
+      - name: Run the installer from the working tree
+        run: |
+          bash install.sh --non-interactive --dxspider-only --no-deps --no-service             --source "$GITHUB_WORKSPACE"             --call GB7CI-2 --alias GB7CI --name "CI Sysop"             --qth "CI container" --locator JO02AA --lat 52.0 --lon 0.0             --email ci@example.org --yes
+      - name: Verify the installed node
+        run: |
+          test -f /spider/perl/cluster.pl
+          perl -c /spider/perl/cluster.pl
+          runuser -u sysop -- perl /spider/perl/cluster.pl >/tmp/cluster.out 2>&1 &
+          found=0
+          for i in $(seq 1 30); do
+            if ss -ltn | grep -q ':27754 '; then found=1; break; fi
+            sleep 1
+          done
+          ss -ltn
+          test "$found" = 1
+          pkill -f '/spider/perl/cluster.pl' || true
+      - name: Verify the installed web application
+        run: |
+          runuser -u sysop -- env DXSPIDER_ROOT=/spider perl /spider/dxweb/start.pl             >/tmp/dxweb.out 2>&1 &
+          found=0
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:7380/software-version.json >/tmp/version.json; then
+              found=1
+              break
+            fi
+            sleep 1
+          done
+          cat /tmp/version.json || true
+          cat /tmp/dxweb.out || true
+          test "$found" = 1
+          grep -q '"running"' /tmp/version.json
+          curl -fsS -o /dev/null http://127.0.0.1:7380/
+          pkill -f '/spider/dxweb/app.pl' || true
