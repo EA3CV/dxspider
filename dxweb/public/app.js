@@ -5,7 +5,7 @@
  *
  * Copyright (c) 2026 Dirk Koopman G1TLH
  */
-// DXSpider Web 2.8.34
+// Release version is provided by /version.json (dxweb/VERSION).
 // Date: 2026-09-16
 'use strict';
 const $=id=>document.getElementById(id);

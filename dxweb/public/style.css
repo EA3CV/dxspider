@@ -1019,3 +1019,8 @@ html[data-theme="dark"] {
 @media(min-width:481px) and (max-width:700px){.topbar .nodeIdentity{grid-column:1;grid-row:2;justify-self:start}.topbar .nodeIdentity .nodeCall{grid-column:auto;grid-row:auto}}
 
 .topbar{position:relative}
+
+/* Dark theme: keep filter preview panes readable (they default to paper white). */
+[data-theme="dark"] .filterPreviewText,
+[data-theme="dark"] .vf-preview-visual{background:#16202e;border-color:#2b3a4d;color:#dbe7f3}
+[data-theme="dark"] .vf-preview-line{color:#cfe0f0}

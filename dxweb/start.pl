@@ -10,6 +10,12 @@ use strict;
 use warnings;
 use FindBin;
 use File::Spec;
+use lib "$FindBin::Bin/lib";
+use DXWeb::Config;
+
+# Optional local_data/dxweb.conf supplies defaults before the explicit
+# environment below. Existing Environment= values always win.
+DXWeb::Config::apply_env();
 
 $ENV{DXS_HOST}           //= '127.0.0.1';
 $ENV{DXS_PORT}           //= '27754';

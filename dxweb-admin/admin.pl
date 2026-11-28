@@ -64,6 +64,12 @@ use DXWeb::Admission;
 use lib "$FindBin::Bin/../dxweb/lib";
 use DXWeb::Turnstile;
 use DXWeb::TurnstileGate;
+use DXWeb::HTTP;
+use DXWeb::Config;
+
+# Optional local_data/dxweb.conf supplies defaults before the explicit
+# environment below. Existing Environment= values always win.
+DXWeb::Config::apply_env();
 
 # Resolve the actual DXSpider root independently of the working directory.
 # Allow an explicit override for custom installations.
@@ -333,6 +339,7 @@ app->secrets(
           // 'dxspider-dxweb-admin-v1'
     ]
 );
+DXWeb::HTTP::install_headers(app);
 
 my %state = (
     state           => 'disconnected',
@@ -1855,10 +1862,27 @@ get '/admin-version.json' => sub($c) {
     $c->render(
         json => { name => 'DXSpider Web Admin', version => $ADMIN_VERSION } );
 };
+get '/version.json' => sub($c) {
+    $c->render(
+        json => {
+            name    => 'DXSpider Web Admin',
+            version => $ADMIN_VERSION
+        }
+    );
+};
 get '/healthz' => sub($c) {
     $c->render(
         status => $state{state} eq 'ready' ? 200 : 503,
         json   => public_status()
+    );
+};
+get '/readyz' => sub($c) {
+    my $s     = public_status();
+    my $ready = $state{state} eq 'ready';
+    $s->{ready} = $ready ? \1 : \0;
+    $c->render(
+        status => $ready ? 200 : 503,
+        json   => $s
     );
 };
 get '/update-status.json' => sub($c) {
